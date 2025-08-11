@@ -1,0 +1,7 @@
+2025-08-01 21:50:57,067 - INFO - Incoming request: GET http://127.0.0.1:8000/
+2025-08-01 21:50:57,074 - INFO - Response status: 200 for GET http://127.0.0.1:8000/
+2025-08-01 21:51:17,289 - INFO - Incoming request: POST http://127.0.0.1:8000/ask
+2025-08-01 21:51:17,292 - INFO - Received query: What are the criteria for a student to be considered independent?
+2025-08-01 21:52:21,627 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
+2025-08-01 21:52:21,629 - INFO - Answer generated successfully
+2025-08-01 21:52:21,632 - INFO - Response status: 200 for POST http://127.0.0.1:8000/ask
