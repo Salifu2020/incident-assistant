@@ -258,7 +258,16 @@ class DocumentProcessor:
 
         documents = [chunk for chunk, _ in new_chunks]
         new_ids = [id_ for _, id_ in new_chunks]
-        metadatas = [{"source": doc_name} for _ in new_chunks]
+        
+        # Enhanced metadata with file type and processing date
+        file_type = os.path.splitext(doc_name)[1].lower().lstrip('.')
+        processing_date = datetime.datetime.now().isoformat()[:10]  # YYYY-MM-DD format
+        
+        metadatas = [{
+            "source": doc_name,
+            "file_type": file_type,
+            "processing_date": processing_date
+        } for _ in new_chunks]
 
         if not (len(documents) == len(new_ids) == len(metadatas)):
             print(f"❌ Skipped {doc_name} due to mismatch in data sizes (docs:{len(documents)}, ids:{len(new_ids)}, metas:{len(metadatas)}).")

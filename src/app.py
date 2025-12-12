@@ -4,6 +4,7 @@ import requests
 import logging
 from datetime import datetime
 import time
+import json
 
 os.environ["PYTORCH_NO_LIBRARY_FALLBACK"] = "1"
 
@@ -227,6 +228,20 @@ if "kb_status" not in st.session_state:
     st.session_state.kb_status = None
 if "show_documents" not in st.session_state:
     st.session_state.show_documents = False
+if "selected_documents" not in st.session_state:
+    st.session_state.selected_documents = []  # List of document filenames to filter by
+if "show_advanced_filters" not in st.session_state:
+    st.session_state.show_advanced_filters = False
+if "advanced_filters" not in st.session_state:
+    st.session_state.advanced_filters = {}
+if "enable_streaming" not in st.session_state:
+    st.session_state.enable_streaming = True  # Enable streaming by default
+if "current_conversation_id" not in st.session_state:
+    st.session_state.current_conversation_id = None
+if "conversations" not in st.session_state:
+    st.session_state.conversations = []
+if "show_health" not in st.session_state:
+    st.session_state.show_health = False
 
 MAX_HISTORY = 50
 
@@ -298,6 +313,37 @@ with st.sidebar:
     
     st.markdown("---")
     
+    # Conversation Management
+    st.markdown("### 💬 Conversations")
+    if st.button("➕ New Conversation", use_container_width=True):
+        try:
+            resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
+            if resp.status_code == 200:
+                conv = resp.json()
+                st.session_state.current_conversation_id = conv.get("id")
+                st.session_state.chat_history = []
+                st.success("✅ New conversation created")
+                st.rerun()
+        except:
+            st.error("Failed to create conversation")
+    
+    if st.button("📋 View Conversations", use_container_width=True):
+        st.session_state.show_conversations = True
+        st.rerun()
+    
+    # Show current conversation
+    if st.session_state.current_conversation_id:
+        try:
+            conv_resp = requests.get(f"{API_URL}/conversations/{st.session_state.current_conversation_id}", timeout=5)
+            if conv_resp.status_code == 200:
+                conv = conv_resp.json()
+                st.caption(f"📌 **Current:** {conv.get('title', 'Conversation')}")
+                st.caption(f"💬 {conv.get('message_count', 0)} messages")
+        except:
+            pass
+    
+    st.markdown("---")
+    
     # Document Management Section
     st.markdown("### 📚 Document Management")
     if st.button("📋 View All Documents", use_container_width=True):
@@ -310,6 +356,11 @@ with st.sidebar:
     st.markdown("### 🚀 Quick Actions")
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.chat_history = []
+        if st.session_state.current_conversation_id:
+            try:
+                requests.post(f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear", timeout=5)
+            except:
+                pass
         st.rerun()
     
     if st.button("📥 Export Chat", use_container_width=True):
@@ -707,6 +758,104 @@ if st.session_state.get("show_saved_queries", False):
     
     st.markdown("---")
 
+# Conversations Dashboard
+if st.session_state.get("show_conversations", False):
+    st.markdown("---")
+    st.markdown("### 💬 Conversation Management")
+    
+    try:
+        with st.spinner("Loading conversations..."):
+            convs_resp = requests.get(f"{API_URL}/conversations", timeout=10)
+        
+        if convs_resp.status_code == 200:
+            data = convs_resp.json()
+            conversations = data.get("conversations", [])
+            total = data.get("total", 0)
+            
+            if total == 0:
+                st.info("📭 No conversations yet. Start chatting to create your first conversation!")
+            else:
+                st.metric("Total Conversations", total)
+                st.markdown("---")
+                
+                # Display conversations
+                for idx, conv in enumerate(conversations):
+                    with st.container():
+                        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                        
+                        with col1:
+                            is_current = conv.get("id") == st.session_state.current_conversation_id
+                            title_style = "**" if is_current else ""
+                            st.markdown(f"{title_style}💬 {conv.get('title', 'Untitled')}{title_style}")
+                            st.caption(f"📅 {conv.get('created_at', '')[:10]}")
+                            st.caption(f"💬 {conv.get('message_count', 0)} messages")
+                            if is_current:
+                                st.caption("✅ **Current conversation**")
+                        
+                        with col2:
+                            if st.button("📂 Open", key=f"open_conv_{idx}", use_container_width=True):
+                                st.session_state.current_conversation_id = conv.get("id")
+                                # Load conversation messages
+                                try:
+                                    conv_detail = requests.get(
+                                        f"{API_URL}/conversations/{conv.get('id')}",
+                                        timeout=5
+                                    ).json()
+                                    messages = conv_detail.get("messages", [])
+                                    st.session_state.chat_history = [
+                                        (msg.get("role"), msg.get("content"), msg.get("timestamp", "")[:5], msg.get("sources", []))
+                                        for msg in messages
+                                    ]
+                                except:
+                                    st.session_state.chat_history = []
+                                st.session_state.show_conversations = False
+                                st.rerun()
+                        
+                        with col3:
+                            if st.button("🗑️ Delete", key=f"delete_conv_{idx}", use_container_width=True):
+                                try:
+                                    delete_resp = requests.delete(
+                                        f"{API_URL}/conversations/{conv.get('id')}",
+                                        timeout=5
+                                    )
+                                    if delete_resp.status_code == 200:
+                                        if conv.get("id") == st.session_state.current_conversation_id:
+                                            st.session_state.current_conversation_id = None
+                                        st.success("✅ Deleted")
+                                        time.sleep(0.5)
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                        
+                        with col4:
+                            if st.button("🗑️ Clear", key=f"clear_conv_{idx}", use_container_width=True):
+                                try:
+                                    clear_resp = requests.post(
+                                        f"{API_URL}/conversations/{conv.get('id')}/clear",
+                                        timeout=5
+                                    )
+                                    if clear_resp.status_code == 200:
+                                        st.success("✅ Cleared")
+                                        time.sleep(0.5)
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                        
+                        st.markdown("---")
+        else:
+            st.error(f"❌ Failed to load conversations: {convs_resp.status_code}")
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Cannot connect to API. Make sure the API server is running.")
+    except Exception as e:
+        st.error(f"❌ Error loading conversations: {str(e)}")
+    
+    # Close button
+    if st.button("❌ Close Conversations", use_container_width=True):
+        st.session_state.show_conversations = False
+        st.rerun()
+    
+    st.markdown("---")
+
 # Troubleshooting section
 with st.expander("🔧 Troubleshooting: No results found?", expanded=False):
     st.markdown("""
@@ -734,6 +883,153 @@ st.info("""
     of your browser window to reopen it. The sidebar contains file upload, settings, and quick actions.
 """)
 
+# Document Filter Section
+st.markdown("### 📄 Search Filters")
+col_filter_toggle, col_advanced = st.columns([3, 1])
+with col_filter_toggle:
+    if st.checkbox("🔍 Enable Advanced Filters", value=st.session_state.show_advanced_filters, key="advanced_filters_toggle"):
+        st.session_state.show_advanced_filters = True
+    else:
+        st.session_state.show_advanced_filters = False
+
+if st.session_state.show_advanced_filters:
+    # Advanced Filters Section
+    with st.expander("🔧 Advanced Search Filters", expanded=True):
+        try:
+            docs_resp = requests.get(f"{API_URL}/documents", timeout=5)
+            if docs_resp.status_code == 200:
+                data = docs_resp.json()
+                available_docs = data.get("documents", [])
+                
+                if available_docs:
+                    doc_names = [doc.get("filename", "") for doc in available_docs]
+                    file_types = list(set([doc.get("file_type", "").upper() for doc in available_docs if doc.get("file_type")]))
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Document selection
+                        selected_docs = st.multiselect(
+                            "📄 Include Documents",
+                            options=doc_names,
+                            default=st.session_state.selected_documents,
+                            help="Select documents to search. Leave empty to search all."
+                        )
+                        st.session_state.selected_documents = selected_docs
+                        
+                        # File type filter
+                        selected_types = st.multiselect(
+                            "📁 File Types",
+                            options=file_types,
+                            help="Filter by file types"
+                        )
+                        
+                        # Exclude documents
+                        excluded_docs = st.multiselect(
+                            "🚫 Exclude Documents",
+                            options=doc_names,
+                            help="Documents to exclude from search"
+                        )
+                    
+                    with col2:
+                        # Date range
+                        st.markdown("**📅 Date Range**")
+                        date_from = st.date_input("From Date", value=None, help="Filter by processing date from")
+                        date_to = st.date_input("To Date", value=None, help="Filter by processing date to")
+                        
+                        # Relevance threshold
+                        min_relevance = st.slider(
+                            "Minimum Relevance",
+                            min_value=0.0,
+                            max_value=1.0,
+                            value=0.0,
+                            step=0.1,
+                            help="Minimum relevance score (0.0 = all results, 1.0 = only perfect matches)"
+                        )
+                        
+                        # Max results
+                        max_results = st.number_input(
+                            "Max Results",
+                            min_value=1,
+                            max_value=20,
+                            value=4,
+                            help="Maximum number of results to return"
+                        )
+                    
+                    # Store advanced filters in session state
+                    st.session_state.advanced_filters = {
+                        "document_names": selected_docs if selected_docs else None,
+                        "file_types": [t.lower() for t in selected_types] if selected_types else None,
+                        "date_from": date_from.strftime("%Y-%m-%d") if date_from else None,
+                        "date_to": date_to.strftime("%Y-%m-%d") if date_to else None,
+                        "min_relevance": min_relevance if min_relevance > 0 else None,
+                        "max_results": max_results if max_results != 4 else None,
+                        "exclude_documents": excluded_docs if excluded_docs else None
+                    }
+                    
+                    # Show active filters
+                    active_filters = []
+                    if selected_docs:
+                        active_filters.append(f"{len(selected_docs)} document(s)")
+                    if selected_types:
+                        active_filters.append(f"{len(selected_types)} file type(s)")
+                    if date_from or date_to:
+                        active_filters.append("date range")
+                    if min_relevance > 0:
+                        active_filters.append(f"relevance ≥ {min_relevance:.1f}")
+                    if excluded_docs:
+                        active_filters.append(f"excluding {len(excluded_docs)} doc(s)")
+                    
+                    if active_filters:
+                        st.info(f"🔍 **Active filters:** {', '.join(active_filters)}")
+                else:
+                    st.caption("No documents available. Upload documents to enable filtering.")
+            else:
+                st.caption("Unable to load document list for filtering.")
+        except:
+            st.caption("Filtering unavailable (API connection issue)")
+else:
+    # Simple document filter
+    try:
+        docs_resp = requests.get(f"{API_URL}/documents", timeout=5)
+        if docs_resp.status_code == 200:
+            data = docs_resp.json()
+            available_docs = data.get("documents", [])
+            
+            if available_docs:
+                doc_names = [doc.get("filename", "") for doc in available_docs]
+                
+                selected = st.multiselect(
+                    "Select documents to search (leave empty to search all documents)",
+                    options=doc_names,
+                    default=st.session_state.selected_documents,
+                    key="document_filter_select",
+                    help="Choose specific documents to search. Leave empty to search all documents in the knowledge base."
+                )
+                st.session_state.selected_documents = selected
+                
+                # Show filter status
+                if selected:
+                    st.info(f"🔍 **Filtering by {len(selected)} document(s):** {', '.join(selected[:3])}{'...' if len(selected) > 3 else ''}")
+                else:
+                    st.caption("💡 Searching all documents in knowledge base")
+            else:
+                st.caption("No documents available. Upload documents to enable filtering.")
+    except:
+        st.caption("Filtering unavailable (API connection issue)")
+
+st.markdown("---")
+
+# Streaming toggle
+st.checkbox(
+    "⚡ Enable Real-time Streaming",
+    value=st.session_state.enable_streaming,
+    key="streaming_toggle",
+    help="Enable real-time streaming to see responses as they're generated"
+)
+
+st.markdown("---")
+
 # Example questions
 st.markdown("### 💡 Example Questions")
 example_cols = st.columns(3)
@@ -756,6 +1052,86 @@ if "example_query" in st.session_state:
 else:
     query = None
 
+# Query suggestions/autocomplete (shown before chat input)
+suggestions_placeholder = st.empty()
+
+# Show popular queries when no input
+if "last_query_input" not in st.session_state:
+    st.session_state.last_query_input = ""
+
+# Check for query input changes
+current_input = ""
+if "query_input_text" in st.session_state:
+    current_input = st.session_state.query_input_text
+
+# Show suggestions based on input
+if current_input and len(current_input.strip()) > 0:
+    try:
+        suggestions_resp = requests.get(
+            f"{API_URL}/suggestions",
+            params={"q": current_input.strip(), "limit": 5},
+            timeout=2
+        )
+        if suggestions_resp.status_code == 200:
+            suggestions_data = suggestions_resp.json()
+            suggestions = suggestions_data.get("suggestions", [])
+            
+            if suggestions:
+                with suggestions_placeholder.container():
+                    st.markdown("**💡 Query Suggestions:**")
+                    for idx, suggestion in enumerate(suggestions):
+                        suggestion_query = suggestion.get("query", "")
+                        suggestion_type = suggestion.get("type", "")
+                        suggestion_name = suggestion.get("name", "")
+                        
+                        # Create a button for each suggestion
+                        label = suggestion_query
+                        icon = "⭐" if suggestion_type == "saved" else "🕐"
+                        if suggestion_type == "saved" and suggestion_name:
+                            label = f"{suggestion_name}: {suggestion_query}"
+                        
+                        if st.button(
+                            f"{icon} {label}",
+                            key=f"suggestion_{idx}",
+                            use_container_width=True,
+                            help=f"Type: {suggestion_type}"
+                        ):
+                            st.session_state.example_query = suggestion_query
+                            st.rerun()
+    except:
+        pass  # Silently fail if suggestions unavailable
+elif not current_input:
+    # Show popular queries when input is empty
+    try:
+        suggestions_resp = requests.get(
+            f"{API_URL}/suggestions",
+            params={"q": "", "limit": 3},
+            timeout=2
+        )
+        if suggestions_resp.status_code == 200:
+            suggestions_data = suggestions_resp.json()
+            suggestions = suggestions_data.get("suggestions", [])
+            
+            if suggestions:
+                with suggestions_placeholder.container():
+                    st.caption("💡 **Popular queries - Click to use:**")
+                    cols = st.columns(min(len(suggestions), 3))
+                    for idx, (col, suggestion) in enumerate(zip(cols, suggestions[:3])):
+                        with col:
+                            suggestion_query = suggestion.get("query", "")
+                            suggestion_type = suggestion.get("type", "")
+                            icon = "⭐" if suggestion_type == "saved" else "🕐"
+                            display_text = suggestion_query[:35] + ("..." if len(suggestion_query) > 35 else "")
+                            if st.button(
+                                f"{icon} {display_text}",
+                                key=f"popular_{idx}",
+                                use_container_width=True
+                            ):
+                                st.session_state.example_query = suggestion_query
+                                st.rerun()
+    except:
+        pass
+
 # Chat input
 if query is None:
     query = st.chat_input("Ask a question...", key="chat_input")
@@ -764,27 +1140,71 @@ if query:
     if query.strip():
         logger.info(f"Query: {query}")
         
+        # Auto-create conversation if none exists
+        if not st.session_state.current_conversation_id:
+            try:
+                resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
+                if resp.status_code == 200:
+                    conv = resp.json()
+                    st.session_state.current_conversation_id = conv.get("id")
+            except:
+                pass  # Continue without conversation if creation fails
+        
         # Add user message to history
         timestamp = datetime.now().strftime("%H:%M")
         st.session_state.chat_history.append(("user", query.strip(), timestamp))
         
-        # Get response
-        with st.spinner("🤔 Thinking..."):
+        # Get response (streaming or regular)
+        if st.session_state.enable_streaming:
+            # Streaming response (note: advanced filters not yet supported in streaming)
             try:
                 start_time = time.time()
-                response = requests.post(f"{API_URL}/ask", json={"query": query}, timeout=60)
-                elapsed_time = time.time() - start_time
+                # Prepare request payload with document filters and conversation
+                payload = {"query": query}
+                if st.session_state.selected_documents:
+                    payload["document_filters"] = st.session_state.selected_documents
+                if st.session_state.current_conversation_id:
+                    payload["conversation_id"] = st.session_state.current_conversation_id
+                endpoint = f"{API_URL}/ask/stream"
                 
-                if response.status_code == 200:
-                    response_data = response.json()
-                    answer = response_data.get("response", "No answer received")
-                    sources = response_data.get("sources", [])
-                    answer_timestamp = datetime.now().strftime("%H:%M")
-                    st.session_state.chat_history.append(("assistant", answer, answer_timestamp, sources))
-                    logger.info(f"Response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
-                else:
-                    error_msg = f"⚠️ Error {response.status_code}: {response.text}"
-                    st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                # Create placeholder for streaming response
+                answer_placeholder = st.empty()
+                answer_text = ""
+                sources = []
+                
+                # Stream the response (use appropriate endpoint)
+                with requests.post(endpoint, json=payload, stream=True, timeout=60) as response:
+                    if response.status_code == 200:
+                        for line in response.iter_lines():
+                            if line:
+                                line_str = line.decode('utf-8')
+                                if line_str.startswith('data: '):
+                                    try:
+                                        data = json.loads(line_str[6:])  # Remove 'data: ' prefix
+                                        event_type = data.get('type')
+                                        
+                                        if event_type == 'sources':
+                                            sources = data.get('sources', [])
+                                        elif event_type == 'chunk':
+                                            chunk = data.get('content', '')
+                                            answer_text += chunk
+                                            # Update placeholder with current text
+                                            answer_placeholder.markdown(f"**📚 Assistant**\n\n{answer_text}")
+                                        elif event_type == 'done':
+                                            full_response = data.get('full_response', answer_text)
+                                            answer_text = full_response
+                                            answer_placeholder.empty()  # Clear placeholder
+                                        elif event_type == 'error':
+                                            error_msg = data.get('content', 'Unknown error')
+                                            answer_text = error_msg
+                                            answer_placeholder.empty()
+                                    except json.JSONDecodeError:
+                                        continue
+                
+                elapsed_time = time.time() - start_time
+                answer_timestamp = datetime.now().strftime("%H:%M")
+                st.session_state.chat_history.append(("assistant", answer_text, answer_timestamp, sources))
+                logger.info(f"Streaming response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
             except requests.exceptions.ConnectionError:
                 error_msg = "❌ Cannot connect to API. Please ensure the server is running."
                 st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
@@ -797,6 +1217,55 @@ if query:
                 error_msg = f"❌ Unexpected error: {str(e)}"
                 st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
                 st.error(error_msg)
+        else:
+            # Regular (non-streaming) response
+            with st.spinner("🤔 Thinking..."):
+                try:
+                    start_time = time.time()
+                    # Prepare request payload with filters and conversation
+                    if st.session_state.show_advanced_filters and st.session_state.get("advanced_filters"):
+                        # Use advanced search endpoint
+                        payload = {
+                            "query": query,
+                            "filters": st.session_state.advanced_filters
+                        }
+                        if st.session_state.current_conversation_id:
+                            payload["conversation_id"] = st.session_state.current_conversation_id
+                        endpoint = f"{API_URL}/ask/advanced"
+                    else:
+                        # Use regular endpoint
+                        payload = {"query": query}
+                        if st.session_state.selected_documents:
+                            payload["document_filters"] = st.session_state.selected_documents
+                        if st.session_state.current_conversation_id:
+                            payload["conversation_id"] = st.session_state.current_conversation_id
+                        endpoint = f"{API_URL}/ask"
+                    
+                    response = requests.post(endpoint, json=payload, timeout=60)
+                    elapsed_time = time.time() - start_time
+                    
+                    if response.status_code == 200:
+                        response_data = response.json()
+                        answer = response_data.get("response", "No answer received")
+                        sources = response_data.get("sources", [])
+                        answer_timestamp = datetime.now().strftime("%H:%M")
+                        st.session_state.chat_history.append(("assistant", answer, answer_timestamp, sources))
+                        logger.info(f"Response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
+                    else:
+                        error_msg = f"⚠️ Error {response.status_code}: {response.text}"
+                        st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                except requests.exceptions.ConnectionError:
+                    error_msg = "❌ Cannot connect to API. Please ensure the server is running."
+                    st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                    st.error(error_msg)
+                except requests.exceptions.Timeout:
+                    error_msg = "⏱️ Request timed out. Please try again."
+                    st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                    st.error(error_msg)
+                except Exception as e:
+                    error_msg = f"❌ Unexpected error: {str(e)}"
+                    st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                    st.error(error_msg)
         
         st.rerun()
 
@@ -915,17 +1384,97 @@ else:
                 </div>
                 """
             
-            st.markdown(
-                f"""
-                <div class="message-bot">
-                    <strong>📚 Assistant</strong>
-                    <div style="margin-top: 0.5rem;">{message}</div>
-                    {sources_html}
-                    <div class="message-time">{msg_time}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            # Display message with feedback buttons
+            col_msg, col_feedback = st.columns([5, 1])
+            with col_msg:
+                st.markdown(
+                    f"""
+                    <div class="message-bot">
+                        <strong>📚 Assistant</strong>
+                        <div style="margin-top: 0.5rem;">{message}</div>
+                        {sources_html}
+                        <div class="message-time">{msg_time}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            
+            with col_feedback:
+                # Get the user query for this response (previous message)
+                user_query = ""
+                if idx < len(st.session_state.chat_history) - 1:
+                    prev_item = st.session_state.chat_history[-(idx+2)]
+                    if len(prev_item) >= 2 and prev_item[0] == "user":
+                        user_query = prev_item[1]
+                
+                # Check if feedback already submitted
+                feedback_key = f"feedback_submitted_{idx}"
+                if not st.session_state.get(feedback_key, False):
+                    col_thumbs_up, col_thumbs_down = st.columns(2)
+                    with col_thumbs_up:
+                        if st.button("👍", key=f"thumbs_up_{idx}", help="Good answer", use_container_width=True):
+                            try:
+                                feedback_resp = requests.post(
+                                    f"{API_URL}/feedback",
+                                    json={
+                                        "query": user_query,
+                                        "response": message,
+                                        "rating": 1,
+                                        "feedback_type": "thumbs",
+                                        "sources_count": len(sources)
+                                    },
+                                    timeout=5
+                                )
+                                if feedback_resp.status_code == 200:
+                                    st.session_state[feedback_key] = True
+                                    st.success("👍 Thanks!")
+                                    time.sleep(1)
+                                    st.rerun()
+                            except:
+                                st.error("Failed to submit feedback")
+                    
+                    with col_thumbs_down:
+                        if st.button("👎", key=f"thumbs_down_{idx}", help="Poor answer", use_container_width=True):
+                            # Show feedback form
+                            st.session_state[f"show_feedback_form_{idx}"] = True
+                            st.rerun()
+                    
+                    # Detailed feedback form
+                    if st.session_state.get(f"show_feedback_form_{idx}", False):
+                        with st.form(f"feedback_form_{idx}"):
+                            st.write("**Help us improve:**")
+                            rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{idx}")
+                            comment = st.text_area("Comments (optional)", key=f"comment_{idx}")
+                            col_submit, col_cancel = st.columns(2)
+                            with col_submit:
+                                if st.form_submit_button("Submit"):
+                                    try:
+                                        feedback_resp = requests.post(
+                                            f"{API_URL}/feedback",
+                                            json={
+                                                "query": user_query,
+                                                "response": message,
+                                                "rating": rating,
+                                                "feedback_type": "detailed",
+                                                "comment": comment,
+                                                "sources_count": len(sources)
+                                            },
+                                            timeout=5
+                                        )
+                                        if feedback_resp.status_code == 200:
+                                            st.session_state[feedback_key] = True
+                                            st.session_state[f"show_feedback_form_{idx}"] = False
+                                            st.success("✅ Feedback submitted!")
+                                            time.sleep(1)
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error: {str(e)}")
+                            with col_cancel:
+                                if st.form_submit_button("Cancel"):
+                                    st.session_state[f"show_feedback_form_{idx}"] = False
+                                    st.rerun()
+                else:
+                    st.caption("✅ Feedback submitted")
 
 # Footer
 st.markdown("---")

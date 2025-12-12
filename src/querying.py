@@ -27,8 +27,15 @@ class KnowledgeAssistant:
             }
         ]
 
-    def retrieve_context(self, query, k=4):
-        """Retrieve context from the knowledge base with source information."""
+    def retrieve_context(self, query, k=4, document_filters=None, advanced_filters=None):
+        """Retrieve context from the knowledge base with source information.
+        
+        Args:
+            query: The search query
+            k: Number of results to retrieve
+            document_filters: Optional list of document filenames to filter by (legacy)
+            advanced_filters: Optional AdvancedSearchFilters object for advanced filtering
+        """
         try:
             # Quick check if collection exists and has data
             try:
@@ -41,12 +48,94 @@ class KnowledgeAssistant:
             # Adaptive k: use fewer results for faster retrieval, but ensure we have enough
             n_results = min(k, max(3, collection_count // 10)) if collection_count else k
             
+            # Build query parameters
+            query_params = {
+                "query_texts": [query],
+                "n_results": n_results,
+                "include": ['documents', 'distances', 'metadatas']
+            }
+            
+            # Build where clause for filtering
+            where_conditions = {}
+            
+            # Handle legacy document_filters
+            if document_filters and len(document_filters) > 0:
+                if len(document_filters) == 1:
+                    where_conditions["source"] = document_filters[0]
+                else:
+                    where_conditions["source"] = {"$in": document_filters}
+            
+            # Handle advanced filters
+            if advanced_filters:
+                conditions = []
+                
+                # Document name filters
+                if advanced_filters.document_names and len(advanced_filters.document_names) > 0:
+                    if len(advanced_filters.document_names) == 1:
+                        conditions.append({"source": advanced_filters.document_names[0]})
+                    else:
+                        conditions.append({"source": {"$in": advanced_filters.document_names}})
+                
+                # File type filters
+                if advanced_filters.file_types and len(advanced_filters.file_types) > 0:
+                    if len(advanced_filters.file_types) == 1:
+                        conditions.append({"file_type": advanced_filters.file_types[0]})
+                    else:
+                        conditions.append({"file_type": {"$in": advanced_filters.file_types}})
+                
+                # Date range filters
+                if advanced_filters.date_from or advanced_filters.date_to:
+                    date_condition = {}
+                    if advanced_filters.date_from:
+                        date_condition["$gte"] = advanced_filters.date_from
+                    if advanced_filters.date_to:
+                        date_condition["$lte"] = advanced_filters.date_to
+                    if date_condition:
+                        conditions.append({"processing_date": date_condition})
+                
+                # Combine conditions with AND logic
+                if conditions:
+                    if len(conditions) == 1:
+                        where_conditions.update(conditions[0])
+                    else:
+                        # ChromaDB uses $and for multiple conditions
+                        where_conditions = {"$and": conditions}
+                
+                # Exclude documents
+                if advanced_filters.exclude_documents and len(advanced_filters.exclude_documents) > 0:
+                    if "source" in where_conditions:
+                        # If we already have source filter, we need to combine
+                        existing_sources = where_conditions.get("source", {})
+                        if isinstance(existing_sources, dict) and "$in" in existing_sources:
+                            # Filter out excluded documents
+                            existing_sources["$in"] = [s for s in existing_sources["$in"] 
+                                                      if s not in advanced_filters.exclude_documents]
+                        elif isinstance(existing_sources, str):
+                            # Single source, check if it should be excluded
+                            if existing_sources in advanced_filters.exclude_documents:
+                                where_conditions = {}  # No results if only source is excluded
+                    else:
+                        # Add exclusion filter
+                        if len(advanced_filters.exclude_documents) == 1:
+                            where_conditions["source"] = {"$ne": advanced_filters.exclude_documents[0]}
+                        else:
+                            # Need to use $and with $nin (not in)
+                            if "$and" in where_conditions:
+                                where_conditions["$and"].append({"source": {"$nin": advanced_filters.exclude_documents}})
+                            else:
+                                where_conditions["source"] = {"$nin": advanced_filters.exclude_documents}
+                
+                # Update max_results if specified
+                if advanced_filters.max_results:
+                    n_results = min(advanced_filters.max_results, n_results)
+            
+            # Apply where clause if we have conditions
+            if where_conditions:
+                query_params["where"] = where_conditions
+                print(f"🔍 Applying filters: {where_conditions}")
+            
             # Query with optimized parameters
-            results = self.processor.collection.query(
-                query_texts=[query],
-                n_results=n_results,
-                include=['documents', 'distances', 'metadatas']
-            )
+            results = self.processor.collection.query(**query_params)
             
             docs = results.get('documents', [[]])[0]
             distances = results.get('distances', [[]])[0]
@@ -207,9 +296,68 @@ class KnowledgeAssistant:
 
         except Exception as e:
             return f"❌ Error: {str(e)}"
+    
+    def generate_response_stream(self, query, context):
+        """Generate response as a stream of chunks (generator)."""
+        # Optimized prompt format for faster processing
+        user_message = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+        
+        # Use minimal history for faster processing (only last 2 exchanges)
+        recent_history = self.chat_history[-2:] if len(self.chat_history) > 2 else self.chat_history
+        messages = recent_history + [{"role": "user", "content": user_message}]
 
-    def ask_question(self, query):
-        """Ask a question and return answer with source citations."""
+        try:
+            response_text = ""
+            stream = ollama.chat(
+                model=self.llm_model,
+                messages=messages,
+                stream=True,
+                options={
+                    "temperature": 0.3,
+                    "num_predict": 500,
+                }
+            )
+            
+            for chunk in stream:
+                if 'message' in chunk and 'content' in chunk['message']:
+                    content = chunk['message']['content']
+                    response_text += content
+                    yield content
+            
+            # Clean up common prefixes after streaming completes
+            answer = response_text.strip()
+            prefixes = [
+                "according to the context",
+                "based on the context",
+                "from the context",
+                "according to the provided",
+                "based on the provided",
+            ]
+            answer_lower = answer.lower()
+            for prefix in prefixes:
+                if answer_lower.startswith(prefix):
+                    answer = answer[len(prefix):].lstrip(":,. ")
+                    break
+
+            # Update history (keep it minimal)
+            if len(self.chat_history) > 6:  # Keep only last 3 exchanges
+                self.chat_history = self.chat_history[0:1] + self.chat_history[-5:]
+            
+            self.chat_history.append({"role": "user", "content": query})
+            self.chat_history.append({"role": "assistant", "content": answer})
+            
+        except Exception as e:
+            yield f"❌ Error: {str(e)}"
+
+    def ask_question(self, query, document_filters=None, conversation_context=None, advanced_filters=None):
+        """Ask a question and return answer with source citations.
+        
+        Args:
+            query: The question to ask
+            document_filters: Optional list of document filenames to filter by (legacy)
+            conversation_context: Optional list of previous messages for context
+            advanced_filters: Optional AdvancedSearchFilters object for advanced filtering
+        """
         # Quick validation
         if not query or not query.strip():
             return "Please provide a valid question.", []
@@ -222,8 +370,41 @@ class KnowledgeAssistant:
         except Exception as e:
             return f"⚠️ Error accessing knowledge base: {str(e)}", []
         
-        # Retrieve context with sources
-        context, sources = self.retrieve_context(query)
+        # If document filters are specified, validate they exist
+        if document_filters:
+            try:
+                # Get all available documents
+                all_docs = self.processor.list_documents()
+                available_doc_names = {doc.get("filename") for doc in all_docs}
+                
+                # Filter out invalid document names
+                valid_filters = [f for f in document_filters if f in available_doc_names]
+                
+                if not valid_filters:
+                    return f"⚠️ None of the selected documents exist in the knowledge base. Available documents: {', '.join(list(available_doc_names)[:5])}", []
+                
+                # Use only valid filters
+                document_filters = valid_filters
+            except Exception as e:
+                print(f"⚠️ Error validating document filters: {e}")
+                # Continue without filters if validation fails
+        
+        # Add conversation context to chat history if provided
+        if conversation_context:
+            # Add conversation messages to history (excluding system message)
+            for msg in conversation_context:
+                if msg.get("role") in ["user", "assistant"]:
+                    self.chat_history.append({
+                        "role": msg.get("role"),
+                        "content": msg.get("content", "")
+                    })
+        
+        # Retrieve context with sources and filters
+        context, sources = self.retrieve_context(
+            query, 
+            document_filters=document_filters,
+            advanced_filters=advanced_filters
+        )
 
         if not context:
             # Provide more helpful error message

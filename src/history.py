@@ -11,6 +11,8 @@ import threading
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HISTORY_FILE = os.path.join(PROJECT_ROOT, "data", "search_history.json")
 SAVED_QUERIES_FILE = os.path.join(PROJECT_ROOT, "data", "saved_queries.json")
+FEEDBACK_FILE = os.path.join(PROJECT_ROOT, "data", "feedback.json")
+CONVERSATIONS_FILE = os.path.join(PROJECT_ROOT, "data", "conversations.json")
 
 # Thread lock for file operations
 _file_lock = threading.Lock()
@@ -173,5 +175,319 @@ class SavedQueries:
                 item["updated_at"] = datetime.now().isoformat()
                 save_json_file(SAVED_QUERIES_FILE, saved)
                 return item
+        return None
+
+
+class QuerySuggestions:
+    """Generate query suggestions based on history and saved queries."""
+    
+    @staticmethod
+    def get_suggestions(partial_query: str, limit: int = 10) -> List[Dict]:
+        """Get query suggestions based on partial input.
+        
+        Args:
+            partial_query: The partial query text
+            limit: Maximum number of suggestions to return
+            
+        Returns:
+            List of suggestion dictionaries with 'query', 'type', and 'score'
+        """
+        suggestions = []
+        partial_lower = partial_query.lower().strip()
+        
+        if not partial_lower:
+            # If no input, return popular saved queries and recent history
+            saved = SavedQueries.get_all()
+            # Sort by usage count, then by recency
+            saved_sorted = sorted(
+                saved,
+                key=lambda x: (x.get("usage_count", 0), x.get("updated_at", "")),
+                reverse=True
+            )
+            for item in saved_sorted[:limit//2]:
+                suggestions.append({
+                    "query": item.get("query", ""),
+                    "type": "saved",
+                    "score": 1.0,
+                    "name": item.get("name", ""),
+                    "usage_count": item.get("usage_count", 0)
+                })
+            
+            # Add recent history
+            history = SearchHistory.get_history(limit=limit//2)
+            for entry in history:
+                query = entry.get("query", "")
+                if query and query not in [s["query"] for s in suggestions]:
+                    suggestions.append({
+                        "query": query,
+                        "type": "history",
+                        "score": 0.8
+                    })
+            
+            return suggestions[:limit]
+        
+        # Search in saved queries
+        saved = SavedQueries.get_all()
+        for item in saved:
+            query = item.get("query", "").lower()
+            name = item.get("name", "").lower()
+            
+            # Check if partial matches query or name
+            if partial_lower in query or partial_lower in name:
+                score = 1.0
+                # Boost score if it starts with the partial
+                if query.startswith(partial_lower) or name.startswith(partial_lower):
+                    score = 1.2
+                # Boost score based on usage
+                score += min(item.get("usage_count", 0) * 0.1, 0.5)
+                
+                suggestions.append({
+                    "query": item.get("query", ""),
+                    "type": "saved",
+                    "score": score,
+                    "name": item.get("name", ""),
+                    "usage_count": item.get("usage_count", 0)
+                })
+        
+        # Search in history
+        history = SearchHistory.get_history(limit=100)
+        for entry in history:
+            query = entry.get("query", "").lower()
+            if partial_lower in query:
+                # Don't add if already in suggestions
+                if entry.get("query", "") not in [s["query"] for s in suggestions]:
+                    score = 0.7
+                    # Boost if starts with partial
+                    if query.startswith(partial_lower):
+                        score = 0.9
+                    
+                    suggestions.append({
+                        "query": entry.get("query", ""),
+                        "type": "history",
+                        "score": score
+                    })
+        
+        # Sort by score (highest first)
+        suggestions.sort(key=lambda x: x["score"], reverse=True)
+        
+        return suggestions[:limit]
+    
+    @staticmethod
+    def get_popular_queries(limit: int = 5) -> List[str]:
+        """Get most popular queries from saved queries."""
+        saved = SavedQueries.get_all()
+        sorted_saved = sorted(
+            saved,
+            key=lambda x: x.get("usage_count", 0),
+            reverse=True
+        )
+        return [item.get("query", "") for item in sorted_saved[:limit] if item.get("query")]
+
+
+class ConversationManager:
+    """Manage conversation threads and context."""
+    
+    @staticmethod
+    def create_conversation(title: Optional[str] = None) -> Dict:
+        """Create a new conversation."""
+        conversations = load_json_file(CONVERSATIONS_FILE, [])
+        
+        conversation_id = datetime.now().isoformat().replace(":", "-").replace(".", "-")
+        conversation = {
+            "id": conversation_id,
+            "title": title or f"Conversation {len(conversations) + 1}",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "messages": [],
+            "context_enabled": True,
+            "message_count": 0
+        }
+        
+        conversations.append(conversation)
+        save_json_file(CONVERSATIONS_FILE, conversations)
+        return conversation
+    
+    @staticmethod
+    def get_conversation(conversation_id: str) -> Optional[Dict]:
+        """Get a conversation by ID."""
+        conversations = load_json_file(CONVERSATIONS_FILE, [])
+        for conv in conversations:
+            if conv.get("id") == conversation_id:
+                return conv
+        return None
+    
+    @staticmethod
+    def get_all_conversations() -> List[Dict]:
+        """Get all conversations, sorted by most recent."""
+        conversations = load_json_file(CONVERSATIONS_FILE, [])
+        return sorted(conversations, key=lambda x: x.get("updated_at", ""), reverse=True)
+    
+    @staticmethod
+    def add_message(conversation_id: str, role: str, content: str, sources: List[Dict] = None):
+        """Add a message to a conversation."""
+        conversations = load_json_file(CONVERSATIONS_FILE, [])
+        
+        for conv in conversations:
+            if conv.get("id") == conversation_id:
+                message = {
+                    "role": role,
+                    "content": content,
+                    "sources": sources or [],
+                    "timestamp": datetime.now().isoformat()
+                }
+                conv["messages"].append(message)
+                conv["message_count"] = len(conv["messages"])
+                conv["updated_at"] = datetime.now().isoformat()
+                
+                # Auto-generate title from first user message if not set
+                if conv["message_count"] == 1 and role == "user":
+                    conv["title"] = content[:50] + ("..." if len(content) > 50 else "")
+                
+                save_json_file(CONVERSATIONS_FILE, conversations)
+                return message
+        
+        return None
+    
+    @staticmethod
+    def get_conversation_context(conversation_id: str, max_messages: int = 5) -> List[Dict]:
+        """Get recent messages from a conversation for context."""
+        conversation = ConversationManager.get_conversation(conversation_id)
+        if not conversation:
+            return []
+        
+        messages = conversation.get("messages", [])
+        # Get last max_messages exchanges (user + assistant pairs)
+        recent = messages[-max_messages * 2:] if len(messages) > max_messages * 2 else messages
+        
+        # Format for LLM context
+        context = []
+        for msg in recent:
+            context.append({
+                "role": msg.get("role", "user"),
+                "content": msg.get("content", "")
+            })
+        
+        return context
+    
+    @staticmethod
+    def update_conversation(conversation_id: str, title: Optional[str] = None, context_enabled: Optional[bool] = None):
+        """Update conversation metadata."""
+        conversations = load_json_file(CONVERSATIONS_FILE, [])
+        
+        for conv in conversations:
+            if conv.get("id") == conversation_id:
+                if title is not None:
+                    conv["title"] = title
+                if context_enabled is not None:
+                    conv["context_enabled"] = context_enabled
+                conv["updated_at"] = datetime.now().isoformat()
+                save_json_file(CONVERSATIONS_FILE, conversations)
+                return conv
+        
+        return None
+    
+    @staticmethod
+    def delete_conversation(conversation_id: str):
+        """Delete a conversation."""
+        conversations = load_json_file(CONVERSATIONS_FILE, [])
+        conversations = [c for c in conversations if c.get("id") != conversation_id]
+        save_json_file(CONVERSATIONS_FILE, conversations)
+    
+    @staticmethod
+    def clear_conversation(conversation_id: str):
+        """Clear all messages from a conversation."""
+        conversations = load_json_file(CONVERSATIONS_FILE, [])
+        
+        for conv in conversations:
+            if conv.get("id") == conversation_id:
+                conv["messages"] = []
+                conv["message_count"] = 0
+                conv["updated_at"] = datetime.now().isoformat()
+                save_json_file(CONVERSATIONS_FILE, conversations)
+                return conv
+        
+        return None
+
+
+class AnswerFeedback:
+    """Manage answer quality feedback."""
+    
+    @staticmethod
+    def add_feedback(
+        query: str,
+        response: str,
+        rating: int,  # 1-5 stars or -1 (thumbs down), 1 (thumbs up)
+        feedback_type: str = "rating",  # "rating", "thumbs", "detailed"
+        comment: Optional[str] = None,
+        sources_count: int = 0
+    ):
+        """Add feedback for an answer."""
+        feedback = load_json_file(FEEDBACK_FILE, [])
+        
+        entry = {
+            "query": query,
+            "response_preview": response[:200] if response else "",  # Store preview
+            "rating": rating,
+            "feedback_type": feedback_type,
+            "comment": comment or "",
+            "sources_count": sources_count,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        feedback.append(entry)
+        save_json_file(FEEDBACK_FILE, feedback)
+        return entry
+    
+    @staticmethod
+    def get_feedback(limit: Optional[int] = None) -> List[Dict]:
+        """Get all feedback entries."""
+        feedback = load_json_file(FEEDBACK_FILE, [])
+        if limit:
+            return feedback[:limit]
+        return feedback
+    
+    @staticmethod
+    def get_feedback_stats() -> Dict:
+        """Get feedback statistics."""
+        feedback = AnswerFeedback.get_feedback()
+        
+        if not feedback:
+            return {
+                "total": 0,
+                "average_rating": 0.0,
+                "thumbs_up": 0,
+                "thumbs_down": 0,
+                "ratings_distribution": {}
+            }
+        
+        ratings = [f.get("rating", 0) for f in feedback if f.get("feedback_type") == "rating" and f.get("rating", 0) > 0]
+        thumbs_up = len([f for f in feedback if f.get("rating") == 1 and f.get("feedback_type") == "thumbs"])
+        thumbs_down = len([f for f in feedback if f.get("rating") == -1 and f.get("feedback_type") == "thumbs"])
+        
+        # Rating distribution
+        distribution = {}
+        for rating in ratings:
+            distribution[rating] = distribution.get(rating, 0) + 1
+        
+        average_rating = sum(ratings) / len(ratings) if ratings else 0.0
+        
+        return {
+            "total": len(feedback),
+            "average_rating": round(average_rating, 2),
+            "thumbs_up": thumbs_up,
+            "thumbs_down": thumbs_down,
+            "ratings_distribution": distribution,
+            "positive_feedback": thumbs_up + len([r for r in ratings if r >= 4]),
+            "negative_feedback": thumbs_down + len([r for r in ratings if r <= 2])
+        }
+    
+    @staticmethod
+    def get_feedback_by_query(query: str) -> Optional[Dict]:
+        """Get feedback for a specific query."""
+        feedback = AnswerFeedback.get_feedback()
+        # Find most recent feedback for this query
+        for entry in reversed(feedback):
+            if entry.get("query") == query:
+                return entry
         return None
 

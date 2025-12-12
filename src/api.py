@@ -1,10 +1,13 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.exceptions import RequestValidationError
+from typing import List, Optional
 import os
 import logging
 import shutil
+import json
+import asyncio
 from logging.handlers import RotatingFileHandler
 
 from .dependencies import processor, assistant
@@ -12,9 +15,17 @@ from .models import (
     QuestionRequest, QuestionResponse, UploadResponse,
     DocumentListResponse, DocumentInfo, DeleteDocumentResponse,
     HistoryResponse, HistoryEntry, SavedQueriesResponse, SavedQuery,
-    SaveQueryRequest, UpdateSavedQueryRequest
+    SaveQueryRequest, UpdateSavedQueryRequest,
+    SuggestionsResponse, QuerySuggestion,
+    FeedbackRequest, FeedbackResponse, FeedbackEntry, FeedbackStats, FeedbackStatsResponse,
+    Conversation, ConversationListResponse, ConversationMessage,
+    CreateConversationRequest, UpdateConversationRequest,
+    AdvancedSearchFilters, AdvancedQuestionRequest,
+    HealthSummary, HealthResponse, MetricEntry, MetricsHistoryResponse,
+    PerformanceStats, PerformanceStatsResponse
 )
-from .history import SearchHistory, SavedQueries
+from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
+from .health import HealthMonitor
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -238,6 +249,65 @@ def use_saved_query(query: str):
         logger.error(f"Error updating usage: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Query Suggestions Endpoint
+@app.get("/suggestions", response_model=SuggestionsResponse)
+def get_suggestions(q: str = "", limit: int = 10):
+    """Get query suggestions based on partial input."""
+    try:
+        suggestions_data = QuerySuggestions.get_suggestions(q, limit=limit)
+        suggestions = [QuerySuggestion(**s) for s in suggestions_data]
+        return {
+            "suggestions": suggestions,
+            "total": len(suggestions)
+        }
+    except Exception as e:
+        logger.error(f"Error getting suggestions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Feedback Endpoints
+@app.post("/feedback", response_model=FeedbackResponse)
+def submit_feedback(payload: FeedbackRequest):
+    """Submit feedback for an answer."""
+    try:
+        entry = AnswerFeedback.add_feedback(
+            query=payload.query,
+            response=payload.response,
+            rating=payload.rating,
+            feedback_type=payload.feedback_type,
+            comment=payload.comment,
+            sources_count=payload.sources_count
+        )
+        logger.info(f"Feedback submitted: rating={payload.rating}, type={payload.feedback_type}")
+        return {
+            "message": "Feedback submitted successfully",
+            "feedback_id": entry.get("timestamp", "")
+        }
+    except Exception as e:
+        logger.error(f"Error submitting feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/feedback/stats", response_model=FeedbackStatsResponse)
+def get_feedback_stats():
+    """Get feedback statistics."""
+    try:
+        stats = AnswerFeedback.get_feedback_stats()
+        return {
+            "stats": FeedbackStats(**stats)
+        }
+    except Exception as e:
+        logger.error(f"Error getting feedback stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/feedback", response_model=List[FeedbackEntry])
+def get_feedback(limit: int = 50):
+    """Get recent feedback entries."""
+    try:
+        feedback = AnswerFeedback.get_feedback(limit=limit)
+        return [FeedbackEntry(**entry) for entry in feedback]
+    except Exception as e:
+        logger.error(f"Error getting feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logger.error(f"Validation error: {exc.errors()}")
@@ -260,12 +330,47 @@ async def ask_question(payload: QuestionRequest):
     try:
         logger.info(f"Query: {payload.query[:100]}...")  # Log truncated query
         
+        import time
+        start_time = time.time()
+        
+        # Get conversation context if conversation_id is provided
+        conversation_context = []
+        if payload.conversation_id:
+            conversation_context = ConversationManager.get_conversation_context(
+                payload.conversation_id,
+                max_messages=5
+            )
+        
         # Process query asynchronously
         import asyncio
         loop = asyncio.get_event_loop()
-        answer, sources = await loop.run_in_executor(None, assistant.ask_question, payload.query)
+        answer, sources = await loop.run_in_executor(
+            None, 
+            assistant.ask_question, 
+            payload.query,
+            payload.document_filters,
+            conversation_context,
+            None  # advanced_filters - will be None for regular requests
+        )
         
         logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources")
+        
+        # Save to conversation if conversation_id is provided
+        if payload.conversation_id:
+            try:
+                ConversationManager.add_message(
+                    payload.conversation_id,
+                    "user",
+                    payload.query
+                )
+                ConversationManager.add_message(
+                    payload.conversation_id,
+                    "assistant",
+                    answer,
+                    sources
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save to conversation: {e}")
         
         # Save to search history
         try:
@@ -280,7 +385,118 @@ async def ask_question(payload: QuestionRequest):
         return {"response": answer, "sources": sources}
     except Exception as e:
         logger.error(f"Error: {type(e).__name__}: {e}")
+        # Record error metric
+        try:
+            HealthMonitor.record_error(
+                type(e).__name__,
+                str(e),
+                {"endpoint": "/ask", "query": payload.query[:100] if hasattr(payload, 'query') else ""}
+            )
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ask/stream")
+async def ask_question_stream(payload: QuestionRequest):
+    """Streaming endpoint for real-time response with source citations."""
+    async def generate():
+        try:
+            logger.info(f"Streaming query: {payload.query[:100]}...")
+            import time
+            start_time = time.time()
+            
+            # Get conversation context if conversation_id is provided
+            conversation_context = []
+            if payload.conversation_id:
+                conversation_context = ConversationManager.get_conversation_context(
+                    payload.conversation_id,
+                    max_messages=5
+                )
+            
+            # Retrieve context first (synchronous operation)
+            loop = asyncio.get_event_loop()
+            context, sources = await loop.run_in_executor(
+                None,
+                assistant.retrieve_context,
+                payload.query,
+                4,  # k value
+                payload.document_filters
+            )
+            
+            if not context:
+                # Send error message
+                error_msg = "⚠️ No relevant information found in the knowledge base."
+                yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+                return
+            
+            # Send sources first
+            yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+            
+            # Add conversation context to assistant if provided
+            if conversation_context:
+                for msg in conversation_context:
+                    if msg.get("role") in ["user", "assistant"]:
+                        assistant.chat_history.append({
+                            "role": msg.get("role"),
+                            "content": msg.get("content", "")
+                        })
+            
+            # Stream the response
+            response_text = ""
+            for chunk in assistant.generate_response_stream(payload.query, context):
+                response_text += chunk
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            
+            # Send completion signal
+            yield f"data: {json.dumps({'type': 'done', 'full_response': response_text.strip()})}\n\n"
+            
+            # Record query metric
+            try:
+                response_time = time.time() - start_time
+                HealthMonitor.record_query(payload.query, response_time, len(sources), success=True)
+            except Exception as e:
+                logger.warning(f"Failed to record query metric: {e}")
+            
+            # Save to conversation if conversation_id is provided
+            if payload.conversation_id:
+                try:
+                    ConversationManager.add_message(
+                        payload.conversation_id,
+                        "user",
+                        payload.query
+                    )
+                    ConversationManager.add_message(
+                        payload.conversation_id,
+                        "assistant",
+                        response_text.strip(),
+                        sources
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to save to conversation: {e}")
+            
+            # Save to search history
+            try:
+                SearchHistory.add_query(
+                    query=payload.query,
+                    response_length=len(response_text),
+                    sources_count=len(sources)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save to history: {e}")
+                
+        except Exception as e:
+            logger.error(f"Error in streaming: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'❌ Error: {str(e)}'})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @app.post("/upload", response_model=UploadResponse)
@@ -408,6 +624,19 @@ def process_and_move_file(source_path: str, ext: str):
         # Verify chunks were added
         final_count = processor.collection.count()
         chunks_added = final_count - initial_count
+        
+        # Record document processing metric
+        try:
+            file_size = os.path.getsize(source_path) if os.path.exists(source_path) else 0
+            HealthMonitor.record_document_processed(
+                filename,
+                chunks_added,
+                file_size,
+                success=(chunks_added > 0)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record document metric: {e}")
+        
         if chunks_added > 0:
             logger.info(f"✅ Successfully added {chunks_added} chunks from {filename} (total: {final_count})")
         else:
