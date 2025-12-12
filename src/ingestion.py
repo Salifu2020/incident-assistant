@@ -407,9 +407,9 @@ class DocumentProcessor:
             doc_chunks = {}
             for doc_name in unique_docs:
                 try:
+                    # Note: ids are always returned by ChromaDB, no need to include them
                     doc_results = self.collection.get(
-                        where={"source": doc_name},
-                        include=['ids']
+                        where={"source": doc_name}
                     )
                     if doc_results and 'ids' in doc_results:
                         doc_chunks[doc_name] = len(doc_results['ids'])
@@ -471,9 +471,9 @@ class DocumentProcessor:
         """Delete a document and all its chunks from the knowledge base."""
         try:
             # Get all chunk IDs for this document
+            # Note: ids are always returned by ChromaDB, no need to include them
             results = self.collection.get(
-                where={"source": filename},
-                include=['ids']
+                where={"source": filename}
             )
             
             if not results or 'ids' not in results or len(results['ids']) == 0:
