@@ -7,8 +7,11 @@ os.environ["PYTORCH_NO_LIBRARY_FALLBACK"] = "1"
 
 API_URL = "http://127.0.0.1:8000"
 
+# Get project root directory (parent of src)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Configure logging to write to logs/streamlit.log
-log_dir = "logs"
+log_dir = os.path.join(PROJECT_ROOT, "logs")
 os.makedirs(log_dir, exist_ok=True)
 
 log_file = os.path.join(log_dir, "streamlit.log")

@@ -4,13 +4,17 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import os
 import logging
+import shutil
 from logging.handlers import RotatingFileHandler
 
-from dependencies import processor, assistant
-from models import QuestionRequest, QuestionResponse, UploadResponse
+from .dependencies import processor, assistant
+from .models import QuestionRequest, QuestionResponse, UploadResponse
+
+# Get project root directory (parent of src)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Logging Configuration
-log_dir = "logs"
+log_dir = os.path.join(PROJECT_ROOT, "logs")
 os.makedirs(log_dir, exist_ok=True)
 log_file_path = os.path.join(log_dir, "api.log")
 
@@ -80,8 +84,9 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
         logger.warning(f"Rejected file upload: {file.filename}")
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    os.makedirs("source_files", exist_ok=True)
-    source_path = os.path.join("source_files", file.filename)
+    source_files_dir = os.path.join(PROJECT_ROOT, "source_files")
+    os.makedirs(source_files_dir, exist_ok=True)
+    source_path = os.path.join(source_files_dir, file.filename)
 
     try:
         # Save uploaded file to source_files
@@ -102,16 +107,38 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
 def process_and_move_file(source_path: str, ext: str):
     filename = os.path.basename(source_path)
     try:
-        # Run the ingestion processor
+        # Run the ingestion processor (this may move the file itself)
         processor.process_document(source_path)
 
-        # Move to ingested_files/<ext_without_dot>/
-        ingested_dir = os.path.join("ingested_files", ext[1:])
+        # Check if file still exists in source location (processor may have moved it)
+        if not os.path.exists(source_path):
+            logger.info(f"✅ {filename} processed and moved by processor")
+            return
+
+        # If file still exists, move it to ingested_files/<ext_without_dot>/
+        ingested_dir = os.path.join(PROJECT_ROOT, "ingested_files", ext[1:])
         os.makedirs(ingested_dir, exist_ok=True)
         ingested_path = os.path.join(ingested_dir, filename)
 
-        os.rename(source_path, ingested_path)
-        logger.info(f"✅ {filename} processed and moved to {ingested_path}")
+        # Check if destination file already exists
+        if os.path.exists(ingested_path):
+            # Remove the source file since it's already processed
+            try:
+                os.remove(source_path)
+                logger.info(f"ℹ️ {filename} already exists in {ingested_dir}, removed duplicate from source")
+            except Exception as remove_error:
+                logger.warning(f"⚠️ Could not remove duplicate source file {source_path}: {remove_error}")
+            return
+
+        # Move the file using shutil.move (more robust than os.rename)
+        try:
+            shutil.move(source_path, ingested_path)
+            logger.info(f"✅ {filename} processed and moved to {ingested_path}")
+        except PermissionError:
+            # File might be locked, log and leave it in source_files
+            logger.warning(f"⚠️ Could not move {filename} - file may be in use. Will retry on next upload.")
+        except Exception as move_error:
+            logger.error(f"❌ Error moving {filename}: {move_error}")
 
     except Exception as e:
-        logger.error(f" Background task failed for {filename}: {e}")
+        logger.error(f"❌ Background task failed for {filename}: {e}")

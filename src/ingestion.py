@@ -9,13 +9,18 @@ from docx import Document as DocxDocument
 import csv
 
 
+# Get project root directory (parent of src)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 SUPPORTED_EXTENSIONS = ['.pdf', '.txt', '.docx', '.csv']
-SOURCE_DIR = "source_files"
-INGESTED_DIR = "ingested_files"
+SOURCE_DIR = os.path.join(PROJECT_ROOT, "source_files")
+INGESTED_DIR = os.path.join(PROJECT_ROOT, "ingested_files")
 
 
 class DocumentProcessor:
-    def __init__(self, persist_directory=".chromadb/"):
+    def __init__(self, persist_directory=None):
+        if persist_directory is None:
+            persist_directory = os.path.join(PROJECT_ROOT, ".chromadb")
         self.client = chromadb.PersistentClient(path=persist_directory)
         self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="all-MiniLM-L6-v2"

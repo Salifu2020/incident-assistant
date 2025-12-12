@@ -1,4 +1,4 @@
-from ingestion import DocumentProcessor
+from .ingestion import DocumentProcessor
 import ollama
 
 

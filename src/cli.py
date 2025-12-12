@@ -1,5 +1,13 @@
-from ingestion import DocumentProcessor
-from querying import KnowledgeAssistant
+try:
+    from .ingestion import DocumentProcessor
+    from .querying import KnowledgeAssistant
+except ImportError:
+    # Fallback for direct script execution
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from src.ingestion import DocumentProcessor
+    from src.querying import KnowledgeAssistant
 
 
 def main():

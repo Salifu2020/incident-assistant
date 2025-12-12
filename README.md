@@ -41,7 +41,11 @@ pip install -r requirements.txt
 
 ## **Running the API Server**
 ```bash
-uvicorn my_main:app --reload
+# Option 1: Using the entry point script
+python run_api.py
+
+# Option 2: Using uvicorn directly
+uvicorn src.api:app --reload
 ```
 The API will be available at:  
 ➡️ **http://127.0.0.1:8000**
@@ -50,9 +54,25 @@ The API will be available at:
 
 ## **Running the Streamlit Frontend**
 ```bash
-streamlit run myApp.py
+# Option 1: Using the entry point script
+python run_app.py
+
+# Option 2: Using streamlit directly
+streamlit run src/app.py
 ```
 Open the displayed URL (usually **http://localhost:8501**) in your browser.
+
+---
+
+## **Running the CLI Interface**
+```bash
+# Option 1: Using the entry point script
+python run_cli.py
+
+# Option 2: Using Python module
+python -m src.cli
+```
+Interactive command-line interface for querying the knowledge base.
 
 ---
 
@@ -68,21 +88,29 @@ Open the displayed URL (usually **http://localhost:8501**) in your browser.
 ## **Project Structure**
 ```
 incident-assistant/
-├── my_main.py         # FastAPI backend
-├── myApp.py           # Streamlit frontend
-├── ingestion.py       # Document ingestion logic
-├── querying.py        # Logic for querying knowledge base
-├── dependencies.py    # Dependency injection for assistant and processor
-├── models.py          # Pydantic models for API request/response
+├── src/               # Main application source code
+│   ├── __init__.py
+│   ├── api.py         # FastAPI backend
+│   ├── app.py         # Streamlit frontend
+│   ├── cli.py         # CLI interface
+│   ├── ingestion.py   # Document ingestion logic
+│   ├── querying.py    # Logic for querying knowledge base
+│   ├── dependencies.py # Dependency injection for assistant and processor
+│   └── models.py      # Pydantic models for API request/response
+├── run_api.py         # Entry point for API server
+├── run_app.py         # Entry point for Streamlit frontend
+├── run_cli.py         # Entry point for CLI interface
+├── requirements.txt   # Python dependencies
 ├── source_files/      # Stores uploaded files (all supported types)
 ├── ingested_files/    # Stores processed files by type
 │   ├── pdf/
 │   ├── txt/
 │   ├── docx/
 │   └── csv/
-├── .chromadb/         # Persistent vector DB data
-├── api.log            # Backend logs
-└── streamlit.log      # Frontend logs
+├── logs/              # Application logs
+│   ├── api.log        # Backend logs
+│   └── streamlit.log  # Frontend logs
+└── .chromadb/         # Persistent vector DB data
 ```
 
 ---
