@@ -176,13 +176,43 @@ class MetricsHistoryResponse(BaseModel):
     metrics: List[MetricEntry]
     total: int
 
+class ResponseTimeStats(BaseModel):
+    min: float
+    max: float
+    avg: float
+    p50: float
+    p95: float
+    p99: float
+
+class QueryStats(BaseModel):
+    total: int
+    last_hour: int
+    last_6_hours: int
+    throughput_per_hour: float
+    response_time: ResponseTimeStats
+    avg_sources_per_query: float
+
+class ErrorStats(BaseModel):
+    total: int
+    rate_percent: float
+    by_type: Dict[str, int]
+
+class DocumentProcessingStats(BaseModel):
+    total_processed: int
+    successful: int
+    failed: int
+    success_rate_percent: float
+    avg_processing_time_sec: float
+    avg_chunks_per_doc: float
+    total_size_bytes: int
+    total_size_mb: float
+
 class PerformanceStats(BaseModel):
-    total_queries: int
-    total_errors: int
-    total_documents_processed: int
-    avg_query_time: float
-    error_rate: float
-    successful_documents: int
+    period_hours: int
+    timestamp: str
+    queries: QueryStats
+    errors: ErrorStats
+    document_processing: DocumentProcessingStats
 
 class PerformanceStatsResponse(BaseModel):
     stats: PerformanceStats

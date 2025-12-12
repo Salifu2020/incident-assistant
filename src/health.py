@@ -66,7 +66,7 @@ class HealthMonitor:
         save_json_file(HEALTH_FILE, metrics)
     
     @staticmethod
-    def record_document_processed(filename: str, chunk_count: int, file_size: int, success: bool = True):
+    def record_document_processed(filename: str, chunk_count: int, file_size: int, success: bool = True, processing_time: float = None):
         """Record document processing event."""
         HealthMonitor.record_metric(
             "document_processed",
@@ -75,7 +75,8 @@ class HealthMonitor:
                 "filename": filename,
                 "chunk_count": chunk_count,
                 "file_size": file_size,
-                "success": success
+                "success": success,
+                "processing_time": processing_time
             }
         )
     
@@ -307,29 +308,127 @@ class HealthMonitor:
     
     @staticmethod
     def get_performance_stats(hours: int = 24) -> Dict:
-        """Get performance statistics."""
+        """Get comprehensive performance statistics."""
         metrics = HealthMonitor.get_metrics_history(hours=hours)
         
         query_metrics = [m for m in metrics if m.get("type") == "query_executed"]
         error_metrics = [m for m in metrics if m.get("type") == "error"]
         doc_metrics = [m for m in metrics if m.get("type") == "document_processed"]
         
+        # Query performance metrics
+        query_times = [m.get("value", 0) for m in query_metrics if m.get("value", 0) > 0]
+        query_times_sorted = sorted(query_times) if query_times else []
+        
+        def percentile(data, p):
+            """Calculate percentile."""
+            if not data:
+                return 0
+            k = (len(data) - 1) * p / 100
+            f = int(k)
+            c = k - f
+            if f + 1 < len(data):
+                return data[f] + c * (data[f + 1] - data[f])
+            return data[f] if data else 0
+        
+        # Calculate percentiles
+        p50 = percentile(query_times_sorted, 50)
+        p95 = percentile(query_times_sorted, 95)
+        p99 = percentile(query_times_sorted, 99)
+        min_time = min(query_times_sorted) if query_times_sorted else 0
+        max_time = max(query_times_sorted) if query_times_sorted else 0
+        avg_time = sum(query_times_sorted) / len(query_times_sorted) if query_times_sorted else 0
+        
+        # Throughput calculation (queries per hour)
+        total_queries = len(query_metrics)
+        throughput_per_hour = total_queries / hours if hours > 0 else 0
+        
+        # Sources statistics
+        sources_counts = [
+            m.get("metadata", {}).get("sources_count", 0)
+            for m in query_metrics
+            if m.get("metadata", {}).get("sources_count", 0) > 0
+        ]
+        avg_sources = sum(sources_counts) / len(sources_counts) if sources_counts else 0
+        
+        # Document processing metrics
+        processing_times = []
+        chunk_counts = []
+        file_sizes = []
+        for m in doc_metrics:
+            meta = m.get("metadata", {})
+            if meta.get("processing_time"):
+                processing_times.append(meta.get("processing_time"))
+            if meta.get("chunk_count"):
+                chunk_counts.append(meta.get("chunk_count"))
+            if meta.get("file_size"):
+                file_sizes.append(meta.get("file_size"))
+        
+        successful_docs = sum(
+            1 for m in doc_metrics
+            if m.get("metadata", {}).get("success", False)
+        )
+        failed_docs = len(doc_metrics) - successful_docs
+        
+        avg_processing_time = (
+            sum(processing_times) / len(processing_times)
+            if processing_times else 0
+        )
+        avg_chunks_per_doc = (
+            sum(chunk_counts) / len(chunk_counts)
+            if chunk_counts else 0
+        )
+        total_size_processed = sum(file_sizes) if file_sizes else 0
+        
+        # Error breakdown
+        error_types = {}
+        for m in error_metrics:
+            error_type = m.get("metadata", {}).get("error_type", "unknown")
+            error_types[error_type] = error_types.get(error_type, 0) + 1
+        
+        # Time-based breakdown (last hour, last 6 hours, last 24 hours)
+        now = datetime.now()
+        last_hour_queries = [
+            m for m in query_metrics
+            if datetime.fromisoformat(m.get("timestamp", "")) >= now - timedelta(hours=1)
+        ]
+        last_6h_queries = [
+            m for m in query_metrics
+            if datetime.fromisoformat(m.get("timestamp", "")) >= now - timedelta(hours=6)
+        ]
+        
         return {
-            "total_queries": len(query_metrics),
-            "total_errors": len(error_metrics),
-            "total_documents_processed": len(doc_metrics),
-            "avg_query_time": (
-                sum(m.get("value", 0) for m in query_metrics) / len(query_metrics)
-                if query_metrics else 0
-            ),
-            "error_rate": (
-                len(error_metrics) / len(query_metrics) * 100
-                if query_metrics else 0
-            ),
-            "successful_documents": sum(
-                1 for m in doc_metrics
-                if m.get("metadata", {}).get("success", False)
-            )
+            "period_hours": hours,
+            "timestamp": datetime.now().isoformat(),
+            "queries": {
+                "total": total_queries,
+                "last_hour": len(last_hour_queries),
+                "last_6_hours": len(last_6h_queries),
+                "throughput_per_hour": round(throughput_per_hour, 2),
+                "response_time": {
+                    "min": round(min_time, 3),
+                    "max": round(max_time, 3),
+                    "avg": round(avg_time, 3),
+                    "p50": round(p50, 3),
+                    "p95": round(p95, 3),
+                    "p99": round(p99, 3)
+                },
+                "avg_sources_per_query": round(avg_sources, 2)
+            },
+            "errors": {
+                "total": len(error_metrics),
+                "rate_percent": round(len(error_metrics) / total_queries * 100, 2) if total_queries > 0 else 0,
+                "by_type": error_types
+            },
+            "document_processing": {
+                "total_processed": len(doc_metrics),
+                "successful": successful_docs,
+                "failed": failed_docs,
+                "success_rate_percent": round(successful_docs / len(doc_metrics) * 100, 2) if doc_metrics else 100,
+                "avg_processing_time_sec": round(avg_processing_time, 3),
+                "avg_chunks_per_doc": round(avg_chunks_per_doc, 2),
+                "total_size_bytes": total_size_processed,
+                "total_size_mb": round(total_size_processed / (1024 * 1024), 2)
+            }
         }
 
 

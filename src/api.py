@@ -353,7 +353,19 @@ async def ask_question(payload: QuestionRequest):
             None  # advanced_filters - will be None for regular requests
         )
         
-        logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources")
+        elapsed_time = time.time() - start_time
+        logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources in {elapsed_time:.2f}s")
+        
+        # Record performance metric
+        try:
+            HealthMonitor.record_query(
+                payload.query,
+                elapsed_time,
+                len(sources),
+                success=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record query metric: {e}")
         
         # Save to conversation if conversation_id is provided
         if payload.conversation_id:
@@ -614,6 +626,9 @@ def process_and_move_file(source_path: str, ext: str):
         return
     
     try:
+        import time
+        start_time = time.time()
+        
         # Get initial chunk count
         initial_count = processor.collection.count()
         logger.info(f"📊 Knowledge base before processing: {initial_count} chunks")
@@ -625,6 +640,9 @@ def process_and_move_file(source_path: str, ext: str):
         final_count = processor.collection.count()
         chunks_added = final_count - initial_count
         
+        # Calculate processing time
+        processing_time = time.time() - start_time
+        
         # Record document processing metric
         try:
             file_size = os.path.getsize(source_path) if os.path.exists(source_path) else 0
@@ -632,7 +650,8 @@ def process_and_move_file(source_path: str, ext: str):
                 filename,
                 chunks_added,
                 file_size,
-                success=(chunks_added > 0)
+                success=(chunks_added > 0),
+                processing_time=processing_time
             )
         except Exception as e:
             logger.warning(f"Failed to record document metric: {e}")
@@ -695,3 +714,36 @@ def process_and_move_file(source_path: str, ext: str):
         logger.error(f"❌ Permission denied accessing file: {source_path}")
     except Exception as e:
         logger.error(f"❌ Background task failed for {filename}: {type(e).__name__}: {e}")
+
+
+@app.get("/health", response_model=HealthResponse)
+async def get_health():
+    """Get knowledge base health summary."""
+    try:
+        summary = HealthMonitor.get_health_summary(processor)
+        return {"summary": summary}
+    except Exception as e:
+        logger.error(f"Error getting health summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting health summary: {str(e)}")
+
+
+@app.get("/health/metrics", response_model=MetricsHistoryResponse)
+async def get_metrics_history(metric_type: Optional[str] = None, hours: int = 24, limit: int = 100):
+    """Get historical metrics."""
+    try:
+        metrics = HealthMonitor.get_metrics_history(metric_type=metric_type, hours=hours, limit=limit)
+        return {"metrics": metrics}
+    except Exception as e:
+        logger.error(f"Error getting metrics history: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting metrics history: {str(e)}")
+
+
+@app.get("/health/performance", response_model=PerformanceStatsResponse)
+async def get_performance_stats(hours: int = 24):
+    """Get performance statistics."""
+    try:
+        stats = HealthMonitor.get_performance_stats(hours=hours)
+        return {"stats": stats}
+    except Exception as e:
+        logger.error(f"Error getting performance stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting performance stats: {str(e)}")

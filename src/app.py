@@ -313,6 +313,14 @@ with st.sidebar:
     
     st.markdown("---")
     
+    # Performance Metrics Section
+    st.markdown("### 📊 Performance Metrics")
+    if st.button("📈 View Metrics", use_container_width=True):
+        st.session_state.show_health = True
+        st.rerun()
+    
+    st.markdown("---")
+    
     # Conversation Management
     st.markdown("### 💬 Conversations")
     if st.button("➕ New Conversation", use_container_width=True):
@@ -852,6 +860,148 @@ if st.session_state.get("show_conversations", False):
     # Close button
     if st.button("❌ Close Conversations", use_container_width=True):
         st.session_state.show_conversations = False
+        st.rerun()
+    
+    st.markdown("---")
+
+# Performance Metrics Dashboard
+if st.session_state.get("show_health", False):
+    st.markdown("---")
+    st.markdown("### 📊 Performance Metrics Dashboard")
+    
+    # Time period selector
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        hours = st.selectbox("Time Period", [1, 6, 24, 48, 168], index=2, format_func=lambda x: f"Last {x} hours")
+    with col2:
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
+    
+    try:
+        # Get performance stats
+        with st.spinner("Loading performance metrics..."):
+            perf_resp = requests.get(f"{API_URL}/health/performance?hours={hours}", timeout=10)
+        
+        if perf_resp.status_code == 200:
+            data = perf_resp.json()
+            stats = data.get("stats", {})
+            
+            # Overall metrics
+            st.markdown("#### 📈 Query Performance")
+            query_stats = stats.get("queries", {})
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Queries", query_stats.get("total", 0))
+            with col2:
+                st.metric("Last Hour", query_stats.get("last_hour", 0))
+            with col3:
+                st.metric("Throughput/Hour", f"{query_stats.get('throughput_per_hour', 0):.1f}")
+            with col4:
+                st.metric("Avg Sources", f"{query_stats.get('avg_sources_per_query', 0):.1f}")
+            
+            # Response time metrics
+            st.markdown("#### ⏱️ Response Time Statistics")
+            rt_stats = query_stats.get("response_time", {})
+            
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            with col1:
+                st.metric("Min", f"{rt_stats.get('min', 0):.3f}s")
+            with col2:
+                st.metric("Avg", f"{rt_stats.get('avg', 0):.3f}s")
+            with col3:
+                st.metric("Max", f"{rt_stats.get('max', 0):.3f}s")
+            with col4:
+                st.metric("P50", f"{rt_stats.get('p50', 0):.3f}s", help="50th percentile")
+            with col5:
+                st.metric("P95", f"{rt_stats.get('p95', 0):.3f}s", help="95th percentile")
+            with col6:
+                st.metric("P99", f"{rt_stats.get('p99', 0):.3f}s", help="99th percentile")
+            
+            # Error metrics
+            st.markdown("#### ⚠️ Error Statistics")
+            error_stats = stats.get("errors", {})
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total Errors", error_stats.get("total", 0))
+            with col2:
+                error_rate = error_stats.get("rate_percent", 0)
+                error_color = "normal" if error_rate < 5 else "inverse" if error_rate > 10 else "off"
+                st.metric("Error Rate", f"{error_rate:.2f}%", delta=None)
+            
+            # Error breakdown by type
+            error_types = error_stats.get("by_type", {})
+            if error_types:
+                st.markdown("**Error Breakdown:**")
+                for error_type, count in error_types.items():
+                    st.text(f"  • {error_type}: {count}")
+            
+            # Document processing metrics
+            st.markdown("#### 📄 Document Processing")
+            doc_stats = stats.get("document_processing", {})
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Processed", doc_stats.get("total_processed", 0))
+            with col2:
+                success_rate = doc_stats.get("success_rate_percent", 100)
+                st.metric("Success Rate", f"{success_rate:.1f}%")
+            with col3:
+                st.metric("Avg Processing Time", f"{doc_stats.get('avg_processing_time_sec', 0):.3f}s")
+            with col4:
+                st.metric("Avg Chunks/Doc", f"{doc_stats.get('avg_chunks_per_doc', 0):.1f}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Successful", doc_stats.get("successful", 0))
+            with col2:
+                st.metric("Failed", doc_stats.get("failed", 0))
+            
+            total_size_mb = doc_stats.get("total_size_mb", 0)
+            if total_size_mb > 0:
+                st.metric("Total Size Processed", f"{total_size_mb:.2f} MB")
+            
+            # Performance insights
+            st.markdown("#### 💡 Performance Insights")
+            insights = []
+            
+            avg_time = rt_stats.get("avg", 0)
+            if avg_time > 5:
+                insights.append("⚠️ **Slow responses detected** - Average response time is above 5 seconds")
+            elif avg_time > 2:
+                insights.append("ℹ️ Response times are moderate - Consider optimization")
+            else:
+                insights.append("✅ **Excellent response times** - System is performing well")
+            
+            if error_rate > 10:
+                insights.append("🔴 **High error rate** - Immediate attention required")
+            elif error_rate > 5:
+                insights.append("⚠️ **Elevated error rate** - Monitor closely")
+            else:
+                insights.append("✅ **Low error rate** - System is stable")
+            
+            p95_time = rt_stats.get("p95", 0)
+            if p95_time > 10:
+                insights.append("⚠️ **95% of queries take over 10 seconds** - Performance degradation detected")
+            
+            success_rate = doc_stats.get("success_rate_percent", 100)
+            if success_rate < 80:
+                insights.append("⚠️ **Low document processing success rate** - Check document formats and processing logs")
+            
+            for insight in insights:
+                st.markdown(f"- {insight}")
+            
+        else:
+            st.error(f"❌ Failed to load performance metrics: {perf_resp.status_code}")
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Cannot connect to API. Make sure the API server is running.")
+    except Exception as e:
+        st.error(f"❌ Error loading performance metrics: {str(e)}")
+    
+    # Close button
+    if st.button("❌ Close Metrics Dashboard", use_container_width=True):
+        st.session_state.show_health = False
         st.rerun()
     
     st.markdown("---")
