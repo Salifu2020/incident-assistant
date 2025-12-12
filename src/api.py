@@ -8,7 +8,13 @@ import shutil
 from logging.handlers import RotatingFileHandler
 
 from .dependencies import processor, assistant
-from .models import QuestionRequest, QuestionResponse, UploadResponse
+from .models import (
+    QuestionRequest, QuestionResponse, UploadResponse,
+    DocumentListResponse, DocumentInfo, DeleteDocumentResponse,
+    HistoryResponse, HistoryEntry, SavedQueriesResponse, SavedQuery,
+    SaveQueryRequest, UpdateSavedQueryRequest
+)
+from .history import SearchHistory, SavedQueries
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +53,191 @@ def startup_event():
 def root():
     return {"message": "📚 Knowledge Assistant API is running"}
 
+@app.get("/status")
+def get_status():
+    """Get status of the knowledge base."""
+    try:
+        collection_count = processor.collection.count()
+        
+        # Get list of unique documents
+        try:
+            # Sample some chunks to get document names
+            sample = processor.collection.get(limit=min(100, collection_count))
+            sources = set()
+            if sample and 'metadatas' in sample:
+                for meta in sample['metadatas']:
+                    if meta and 'source' in meta:
+                        sources.add(meta['source'])
+            documents = list(sources)
+        except Exception as e:
+            logger.warning(f"Could not get document list: {e}")
+            documents = []
+        
+        return {
+            "status": "running",
+            "knowledge_base_chunks": collection_count,
+            "documents": documents,
+            "document_count": len(documents),
+            "message": f"Knowledge base contains {collection_count} chunks from {len(documents)} document(s)"
+        }
+    except Exception as e:
+        logger.error(f"Error getting status: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+@app.get("/documents", response_model=DocumentListResponse)
+def list_documents():
+    """List all documents in the knowledge base with details."""
+    try:
+        documents = processor.list_documents()
+        total_chunks = processor.collection.count()
+        
+        return {
+            "documents": documents,
+            "total_documents": len(documents),
+            "total_chunks": total_chunks
+        }
+    except Exception as e:
+        logger.error(f"Error listing documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/documents/{filename}", response_model=DocumentInfo)
+def get_document_info(filename: str):
+    """Get detailed information about a specific document."""
+    try:
+        doc_info = processor.get_document_info(filename)
+        if not doc_info:
+            raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
+        return doc_info
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting document info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/documents/{filename}", response_model=DeleteDocumentResponse)
+def delete_document(filename: str):
+    """Delete a document and all its chunks from the knowledge base."""
+    try:
+        deleted_count, error = processor.delete_document(filename)
+        
+        if error:
+            raise HTTPException(status_code=404, detail=error)
+        
+        logger.info(f"Deleted {deleted_count} chunks for document '{filename}'")
+        return {
+            "message": f"Successfully deleted document '{filename}'",
+            "deleted_chunks": deleted_count,
+            "filename": filename
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Search History Endpoints
+@app.get("/history", response_model=HistoryResponse)
+def get_history(limit: int = 50):
+    """Get search history."""
+    try:
+        history = SearchHistory.get_history(limit=limit)
+        return {
+            "history": [HistoryEntry(**entry) for entry in history],
+            "total": len(history)
+        }
+    except Exception as e:
+        logger.error(f"Error getting history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/history")
+def clear_history():
+    """Clear all search history."""
+    try:
+        SearchHistory.clear_history()
+        return {"message": "History cleared successfully"}
+    except Exception as e:
+        logger.error(f"Error clearing history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/history/{timestamp}")
+def delete_history_item(timestamp: str):
+    """Delete a specific history item."""
+    try:
+        SearchHistory.delete_history_item(timestamp)
+        return {"message": "History item deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting history item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Saved Queries Endpoints
+@app.get("/saved-queries", response_model=SavedQueriesResponse)
+def get_saved_queries():
+    """Get all saved queries."""
+    try:
+        saved = SavedQueries.get_all()
+        return {
+            "saved_queries": [SavedQuery(**item) for item in saved],
+            "total": len(saved)
+        }
+    except Exception as e:
+        logger.error(f"Error getting saved queries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/saved-queries", response_model=SavedQuery)
+def save_query(payload: SaveQueryRequest):
+    """Save a query."""
+    try:
+        entry = SavedQueries.save_query(
+            query=payload.query,
+            name=payload.name,
+            description=payload.description
+        )
+        return SavedQuery(**entry)
+    except Exception as e:
+        logger.error(f"Error saving query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/saved-queries", response_model=SavedQuery)
+def update_saved_query(payload: UpdateSavedQueryRequest):
+    """Update a saved query."""
+    try:
+        entry = SavedQueries.update_saved_query(
+            query=payload.query,
+            name=payload.name,
+            description=payload.description
+        )
+        if not entry:
+            raise HTTPException(status_code=404, detail="Saved query not found")
+        return SavedQuery(**entry)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating saved query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/saved-queries/{query:path}")
+def delete_saved_query(query: str):
+    """Delete a saved query."""
+    try:
+        SavedQueries.delete_saved_query(query)
+        return {"message": "Saved query deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting saved query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/saved-queries/{query:path}/use")
+def use_saved_query(query: str):
+    """Increment usage count for a saved query."""
+    try:
+        SavedQueries.increment_usage(query)
+        return {"message": "Usage count updated"}
+    except Exception as e:
+        logger.error(f"Error updating usage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logger.error(f"Validation error: {exc.errors()}")
@@ -64,51 +255,163 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 @app.post("/ask", response_model=QuestionResponse)
-def ask_question(payload: QuestionRequest):
+async def ask_question(payload: QuestionRequest):
+    """Async endpoint for faster response handling with source citations."""
     try:
-        logger.info(f"Received query: {payload.query}")
-        answer = assistant.ask_question(payload.query)
-        logger.info(f"Answer generated: {answer}")
-        return {"response": answer}
+        logger.info(f"Query: {payload.query[:100]}...")  # Log truncated query
+        
+        # Process query asynchronously
+        import asyncio
+        loop = asyncio.get_event_loop()
+        answer, sources = await loop.run_in_executor(None, assistant.ask_question, payload.query)
+        
+        logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources")
+        
+        # Save to search history
+        try:
+            SearchHistory.add_query(
+                query=payload.query,
+                response_length=len(answer),
+                sources_count=len(sources)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save to history: {e}")
+        
+        return {"response": answer, "sources": sources}
     except Exception as e:
-        logger.error(f"Error processing question: {e}")
+        logger.error(f"Error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+    # Maximum file size: 50MB
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB in bytes
+    
     allowed_extensions = {".pdf", ".docx", ".txt", ".html", ".csv"}
+    
+    # Validate filename
+    if not file.filename:
+        logger.warning("File upload rejected: missing filename")
+        raise HTTPException(status_code=400, detail="Filename is required")
+    
     ext = os.path.splitext(file.filename)[1].lower()
-
+    
     if ext not in allowed_extensions:
-        logger.warning(f"Rejected file upload: {file.filename}")
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
-
+        logger.warning(f"Rejected file upload: {file.filename} (unsupported extension: {ext})")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file type: {ext}. Supported types: {', '.join(allowed_extensions)}"
+        )
+    
+    # Validate and sanitize filename
+    filename = os.path.basename(file.filename)  # Remove any path components
+    if not filename or filename.startswith('.'):
+        logger.warning(f"Rejected file upload: invalid filename '{file.filename}'")
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
     source_files_dir = os.path.join(PROJECT_ROOT, "source_files")
-    os.makedirs(source_files_dir, exist_ok=True)
-    source_path = os.path.join(source_files_dir, file.filename)
-
+    
     try:
-        # Save uploaded file to source_files
+        # Create directory if it doesn't exist
+        os.makedirs(source_files_dir, exist_ok=True)
+    except OSError as e:
+        logger.error(f"Failed to create source_files directory: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Server configuration error: cannot create upload directory"
+        )
+    
+    source_path = os.path.join(source_files_dir, filename)
+    
+    try:
+        # Read file content with size validation
         content = await file.read()
-        with open(source_path, "wb") as f:
-            f.write(content)
-        logger.info(f"📥 File saved to source_files: {source_path}")
-
+        file_size = len(content)
+        
+        if file_size == 0:
+            logger.warning(f"Rejected empty file: {filename}")
+            raise HTTPException(status_code=400, detail="File is empty")
+        
+        if file_size > MAX_FILE_SIZE:
+            logger.warning(f"Rejected file {filename}: size {file_size} exceeds limit {MAX_FILE_SIZE}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File size ({file_size / (1024*1024):.2f}MB) exceeds maximum allowed size (50MB)"
+            )
+        
+        # Write file with proper error handling
+        try:
+            with open(source_path, "wb") as f:
+                f.write(content)
+            logger.info(f"📥 File saved to source_files: {source_path} (size: {file_size} bytes)")
+        except PermissionError:
+            logger.error(f"Permission denied writing to {source_path}")
+            raise HTTPException(
+                status_code=500,
+                detail="Server error: permission denied when saving file"
+            )
+        except OSError as e:
+            logger.error(f"OS error saving file {filename}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Server error: failed to save file - {str(e)}"
+            )
+        
         # Schedule background task
         background_tasks.add_task(process_and_move_file, source_path, ext)
-        return {"message": f"📤 {file.filename} is being processed in the background."}
-
+        return {"message": f"📤 {filename} is being processed in the background."}
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except MemoryError:
+        logger.error(f"Memory error reading file {filename}")
+        raise HTTPException(
+            status_code=500,
+            detail="Server error: insufficient memory to process file"
+        )
     except Exception as e:
-        logger.error(f" Error saving {file.filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+        logger.error(f"Unexpected error saving {filename}: {type(e).__name__}: {e}")
+        # Clean up partial file if it exists
+        if os.path.exists(source_path):
+            try:
+                os.remove(source_path)
+            except:
+                pass
+        raise HTTPException(
+            status_code=500,
+            detail=f"Upload failed: {str(e)}"
+        )
 
 
 def process_and_move_file(source_path: str, ext: str):
     filename = os.path.basename(source_path)
+    
+    # Validate source file exists
+    if not os.path.exists(source_path):
+        logger.error(f"❌ Source file not found: {source_path}")
+        return
+    
+    if not os.path.isfile(source_path):
+        logger.error(f"❌ Source path is not a file: {source_path}")
+        return
+    
     try:
+        # Get initial chunk count
+        initial_count = processor.collection.count()
+        logger.info(f"📊 Knowledge base before processing: {initial_count} chunks")
+        
         # Run the ingestion processor (this may move the file itself)
         processor.process_document(source_path)
+        
+        # Verify chunks were added
+        final_count = processor.collection.count()
+        chunks_added = final_count - initial_count
+        if chunks_added > 0:
+            logger.info(f"✅ Successfully added {chunks_added} chunks from {filename} (total: {final_count})")
+        else:
+            logger.warning(f"⚠️ No new chunks added from {filename} (may be duplicate or empty)")
 
         # Check if file still exists in source location (processor may have moved it)
         if not os.path.exists(source_path):
@@ -117,7 +420,13 @@ def process_and_move_file(source_path: str, ext: str):
 
         # If file still exists, move it to ingested_files/<ext_without_dot>/
         ingested_dir = os.path.join(PROJECT_ROOT, "ingested_files", ext[1:])
-        os.makedirs(ingested_dir, exist_ok=True)
+        
+        try:
+            os.makedirs(ingested_dir, exist_ok=True)
+        except OSError as e:
+            logger.error(f"❌ Failed to create ingested directory {ingested_dir}: {e}")
+            return
+        
         ingested_path = os.path.join(ingested_dir, filename)
 
         # Check if destination file already exists
@@ -126,6 +435,10 @@ def process_and_move_file(source_path: str, ext: str):
             try:
                 os.remove(source_path)
                 logger.info(f"ℹ️ {filename} already exists in {ingested_dir}, removed duplicate from source")
+            except PermissionError:
+                logger.warning(f"⚠️ Permission denied removing duplicate source file {source_path}")
+            except OSError as e:
+                logger.warning(f"⚠️ OS error removing duplicate source file {source_path}: {e}")
             except Exception as remove_error:
                 logger.warning(f"⚠️ Could not remove duplicate source file {source_path}: {remove_error}")
             return
@@ -136,9 +449,20 @@ def process_and_move_file(source_path: str, ext: str):
             logger.info(f"✅ {filename} processed and moved to {ingested_path}")
         except PermissionError:
             # File might be locked, log and leave it in source_files
-            logger.warning(f"⚠️ Could not move {filename} - file may be in use. Will retry on next upload.")
+            logger.warning(f"⚠️ Permission denied: Could not move {filename} - file may be in use")
+        except OSError as e:
+            if "No space left" in str(e) or "disk" in str(e).lower():
+                logger.error(f"❌ Disk full: Cannot move {filename} - {e}")
+            else:
+                logger.error(f"❌ OS error moving {filename}: {e}")
+        except shutil.Error as e:
+            logger.error(f"❌ shutil error moving {filename}: {e}")
         except Exception as move_error:
-            logger.error(f"❌ Error moving {filename}: {move_error}")
+            logger.error(f"❌ Unexpected error moving {filename}: {type(move_error).__name__}: {move_error}")
 
+    except FileNotFoundError:
+        logger.error(f"❌ File not found during processing: {source_path}")
+    except PermissionError:
+        logger.error(f"❌ Permission denied accessing file: {source_path}")
     except Exception as e:
-        logger.error(f"❌ Background task failed for {filename}: {e}")
+        logger.error(f"❌ Background task failed for {filename}: {type(e).__name__}: {e}")

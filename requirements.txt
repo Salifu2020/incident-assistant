@@ -5,3 +5,5 @@ chromadb
 pymupdf
 sentence-transformers
 ollama
+streamlit
+python-docx
