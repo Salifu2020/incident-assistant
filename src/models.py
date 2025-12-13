@@ -316,4 +316,28 @@ class RefreshTokenRequest(BaseModel):
 class TokenRefreshResponse(BaseModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"  # For development/testing - remove in production
+    token_type: str = "bearer"
+
+class AuditLogEntry(BaseModel):
+    timestamp: str
+    event_type: str
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    details: Optional[Dict] = None
+
+class AuditLogResponse(BaseModel):
+    logs: List[AuditLogEntry]
+    total: int
+    filtered_total: Optional[int] = None
+
+class AuditLogFilter(BaseModel):
+    event_type: Optional[str] = None
+    username: Optional[str] = None
+    status: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    limit: Optional[int] = 100  # For development/testing - remove in production

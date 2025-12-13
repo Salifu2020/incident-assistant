@@ -602,6 +602,12 @@ with st.sidebar:
             st.session_state.show_sessions = True
             st.rerun()
         
+        # Audit logs (admin only)
+        if st.session_state.current_user and st.session_state.current_user.get("role") == "admin":
+            if st.button("📋 Security Audit Logs", use_container_width=True):
+                st.session_state.show_audit_logs = True
+                st.rerun()
+        
         if st.button("🚪 Logout", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.access_token = None

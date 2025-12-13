@@ -30,7 +30,8 @@ from .models import (
     PasswordResetRequest, PasswordResetVerifyRequest, PasswordResetConfirmRequest,
     PasswordResetResponse,
     TwoFASetupResponse, TwoFAVerifyRequest, TwoFALoginRequest, TwoFAResponse,
-    SessionInfo, SessionListResponse, RefreshTokenRequest, TokenRefreshResponse
+    SessionInfo, SessionListResponse, RefreshTokenRequest, TokenRefreshResponse,
+    AuditLogEntry, AuditLogResponse, AuditLogFilter
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
@@ -147,6 +148,24 @@ async def register(user_data: UserRegister):
             role=user_data.role
         )
         logger.info(f"New user registered: {user_data.username}")
+        
+        # Log audit event
+        ip_address = None
+        if request:
+            ip_address = (
+                request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                request.headers.get("X-Real-IP", "") or
+                (request.client.host if request.client else None)
+            )
+        log_audit_event(
+            event_type="user_created",
+            user_id=user["id"],
+            username=user_data.username,
+            ip_address=ip_address,
+            status="success",
+            details={"role": user_data.role}
+        )
+        
         return UserInfo(**user)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -171,12 +190,43 @@ async def login(credentials: UserLogin, request: FastAPIRequest = None):
         error_type = result.get("error")
         if error_type == "account_locked":
             unlock_time = result.get("unlock_time")
+            # Log audit event
+            ip_address = None
+            if request:
+                ip_address = (
+                    request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                    request.headers.get("X-Real-IP", "") or
+                    (request.client.host if request.client else None)
+                )
+            log_audit_event(
+                event_type="login_locked",
+                username=credentials.username,
+                ip_address=ip_address,
+                status="failed",
+                error_message="Account locked"
+            )
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
                 detail=f"Account is locked due to too many failed login attempts. Please try again after {unlock_time} or contact an administrator.",
             )
         elif error_type == "invalid_credentials":
             attempts_remaining = result.get("attempts_remaining", 0)
+            # Log audit event
+            ip_address = None
+            if request:
+                ip_address = (
+                    request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                    request.headers.get("X-Real-IP", "") or
+                    (request.client.host if request.client else None)
+                )
+            log_audit_event(
+                event_type="login_failed",
+                username=credentials.username,
+                ip_address=ip_address,
+                status="failed",
+                error_message="Invalid credentials",
+                details={"attempts_remaining": attempts_remaining}
+            )
             detail_msg = "Incorrect username or password"
             if attempts_remaining > 0:
                 detail_msg += f". {attempts_remaining} attempt(s) remaining before account lockout."
@@ -344,7 +394,10 @@ async def verify_reset_token(request: PasswordResetVerifyRequest):
     }
 
 @app.post("/auth/password-reset/confirm")
-async def confirm_password_reset(request: PasswordResetConfirmRequest):
+async def confirm_password_reset(
+    request: PasswordResetConfirmRequest,
+    http_request: FastAPIRequest = None
+):
     """Reset password using a reset token."""
     success, error_message = UserManager.reset_password_with_token(
         request.token,
@@ -352,10 +405,48 @@ async def confirm_password_reset(request: PasswordResetConfirmRequest):
     )
     
     if not success:
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="password_reset",
+            ip_address=ip_address,
+            status="failed",
+            error_message=error_message
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_message or "Invalid or expired reset token, or password reset failed."
         )
+    
+    # Get user info for audit log
+    token_info = UserManager.verify_reset_token(request.token)
+    user_id = token_info.get("user_id") if token_info else None
+    username = None
+    if user_id:
+        user = UserManager.get_user_by_id(user_id)
+        username = user.get("username") if user else None
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="password_reset",
+        user_id=user_id,
+        username=username,
+        ip_address=ip_address,
+        status="success"
+    )
     
     logger.info("Password reset successful via token")
     return {"message": "Password has been reset successfully. You can now login with your new password."}
@@ -371,48 +462,146 @@ async def list_users(current_user: UserInfo = Depends(get_current_admin_user)):
 async def update_user_role(
     user_id: str,
     role_data: UpdateUserRoleRequest,
-    current_user: UserInfo = Depends(get_current_admin_user)
+    current_user: UserInfo = Depends(get_current_admin_user),
+    http_request: FastAPIRequest = None
 ):
     """Update user role (admin only)."""
     if role_data.role not in ["user", "admin"]:
         raise HTTPException(status_code=400, detail="Invalid role")
     
+    # Get target user info
+    target_user = UserManager.get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    old_role = target_user.get("role")
     success = UserManager.update_user_role(user_id, role_data.role)
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="role_changed",
+        user_id=user_id,
+        username=target_user.get("username"),
+        ip_address=ip_address,
+        status="success",
+        details={
+            "changed_by": current_user.username,
+            "old_role": old_role,
+            "new_role": role_data.role
+        }
+    )
+    
     return {"message": "User role updated successfully"}
 
 @app.post("/auth/users/{user_id}/deactivate")
 async def deactivate_user(
     user_id: str,
-    current_user: UserInfo = Depends(get_current_admin_user)
+    current_user: UserInfo = Depends(get_current_admin_user),
+    http_request: FastAPIRequest = None
 ):
     """Deactivate a user (admin only)."""
+    target_user = UserManager.get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     success = UserManager.deactivate_user(user_id)
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="user_deactivated",
+        user_id=user_id,
+        username=target_user.get("username"),
+        ip_address=ip_address,
+        status="success",
+        details={"deactivated_by": current_user.username}
+    )
+    
     return {"message": "User deactivated successfully"}
 
 @app.post("/auth/users/{user_id}/activate")
 async def activate_user(
     user_id: str,
-    current_user: UserInfo = Depends(get_current_admin_user)
+    current_user: UserInfo = Depends(get_current_admin_user),
+    http_request: FastAPIRequest = None
 ):
     """Activate a user (admin only)."""
+    target_user = UserManager.get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     success = UserManager.activate_user(user_id)
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="user_activated",
+        user_id=user_id,
+        username=target_user.get("username"),
+        ip_address=ip_address,
+        status="success",
+        details={"activated_by": current_user.username}
+    )
+    
     return {"message": "User activated successfully"}
 
 @app.post("/auth/users/{user_id}/unlock")
 async def unlock_user_account(
     user_id: str,
-    current_user: UserInfo = Depends(get_current_admin_user)
+    current_user: UserInfo = Depends(get_current_admin_user),
+    http_request: FastAPIRequest = None
 ):
     """Unlock a locked user account (admin only)."""
+    target_user = UserManager.get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found or not locked")
+    
     success = UserManager.unlock_account(user_id)
     if not success:
         raise HTTPException(status_code=404, detail="User not found or not locked")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="account_unlocked",
+        user_id=user_id,
+        username=target_user.get("username"),
+        ip_address=ip_address,
+        status="success",
+        details={"unlocked_by": current_user.username}
+    )
+    
     return {"message": "Account unlocked successfully"}
 
 # 2FA endpoints
@@ -432,7 +621,8 @@ async def setup_2fa(current_user: UserInfo = Depends(get_current_user)):
 @app.post("/auth/2fa/verify")
 async def verify_and_enable_2fa(
     request: TwoFAVerifyRequest,
-    current_user: UserInfo = Depends(get_current_user)
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
 ):
     """Verify 2FA code and enable 2FA."""
     success, error_message = UserManager.verify_and_enable_2fa(
@@ -440,10 +630,42 @@ async def verify_and_enable_2fa(
         request.code
     )
     if not success:
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="2fa_enabled",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="failed",
+            error_message=error_message
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_message or "Failed to verify 2FA code"
         )
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="2fa_enabled",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success"
+    )
     
     # Get backup codes
     backup_codes = UserManager.get_backup_codes(current_user.id)
@@ -529,7 +751,10 @@ async def verify_2fa_login(
         )
 
 @app.post("/auth/2fa/disable")
-async def disable_2fa(current_user: UserInfo = Depends(get_current_user)):
+async def disable_2fa(
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
     """Disable 2FA for the current user."""
     success = UserManager.disable_2fa(current_user.id)
     if not success:
@@ -537,6 +762,23 @@ async def disable_2fa(current_user: UserInfo = Depends(get_current_user)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="2FA is not enabled for this user"
         )
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="2fa_disabled",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success"
+    )
+    
     return {"message": "2FA disabled successfully"}
 
 @app.get("/auth/2fa/backup-codes")
@@ -596,7 +838,8 @@ async def get_sessions(
 @app.post("/auth/sessions/{session_id}/revoke")
 async def revoke_user_session(
     session_id: str,
-    current_user: UserInfo = Depends(get_current_user)
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
 ):
     """Revoke a specific session (user can only revoke their own sessions)."""
     # Verify session belongs to user
@@ -615,6 +858,23 @@ async def revoke_user_session(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to revoke session"
         )
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="session_revoked",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success",
+        details={"session_id": session_id[:8]}
+    )
     
     logger.info(f"Session revoked by user: {current_user.username}")
     return {"message": "Session revoked successfully"}
@@ -635,7 +895,25 @@ async def revoke_all_sessions(
             if current_session:
                 current_session_id = current_session.get("session_id")
     
-    revoke_all_user_sessions(current_user.id, exclude_session_id=current_session_id)
+    revoked_count = revoke_all_user_sessions(current_user.id, exclude_session_id=current_session_id)
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="session_revoked",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success",
+        details={"revoked_count": revoked_count, "action": "revoke_all_other"}
+    )
+    
     logger.info(f"All sessions revoked by user: {current_user.username} (except current)")
     return {"message": "All other sessions revoked successfully"}
 
@@ -749,7 +1027,11 @@ def get_document_info(filename: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/documents/{filename}", response_model=DeleteDocumentResponse)
-def delete_document(filename: str):
+def delete_document(
+    filename: str,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
     """Delete a document and all its chunks from the knowledge base."""
     try:
         deleted_count, error = processor.delete_document(filename)
@@ -758,6 +1040,24 @@ def delete_document(filename: str):
             raise HTTPException(status_code=404, detail=error)
         
         logger.info(f"Deleted {deleted_count} chunks for document '{filename}'")
+        
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="document_deleted",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="success",
+            details={"filename": filename, "deleted_chunks": deleted_count}
+        )
+        
         return {
             "message": f"Successfully deleted document '{filename}'",
             "deleted_chunks": deleted_count,
@@ -1132,7 +1432,12 @@ async def ask_question_stream(payload: QuestionRequest):
 
 
 @app.post("/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+async def upload_file(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
     # Maximum file size: 50MB
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB in bytes
     
@@ -1208,6 +1513,24 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
         
         # Schedule background task
         background_tasks.add_task(process_and_move_file, source_path, ext)
+        
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="document_uploaded",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="success",
+            details={"filename": file.filename, "content_type": file.content_type, "file_size": file_size}
+        )
+        
         return {"message": f"📤 {filename} is being processed in the background."}
     
     except HTTPException:

@@ -27,6 +27,7 @@ LOCKOUT_FILE = os.path.join(PROJECT_ROOT, "data", "account_lockouts.json")
 PASSWORD_HISTORY_FILE = os.path.join(PROJECT_ROOT, "data", "password_history.json")
 TWOFA_FILE = os.path.join(PROJECT_ROOT, "data", "twofa.json")
 SESSIONS_FILE = os.path.join(PROJECT_ROOT, "data", "sessions.json")
+AUDIT_LOG_FILE = os.path.join(PROJECT_ROOT, "data", "audit_log.json")
 
 # Lockout configuration
 MAX_FAILED_ATTEMPTS = 5  # Lock after 5 failed attempts
@@ -525,6 +526,8 @@ def revoke_all_user_sessions(user_id: str, exclude_session_id: Optional[str] = N
     if revoked_count > 0:
         save_sessions(sessions_data)
         logger.info(f"Revoked {revoked_count} sessions for user: {user_id}")
+    
+    return revoked_count
 
 
 def get_user_sessions(user_id: str) -> List[Dict]:
