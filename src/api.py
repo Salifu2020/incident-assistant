@@ -28,7 +28,8 @@ from .models import (
     UserRegister, UserLogin, UserInfo, Token, TokenData, UserListResponse,
     ChangePasswordRequest, UpdateUserRoleRequest,
     PasswordResetRequest, PasswordResetVerifyRequest, PasswordResetConfirmRequest,
-    PasswordResetResponse
+    PasswordResetResponse,
+    TwoFASetupResponse, TwoFAVerifyRequest, TwoFALoginRequest, TwoFAResponse
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
@@ -189,17 +190,33 @@ async def login(credentials: UserLogin):
     
     # Get lockout status for user info
     is_locked, unlock_time = UserManager.is_account_locked(user["id"])
+    
+    # Check if 2FA is enabled
+    twofa_enabled = UserManager.is_2fa_enabled(user["id"])
+    
     user_info = UserInfo(
         **user,
         locked=is_locked,
         unlock_time=unlock_time,
-        failed_attempts=0  # Reset on successful login
+        failed_attempts=0,  # Reset on successful login
+        twofa_enabled=twofa_enabled
     )
+    
+    # If 2FA is enabled, return a special response indicating 2FA is required
+    if twofa_enabled:
+        return {
+            "access_token": None,  # No token yet, need 2FA
+            "token_type": "bearer",
+            "user": user_info,
+            "requires_2fa": True,
+            "temp_token": None  # We'll use a temporary token for 2FA verification
+        }
     
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": user_info
+        "user": user_info,
+        "requires_2fa": False
     }
 
 @app.get("/auth/me", response_model=UserInfo)
@@ -353,6 +370,139 @@ async def activate_user(
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User activated successfully"}
+
+@app.post("/auth/users/{user_id}/unlock")
+async def unlock_user_account(
+    user_id: str,
+    current_user: UserInfo = Depends(get_current_admin_user)
+):
+    """Unlock a locked user account (admin only)."""
+    success = UserManager.unlock_account(user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found or not locked")
+    return {"message": "Account unlocked successfully"}
+
+# 2FA endpoints
+@app.post("/auth/2fa/setup", response_model=TwoFASetupResponse)
+async def setup_2fa(current_user: UserInfo = Depends(get_current_user)):
+    """Setup 2FA for the current user."""
+    secret, qr_code_uri, backup_codes = UserManager.setup_2fa(
+        current_user.id,
+        current_user.username
+    )
+    return {
+        "secret": secret,
+        "qr_code_uri": qr_code_uri,
+        "backup_codes": backup_codes
+    }
+
+@app.post("/auth/2fa/verify")
+async def verify_and_enable_2fa(
+    request: TwoFAVerifyRequest,
+    current_user: UserInfo = Depends(get_current_user)
+):
+    """Verify 2FA code and enable 2FA."""
+    success, error_message = UserManager.verify_and_enable_2fa(
+        current_user.id,
+        request.code
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_message or "Failed to verify 2FA code"
+        )
+    
+    # Get backup codes
+    backup_codes = UserManager.get_backup_codes(current_user.id)
+    
+    return {
+        "message": "2FA enabled successfully",
+        "backup_codes": backup_codes
+    }
+
+@app.post("/auth/2fa/verify-login")
+async def verify_2fa_login(
+    request: TwoFALoginRequest,
+    username: str
+):
+    """
+    Verify 2FA code during login.
+    This endpoint is called after initial password authentication.
+    """
+    user = UserManager.get_user_by_username(username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Verify 2FA code
+    if UserManager.verify_2fa_login(user["id"], request.code):
+        # Generate access token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user["id"], "username": user["username"], "role": user["role"]},
+            expires_delta=access_token_expires
+        )
+        
+        # Get lockout status
+        is_locked, unlock_time = UserManager.is_account_locked(user["id"])
+        
+        user_info = UserInfo(
+            **user,
+            locked=is_locked,
+            unlock_time=unlock_time,
+            failed_attempts=0,
+            twofa_enabled=True
+        )
+        
+        logger.info(f"2FA login successful for user: {username}")
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": user_info
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid 2FA code"
+        )
+
+@app.post("/auth/2fa/disable")
+async def disable_2fa(current_user: UserInfo = Depends(get_current_user)):
+    """Disable 2FA for the current user."""
+    success = UserManager.disable_2fa(current_user.id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA is not enabled for this user"
+        )
+    return {"message": "2FA disabled successfully"}
+
+@app.get("/auth/2fa/backup-codes")
+async def get_backup_codes(current_user: UserInfo = Depends(get_current_user)):
+    """Get unused backup codes for the current user."""
+    codes = UserManager.get_backup_codes(current_user.id)
+    if codes is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="2FA is not set up for this user"
+        )
+    return {"backup_codes": codes}
+
+@app.post("/auth/2fa/regenerate-backup-codes")
+async def regenerate_backup_codes(current_user: UserInfo = Depends(get_current_user)):
+    """Regenerate backup codes for the current user."""
+    codes = UserManager.regenerate_backup_codes(current_user.id)
+    if not codes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA is not set up for this user"
+        )
+    return {
+        "message": "Backup codes regenerated successfully",
+        "backup_codes": codes
+    }
 
 @app.get("/status")
 def get_status():

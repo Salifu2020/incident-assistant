@@ -241,6 +241,7 @@ class UserInfo(BaseModel):
     failed_attempts: Optional[int] = 0
     password_expires_at: Optional[str] = None
     password_expired: Optional[bool] = False
+    twofa_enabled: Optional[bool] = False
 
 class Token(BaseModel):
     access_token: str
@@ -276,4 +277,19 @@ class PasswordResetConfirmRequest(BaseModel):
 
 class PasswordResetResponse(BaseModel):
     message: str
-    token: Optional[str] = None  # For development/testing - remove in production
+    token: Optional[str] = None
+
+class TwoFASetupResponse(BaseModel):
+    secret: str
+    qr_code_uri: str
+    backup_codes: List[str]
+
+class TwoFAVerifyRequest(BaseModel):
+    code: str
+
+class TwoFALoginRequest(BaseModel):
+    code: str
+
+class TwoFAResponse(BaseModel):
+    message: str
+    backup_codes: Optional[List[str]] = None  # For development/testing - remove in production

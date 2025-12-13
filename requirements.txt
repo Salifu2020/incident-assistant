@@ -12,3 +12,5 @@ passlib[bcrypt]
 aiosmtplib
 email-validator
 jinja2
+pyotp
+qrcode[pil]

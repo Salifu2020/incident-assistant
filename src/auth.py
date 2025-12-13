@@ -5,12 +5,16 @@ import os
 import json
 import hashlib
 import secrets
+import base64
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List, Tuple
 import threading
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import logging
+import pyotp
+import qrcode
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,7 @@ RESET_TOKENS_FILE = os.path.join(PROJECT_ROOT, "data", "reset_tokens.json")
 RATE_LIMIT_FILE = os.path.join(PROJECT_ROOT, "data", "rate_limits.json")
 LOCKOUT_FILE = os.path.join(PROJECT_ROOT, "data", "account_lockouts.json")
 PASSWORD_HISTORY_FILE = os.path.join(PROJECT_ROOT, "data", "password_history.json")
+TWOFA_FILE = os.path.join(PROJECT_ROOT, "data", "twofa.json")
 
 # Lockout configuration
 MAX_FAILED_ATTEMPTS = 5  # Lock after 5 failed attempts
@@ -285,6 +290,99 @@ def check_password_expiration(user_id: str) -> Tuple[bool, Optional[str]]:
                     pass
     
     return False, None
+
+
+def load_twofa() -> Dict:
+    """Load 2FA data from JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        if os.path.exists(TWOFA_FILE):
+            try:
+                with open(TWOFA_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {"users": []}
+        return {"users": []}
+
+
+def save_twofa(data: Dict):
+    """Save 2FA data to JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        with open(TWOFA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def generate_backup_codes(count: int = 10) -> List[str]:
+    """Generate backup codes for 2FA recovery."""
+    codes = []
+    for _ in range(count):
+        # Generate 8-character alphanumeric codes
+        code = secrets.token_urlsafe(8).upper()[:8]
+        codes.append(code)
+    return codes
+
+
+def generate_2fa_secret() -> str:
+    """Generate a new TOTP secret."""
+    return pyotp.random_base32()
+
+
+def generate_2fa_qr_code(secret: str, username: str, issuer: str = "Knowledge Assistant") -> str:
+    """
+    Generate QR code data URI for 2FA setup.
+    Returns base64-encoded PNG image data URI.
+    """
+    # Create TOTP URI
+    totp_uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=username,
+        issuer_name=issuer
+    )
+    
+    # Generate QR code
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(totp_uri)
+    qr.make(fit=True)
+    
+    # Create image
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    # Convert to base64
+    buffer = BytesIO()
+    img.save(buffer, format='PNG')
+    img_str = base64.b64encode(buffer.getvalue()).decode()
+    
+    return f"data:image/png;base64,{img_str}"
+
+
+def verify_2fa_code(secret: str, code: str) -> bool:
+    """Verify a TOTP code against a secret."""
+    try:
+        totp = pyotp.TOTP(secret)
+        return totp.verify(code, valid_window=1)  # Allow 1 time step window
+    except Exception:
+        return False
+
+
+def verify_backup_code(user_id: str, code: str) -> bool:
+    """Verify and consume a backup code."""
+    twofa_data = load_twofa()
+    users = twofa_data.get("users", [])
+    
+    for user_data in users:
+        if user_data.get("user_id") == user_id:
+            backup_codes = user_data.get("backup_codes", [])
+            # Check if code exists and hasn't been used
+            for backup_code in backup_codes:
+                if backup_code.get("code") == code.upper() and not backup_code.get("used", False):
+                    # Mark as used
+                    backup_code["used"] = True
+                    backup_code["used_at"] = datetime.now().isoformat()
+                    save_twofa(twofa_data)
+                    logger.info(f"Backup code used for user: {user_id}")
+                    return True
+    
+    return False
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -638,6 +736,9 @@ class UserManager:
             # Check password expiration
             password_expired, password_expires_at = check_password_expiration(user_id)
             
+            # Check 2FA status
+            twofa_enabled = UserManager.is_2fa_enabled(user_id)
+            
             result.append({
                 "id": user["id"],
                 "username": user["username"],
@@ -650,7 +751,8 @@ class UserManager:
                 "unlock_time": lockout_info["unlock_time"],
                 "failed_attempts": lockout_info["failed_attempts"],
                 "password_expires_at": password_expires_at,
-                "password_expired": password_expired
+                "password_expired": password_expired,
+                "twofa_enabled": twofa_enabled
             })
         
         return result
@@ -912,4 +1014,166 @@ class UserManager:
         
         tokens_data["tokens"] = valid_tokens
         save_reset_tokens(tokens_data)
+    
+    @staticmethod
+    def is_2fa_enabled(user_id: str) -> bool:
+        """Check if 2FA is enabled for a user."""
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                return user_data.get("enabled", False)
+        
+        return False
+    
+    @staticmethod
+    def get_2fa_secret(user_id: str) -> Optional[str]:
+        """Get 2FA secret for a user (if exists)."""
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                return user_data.get("secret")
+        
+        return None
+    
+    @staticmethod
+    def setup_2fa(user_id: str, username: str) -> Tuple[str, str, List[str]]:
+        """
+        Setup 2FA for a user.
+        Returns (secret, qr_code_data_uri, backup_codes).
+        """
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        # Remove existing entry if any
+        users = [u for u in users if u.get("user_id") != user_id]
+        
+        # Generate new secret
+        secret = generate_2fa_secret()
+        backup_codes = generate_backup_codes(10)
+        
+        # Generate QR code
+        qr_code_uri = generate_2fa_qr_code(secret, username)
+        
+        # Store (but don't enable yet - user needs to verify first)
+        users.append({
+            "user_id": user_id,
+            "secret": secret,
+            "enabled": False,
+            "setup_at": datetime.now().isoformat(),
+            "backup_codes": [{"code": code, "used": False} for code in backup_codes]
+        })
+        
+        twofa_data["users"] = users
+        save_twofa(twofa_data)
+        
+        logger.info(f"2FA setup initiated for user: {username}")
+        return secret, qr_code_uri, backup_codes
+    
+    @staticmethod
+    def verify_and_enable_2fa(user_id: str, code: str) -> Tuple[bool, Optional[str]]:
+        """
+        Verify 2FA code and enable 2FA if valid.
+        Returns (success, error_message).
+        """
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                secret = user_data.get("secret")
+                if not secret:
+                    return False, "2FA not set up for this user"
+                
+                # Verify code
+                if verify_2fa_code(secret, code):
+                    # Enable 2FA
+                    user_data["enabled"] = True
+                    user_data["enabled_at"] = datetime.now().isoformat()
+                    save_twofa(twofa_data)
+                    logger.info(f"2FA enabled for user: {user_id}")
+                    return True, None
+                else:
+                    return False, "Invalid verification code"
+        
+        return False, "2FA not set up for this user"
+    
+    @staticmethod
+    def verify_2fa_login(user_id: str, code: str) -> bool:
+        """
+        Verify 2FA code during login.
+        Also accepts backup codes.
+        """
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                if not user_data.get("enabled", False):
+                    return False  # 2FA not enabled
+                
+                secret = user_data.get("secret")
+                
+                # Try TOTP code first
+                if secret and verify_2fa_code(secret, code):
+                    return True
+                
+                # Try backup code
+                if verify_backup_code(user_id, code):
+                    return True
+                
+                return False
+        
+        return False
+    
+    @staticmethod
+    def disable_2fa(user_id: str) -> bool:
+        """Disable 2FA for a user."""
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                user_data["enabled"] = False
+                user_data["disabled_at"] = datetime.now().isoformat()
+                save_twofa(twofa_data)
+                logger.info(f"2FA disabled for user: {user_id}")
+                return True
+        
+        return False
+    
+    @staticmethod
+    def get_backup_codes(user_id: str) -> Optional[List[str]]:
+        """Get unused backup codes for a user."""
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                backup_codes = user_data.get("backup_codes", [])
+                unused = [bc.get("code") for bc in backup_codes if not bc.get("used", False)]
+                return unused
+        
+        return None
+    
+    @staticmethod
+    def regenerate_backup_codes(user_id: str) -> List[str]:
+        """Regenerate backup codes for a user."""
+        twofa_data = load_twofa()
+        users = twofa_data.get("users", [])
+        
+        new_codes = generate_backup_codes(10)
+        
+        for user_data in users:
+            if user_data.get("user_id") == user_id:
+                user_data["backup_codes"] = [{"code": code, "used": False} for code in new_codes]
+                user_data["backup_codes_regenerated_at"] = datetime.now().isoformat()
+                save_twofa(twofa_data)
+                logger.info(f"Backup codes regenerated for user: {user_id}")
+                return new_codes
+        
+        return []
 

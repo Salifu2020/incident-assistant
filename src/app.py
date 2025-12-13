@@ -262,6 +262,12 @@ if "password_reset_token" not in st.session_state:
     st.session_state.password_reset_token = None
 if "password_reset_email" not in st.session_state:
     st.session_state.password_reset_email = None
+if "show_2fa_setup" not in st.session_state:
+    st.session_state.show_2fa_setup = False
+if "pending_2fa_username" not in st.session_state:
+    st.session_state.pending_2fa_username = None
+if "2fa_setup_data" not in st.session_state:
+    st.session_state["2fa_setup_data"] = None
 
 MAX_HISTORY = 50
 
@@ -438,11 +444,18 @@ if not st.session_state.authenticated:
                             )
                             if response.status_code == 200:
                                 data = response.json()
-                                st.session_state.authenticated = True
-                                st.session_state.access_token = data["access_token"]
-                                st.session_state.current_user = data["user"]
-                                st.success("✅ Login successful!")
-                                st.rerun()
+                                
+                                # Check if 2FA is required
+                                if data.get("requires_2fa", False):
+                                    st.session_state.pending_2fa_username = username
+                                    st.info("🔐 Two-Factor Authentication required. Please enter your 2FA code.")
+                                    st.rerun()
+                                else:
+                                    st.session_state.authenticated = True
+                                    st.session_state.access_token = data["access_token"]
+                                    st.session_state.current_user = data["user"]
+                                    st.success("✅ Login successful!")
+                                    st.rerun()
                             elif response.status_code == 423:  # Locked
                                 error_detail = response.json().get('detail', 'Account is locked')
                                 st.error(f"🔒 {error_detail}")
@@ -528,6 +541,11 @@ with st.sidebar:
         # Change password option
         if st.button("🔑 Change Password", use_container_width=True):
             st.session_state.show_change_password = True
+            st.rerun()
+        
+        # 2FA management
+        if st.button("🔐 Two-Factor Authentication", use_container_width=True):
+            st.session_state.show_2fa_setup = True
             st.rerun()
         
         if st.button("🚪 Logout", use_container_width=True):
@@ -1533,6 +1551,156 @@ if st.session_state.get("show_change_password", False):
     # Close button
     if st.button("❌ Close", use_container_width=True, key="close_change_password"):
         st.session_state.show_change_password = False
+        st.rerun()
+    
+    st.markdown("---")
+
+# 2FA Setup Section
+if st.session_state.get("show_2fa_setup", False):
+    st.markdown("---")
+    st.markdown("### 🔐 Two-Factor Authentication (2FA)")
+    
+    try:
+        headers = get_auth_headers()
+        
+        # Check current 2FA status
+        user_info_resp = requests.get(f"{API_URL}/auth/me", headers=headers, timeout=5)
+        if user_info_resp.status_code == 200:
+            current_user_info = user_info_resp.json()
+            twofa_enabled = current_user_info.get("twofa_enabled", False)
+            
+            if twofa_enabled:
+                st.success("✅ 2FA is currently **enabled** for your account")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("📋 View Backup Codes", use_container_width=True):
+                        try:
+                            codes_resp = requests.get(f"{API_URL}/auth/2fa/backup-codes", headers=headers, timeout=5)
+                            if codes_resp.status_code == 200:
+                                codes_data = codes_resp.json()
+                                codes = codes_data.get("backup_codes", [])
+                                if codes:
+                                    st.info("**Your unused backup codes:**")
+                                    for code in codes:
+                                        st.code(code, language=None)
+                                    st.warning("⚠️ **Important:** Save these codes in a secure location. They can be used to access your account if you lose your authenticator device.")
+                                else:
+                                    st.warning("⚠️ No unused backup codes available. Consider regenerating them.")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                
+                with col2:
+                    if st.button("🔄 Regenerate Backup Codes", use_container_width=True):
+                        try:
+                            regen_resp = requests.post(f"{API_URL}/auth/2fa/regenerate-backup-codes", headers=headers, timeout=5)
+                            if regen_resp.status_code == 200:
+                                regen_data = regen_resp.json()
+                                new_codes = regen_data.get("backup_codes", [])
+                                st.success("✅ Backup codes regenerated!")
+                                st.info("**Your new backup codes:**")
+                                for code in new_codes:
+                                    st.code(code, language=None)
+                                st.warning("⚠️ **Important:** Save these codes in a secure location. Old backup codes are no longer valid.")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                
+                st.markdown("---")
+                
+                if st.button("❌ Disable 2FA", use_container_width=True, type="primary"):
+                    try:
+                        disable_resp = requests.post(f"{API_URL}/auth/2fa/disable", headers=headers, timeout=5)
+                        if disable_resp.status_code == 200:
+                            st.success("✅ 2FA has been disabled")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Error: {disable_resp.json().get('detail', 'Unknown error')}")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+            else:
+                st.info("🔐 2FA is currently **disabled** for your account")
+                
+                if st.button("🔧 Setup 2FA", use_container_width=True, type="primary"):
+                    try:
+                        setup_resp = requests.post(f"{API_URL}/auth/2fa/setup", headers=headers, timeout=5)
+                        if setup_resp.status_code == 200:
+                            setup_data = setup_resp.json()
+                            st.session_state["2fa_setup_data"] = setup_data
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Error: {setup_resp.json().get('detail', 'Unknown error')}")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+                
+                # Show setup UI if setup data is available
+                if st.session_state.get("2fa_setup_data"):
+                    setup_data = st.session_state["2fa_setup_data"]
+                    qr_code_uri = setup_data.get("qr_code_uri")
+                    backup_codes = setup_data.get("backup_codes", [])
+                    
+                    st.markdown("---")
+                    st.markdown("#### 📱 Scan QR Code")
+                    st.info("1. Open your authenticator app (Google Authenticator, Authy, etc.)")
+                    st.info("2. Scan the QR code below or enter the secret manually")
+                    
+                    if qr_code_uri:
+                        st.image(qr_code_uri, width=300)
+                    
+                    st.markdown("#### 🔑 Manual Entry")
+                    st.code(setup_data.get("secret", ""), language=None)
+                    
+                    st.markdown("#### ✅ Verify Setup")
+                    with st.form("verify_2fa_form"):
+                        verify_code = st.text_input("Enter 6-digit code from your authenticator app", key="verify_2fa_code")
+                        submit_verify = st.form_submit_button("Verify & Enable 2FA", use_container_width=True)
+                        
+                        if submit_verify:
+                            if verify_code:
+                                try:
+                                    verify_resp = requests.post(
+                                        f"{API_URL}/auth/2fa/verify",
+                                        json={"code": verify_code},
+                                        headers=headers,
+                                        timeout=5
+                                    )
+                                    if verify_resp.status_code == 200:
+                                        verify_data = verify_resp.json()
+                                        st.success("✅ 2FA enabled successfully!")
+                                        
+                                        # Show backup codes
+                                        backup_codes = verify_data.get("backup_codes", [])
+                                        if backup_codes:
+                                            st.warning("⚠️ **IMPORTANT:** Save these backup codes in a secure location!")
+                                            st.info("**Your backup codes:**")
+                                            for code in backup_codes:
+                                                st.code(code, language=None)
+                                            st.caption("You can use these codes to access your account if you lose your authenticator device.")
+                                        
+                                        st.session_state["2fa_setup_data"] = None
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ {verify_resp.json().get('detail', 'Invalid code')}")
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                            else:
+                                st.warning("⚠️ Please enter the verification code")
+                    
+                    if st.button("❌ Cancel Setup", use_container_width=True):
+                        st.session_state["2fa_setup_data"] = None
+                        st.rerun()
+        else:
+            st.error("❌ Failed to load user information")
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Cannot connect to API. Please ensure the server is running.")
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+    
+    # Close button
+    if st.button("❌ Close", use_container_width=True, key="close_2fa"):
+        st.session_state.show_2fa_setup = False
+        st.session_state["2fa_setup_data"] = None
         st.rerun()
     
     st.markdown("---")
