@@ -312,7 +312,20 @@ if not st.session_state.authenticated:
                 
                 with st.form("reset_password_form"):
                     st.text_input("Reset Token", value=st.session_state.password_reset_token, disabled=True, key="display_token")
-                    new_password = st.text_input("New Password", type="password", key="reset_new_password")
+                    
+                    # Password requirements info
+                    with st.expander("📋 Password Requirements", expanded=False):
+                        st.markdown("""
+                        Your new password must meet the following requirements:
+                        - **Minimum length:** 8 characters
+                        - **At least one uppercase letter** (A-Z)
+                        - **At least one lowercase letter** (a-z)
+                        - **At least one number** (0-9)
+                        - **At least one special character** (!@#$%^&*()_+-=[]{}|;:,.<>?)
+                        - **Cannot reuse** your last 5 passwords
+                        """)
+                    
+                    new_password = st.text_input("New Password", type="password", key="reset_new_password", help="See password requirements above")
                     confirm_password = st.text_input("Confirm New Password", type="password", key="reset_confirm_password")
                     
                     col1, col2 = st.columns(2)
@@ -430,8 +443,16 @@ if not st.session_state.authenticated:
                                 st.session_state.current_user = data["user"]
                                 st.success("✅ Login successful!")
                                 st.rerun()
+                            elif response.status_code == 423:  # Locked
+                                error_detail = response.json().get('detail', 'Account is locked')
+                                st.error(f"🔒 {error_detail}")
+                                st.warning("💡 Contact an administrator to unlock your account, or wait for the lockout period to expire.")
                             else:
-                                st.error(f"❌ Login failed: {response.json().get('detail', 'Unknown error')}")
+                                error_detail = response.json().get('detail', 'Unknown error')
+                                st.error(f"❌ {error_detail}")
+                                # Show attempts remaining if mentioned in error
+                                if "attempt" in error_detail.lower() and "remaining" in error_detail.lower():
+                                    st.warning("⚠️ Too many failed attempts will lock your account.")
                         except requests.exceptions.ConnectionError:
                             st.error("❌ Cannot connect to API. Please ensure the server is running.")
                         except Exception as e:
@@ -441,10 +462,23 @@ if not st.session_state.authenticated:
     
     with tab2:
         st.markdown("### Register")
+        
+        # Password requirements info
+        with st.expander("📋 Password Requirements", expanded=False):
+            st.markdown("""
+            Your password must meet the following requirements:
+            - **Minimum length:** 8 characters
+            - **At least one uppercase letter** (A-Z)
+            - **At least one lowercase letter** (a-z)
+            - **At least one number** (0-9)
+            - **At least one special character** (!@#$%^&*()_+-=[]{}|;:,.<>?)
+            - **Cannot reuse** your last 5 passwords
+            """)
+        
         with st.form("register_form"):
             reg_username = st.text_input("Username", key="reg_username")
             reg_email = st.text_input("Email", key="reg_email")
-            reg_password = st.text_input("Password", type="password", key="reg_password")
+            reg_password = st.text_input("Password", type="password", key="reg_password", help="See password requirements above")
             reg_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm")
             reg_role = st.selectbox("Role", ["user", "admin"], key="reg_role", help="Note: Admin role creation may be restricted")
             submit_reg = st.form_submit_button("Register", use_container_width=True)
@@ -1297,18 +1331,35 @@ if st.session_state.get("show_user_management", False):
                     # Display users
                     for idx, user in enumerate(users):
                         with st.container():
-                            col1, col2, col3, col4, col5 = st.columns([2, 2, 1, 1, 1])
+                            col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
                             
                             with col1:
                                 role_icon = "👑" if user.get("role") == "admin" else "👤"
-                                st.markdown(f"**{role_icon} {user.get('username', 'Unknown')}**")
+                                lock_icon = "🔒" if user.get("locked", False) else ""
+                                st.markdown(f"**{role_icon} {lock_icon} {user.get('username', 'Unknown')}**")
                                 st.caption(f"📧 {user.get('email', 'N/A')}")
                             
                             with col2:
                                 role_badge = "Admin" if user.get("role") == "admin" else "User"
                                 status_badge = "✅ Active" if user.get("active", True) else "❌ Inactive"
+                                lockout_badge = "🔒 Locked" if user.get("locked", False) else "🔓 Unlocked"
                                 st.markdown(f"**Role:** {role_badge}")
                                 st.caption(status_badge)
+                                if user.get("locked", False):
+                                    st.caption(f"**{lockout_badge}**")
+                                    if user.get("unlock_time"):
+                                        from datetime import datetime
+                                        try:
+                                            unlock_dt = datetime.fromisoformat(user.get("unlock_time"))
+                                            now = datetime.now()
+                                            if unlock_dt > now:
+                                                remaining = unlock_dt - now
+                                                mins = int(remaining.total_seconds() / 60)
+                                                st.caption(f"⏰ Unlocks in {mins} min")
+                                        except:
+                                            pass
+                                if user.get("failed_attempts", 0) > 0 and not user.get("locked", False):
+                                    st.caption(f"⚠️ {user.get('failed_attempts', 0)} failed attempt(s)")
                             
                             with col3:
                                 if user.get("role") != "admin" or user.get("id") != st.session_state.current_user.get("id"):
@@ -1368,6 +1419,25 @@ if st.session_state.get("show_user_management", False):
                                             st.error(f"❌ Error: {str(e)}")
                             
                             with col5:
+                                if user.get("locked", False):
+                                    if st.button("🔓", key=f"unlock_{idx}", help="Unlock Account"):
+                                        try:
+                                            headers = get_auth_headers()
+                                            resp = requests.post(
+                                                f"{API_URL}/auth/users/{user.get('id')}/unlock",
+                                                headers=headers,
+                                                timeout=5
+                                            )
+                                            if resp.status_code == 200:
+                                                st.success("✅ Account unlocked")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
+                                        except Exception as e:
+                                            st.error(f"❌ Error: {str(e)}")
+                            
+                            with col6:
                                 if user.get("created_at"):
                                     st.caption(f"Created: {user.get('created_at', '')[:10]}")
                                 if user.get("last_login"):
@@ -1398,9 +1468,21 @@ if st.session_state.get("show_change_password", False):
     st.markdown("---")
     st.markdown("### 🔑 Change Password")
     
+    # Password requirements info
+    with st.expander("📋 Password Requirements", expanded=False):
+        st.markdown("""
+        Your new password must meet the following requirements:
+        - **Minimum length:** 8 characters
+        - **At least one uppercase letter** (A-Z)
+        - **At least one lowercase letter** (a-z)
+        - **At least one number** (0-9)
+        - **At least one special character** (!@#$%^&*()_+-=[]{}|;:,.<>?)
+        - **Cannot reuse** your last 5 passwords
+        """)
+    
     with st.form("change_password_form"):
         old_password = st.text_input("Current Password", type="password", key="old_password")
-        new_password = st.text_input("New Password", type="password", key="new_password")
+        new_password = st.text_input("New Password", type="password", key="new_password", help="See password requirements above")
         confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_password")
         
         col1, col2 = st.columns(2)
@@ -1418,8 +1500,6 @@ if st.session_state.get("show_change_password", False):
                 st.error("❌ Please fill in all fields")
             elif new_password != confirm_password:
                 st.error("❌ New passwords do not match")
-            elif len(new_password) < 6:
-                st.error("❌ New password must be at least 6 characters long")
             else:
                 try:
                     headers = get_auth_headers()

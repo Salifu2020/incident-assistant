@@ -236,6 +236,11 @@ class UserInfo(BaseModel):
     created_at: Optional[str] = None
     last_login: Optional[str] = None
     active: Optional[bool] = True
+    locked: Optional[bool] = False
+    unlock_time: Optional[str] = None
+    failed_attempts: Optional[int] = 0
+    password_expires_at: Optional[str] = None
+    password_expired: Optional[bool] = False
 
 class Token(BaseModel):
     access_token: str

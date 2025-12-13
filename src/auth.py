@@ -6,7 +6,7 @@ import json
 import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 import threading
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -19,6 +19,21 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 USERS_FILE = os.path.join(PROJECT_ROOT, "data", "users.json")
 RESET_TOKENS_FILE = os.path.join(PROJECT_ROOT, "data", "reset_tokens.json")
 RATE_LIMIT_FILE = os.path.join(PROJECT_ROOT, "data", "rate_limits.json")
+LOCKOUT_FILE = os.path.join(PROJECT_ROOT, "data", "account_lockouts.json")
+PASSWORD_HISTORY_FILE = os.path.join(PROJECT_ROOT, "data", "password_history.json")
+
+# Lockout configuration
+MAX_FAILED_ATTEMPTS = 5  # Lock after 5 failed attempts
+LOCKOUT_DURATION_MINUTES = 30  # Auto-unlock after 30 minutes
+
+# Password policy configuration
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_REQUIRE_UPPERCASE = True
+PASSWORD_REQUIRE_LOWERCASE = True
+PASSWORD_REQUIRE_NUMBER = True
+PASSWORD_REQUIRE_SPECIAL = True
+PASSWORD_HISTORY_COUNT = 5  # Prevent reusing last 5 passwords
+PASSWORD_EXPIRATION_DAYS = 90  # Passwords expire after 90 days (0 = disabled)
 
 # Thread lock for file operations
 _file_lock = threading.Lock()
@@ -101,6 +116,27 @@ def save_rate_limits(data: Dict):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+def load_lockouts() -> Dict:
+    """Load account lockout data from JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        if os.path.exists(LOCKOUT_FILE):
+            try:
+                with open(LOCKOUT_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {"lockouts": []}
+        return {"lockouts": []}
+
+
+def save_lockouts(data: Dict):
+    """Save account lockout data to JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        with open(LOCKOUT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
 def generate_user_friendly_token() -> str:
     """Generate a shorter, user-friendly token."""
     # Generate 8-character alphanumeric token (case-insensitive for user convenience)
@@ -121,6 +157,134 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash."""
     return pwd_context.verify(plain_password, hashed_password)
+
+
+def validate_password(password: str) -> Tuple[bool, List[str]]:
+    """
+    Validate password against policy.
+    Returns (is_valid, list_of_errors).
+    """
+    errors = []
+    
+    # Minimum length
+    if len(password) < PASSWORD_MIN_LENGTH:
+        errors.append(f"Password must be at least {PASSWORD_MIN_LENGTH} characters long")
+    
+    # Complexity requirements
+    if PASSWORD_REQUIRE_UPPERCASE and not any(c.isupper() for c in password):
+        errors.append("Password must contain at least one uppercase letter")
+    
+    if PASSWORD_REQUIRE_LOWERCASE and not any(c.islower() for c in password):
+        errors.append("Password must contain at least one lowercase letter")
+    
+    if PASSWORD_REQUIRE_NUMBER and not any(c.isdigit() for c in password):
+        errors.append("Password must contain at least one number")
+    
+    if PASSWORD_REQUIRE_SPECIAL:
+        special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+        if not any(c in special_chars for c in password):
+            errors.append("Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)")
+    
+    return len(errors) == 0, errors
+
+
+def load_password_history() -> Dict:
+    """Load password history data from JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        if os.path.exists(PASSWORD_HISTORY_FILE):
+            try:
+                with open(PASSWORD_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {"history": []}
+        return {"history": []}
+
+
+def save_password_history(data: Dict):
+    """Save password history data to JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        with open(PASSWORD_HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def check_password_history(user_id: str, new_password: str) -> bool:
+    """
+    Check if password was used recently.
+    Returns True if password is in history (should be rejected).
+    """
+    history_data = load_password_history()
+    history = history_data.get("history", [])
+    
+    user_history = [h for h in history if h.get("user_id") == user_id]
+    user_history.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    # Check against last N passwords
+    for hist_entry in user_history[:PASSWORD_HISTORY_COUNT]:
+        old_hash = hist_entry.get("hashed_password", "")
+        if verify_password(new_password, old_hash):
+            return True  # Password was used before
+    
+    return False  # Password is new
+
+
+def add_to_password_history(user_id: str, hashed_password: str):
+    """Add a password hash to the user's password history."""
+    history_data = load_password_history()
+    history = history_data.get("history", [])
+    
+    # Add new entry
+    history.append({
+        "user_id": user_id,
+        "hashed_password": hashed_password,
+        "created_at": datetime.now().isoformat()
+    })
+    
+    # Keep only recent history for this user (last N + 1 to account for current)
+    user_history = [h for h in history if h.get("user_id") == user_id]
+    user_history.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    # Remove old entries beyond history count
+    if len(user_history) > PASSWORD_HISTORY_COUNT + 1:
+        keep_ids = {h.get("created_at") for h in user_history[:PASSWORD_HISTORY_COUNT + 1]}
+        history = [h for h in history if not (h.get("user_id") == user_id and h.get("created_at") not in keep_ids)]
+    
+    history_data["history"] = history
+    save_password_history(history_data)
+
+
+def check_password_expiration(user_id: str) -> Tuple[bool, Optional[str]]:
+    """
+    Check if user's password has expired.
+    Returns (is_expired, expiration_date).
+    """
+    if PASSWORD_EXPIRATION_DAYS == 0:
+        return False, None  # Password expiration disabled
+    
+    users_data = load_users()
+    users = users_data.get("users", [])
+    
+    for user in users:
+        if user.get("id") == user_id:
+            password_changed_at = user.get("password_changed_at")
+            if not password_changed_at:
+                # If password was never changed, use created_at
+                password_changed_at = user.get("created_at")
+            
+            if password_changed_at:
+                try:
+                    changed_date = datetime.fromisoformat(password_changed_at)
+                    expiration_date = changed_date + timedelta(days=PASSWORD_EXPIRATION_DAYS)
+                    
+                    if datetime.now() >= expiration_date:
+                        return True, expiration_date.isoformat()
+                    else:
+                        return False, expiration_date.isoformat()
+                except Exception:
+                    pass
+    
+    return False, None
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -150,6 +314,11 @@ class UserManager:
     @staticmethod
     def create_user(username: str, email: str, password: str, role: str = "user") -> Dict:
         """Create a new user."""
+        # Validate password policy
+        is_valid, errors = validate_password(password)
+        if not is_valid:
+            raise ValueError("Password does not meet requirements: " + "; ".join(errors))
+        
         users_data = load_users()
         users = users_data.get("users", [])
         
@@ -160,14 +329,19 @@ class UserManager:
             if user.get("email") == email:
                 raise ValueError("Email already exists")
         
+        # Hash password
+        hashed_password = hash_password(password)
+        
         # Create new user
+        now = datetime.now().isoformat()
         new_user = {
             "id": secrets.token_urlsafe(16),
             "username": username,
             "email": email,
-            "hashed_password": hash_password(password),
+            "hashed_password": hashed_password,
             "role": role,
-            "created_at": datetime.now().isoformat(),
+            "created_at": now,
+            "password_changed_at": now,  # Track password change date
             "last_login": None,
             "active": True
         }
@@ -175,6 +349,9 @@ class UserManager:
         users.append(new_user)
         users_data["users"] = users
         save_users(users_data)
+        
+        # Add to password history
+        add_to_password_history(new_user["id"], hashed_password)
         
         return {
             "id": new_user["id"],
@@ -185,6 +362,120 @@ class UserManager:
         }
     
     @staticmethod
+    def is_account_locked(user_id: str) -> Tuple[bool, Optional[str]]:
+        """Check if account is locked. Returns (is_locked, unlock_time)."""
+        lockouts_data = load_lockouts()
+        lockouts = lockouts_data.get("lockouts", [])
+        
+        for lockout in lockouts:
+            if lockout.get("user_id") == user_id and lockout.get("locked", False):
+                unlock_time = datetime.fromisoformat(lockout.get("unlock_at", ""))
+                if datetime.now() < unlock_time:
+                    # Still locked
+                    return True, unlock_time.isoformat()
+                else:
+                    # Lockout expired, remove it
+                    lockout["locked"] = False
+                    save_lockouts(lockouts_data)
+                    return False, None
+        
+        return False, None
+    
+    @staticmethod
+    def record_failed_login(username: str) -> Tuple[bool, Optional[str], int]:
+        """Record a failed login attempt. Returns (is_locked, unlock_time, attempts_remaining)."""
+        users_data = load_users()
+        users = users_data.get("users", [])
+        
+        # Find user
+        user = None
+        for u in users:
+            if u.get("username") == username:
+                user = u
+                break
+        
+        if not user:
+            # User doesn't exist, don't track attempts (security best practice)
+            return False, None, MAX_FAILED_ATTEMPTS
+        
+        user_id = user["id"]
+        lockouts_data = load_lockouts()
+        lockouts = lockouts_data.get("lockouts", [])
+        
+        # Find or create lockout record
+        lockout = None
+        for l in lockouts:
+            if l.get("user_id") == user_id:
+                lockout = l
+                break
+        
+        if not lockout:
+            lockout = {
+                "user_id": user_id,
+                "username": username,
+                "failed_attempts": 0,
+                "locked": False,
+                "locked_at": None,
+                "unlock_at": None,
+                "last_attempt": None
+            }
+            lockouts.append(lockout)
+        
+        # Increment failed attempts
+        lockout["failed_attempts"] = lockout.get("failed_attempts", 0) + 1
+        lockout["last_attempt"] = datetime.now().isoformat()
+        
+        attempts = lockout["failed_attempts"]
+        attempts_remaining = max(0, MAX_FAILED_ATTEMPTS - attempts)
+        
+        # Lock account if threshold reached
+        if attempts >= MAX_FAILED_ATTEMPTS:
+            lockout["locked"] = True
+            lockout["locked_at"] = datetime.now().isoformat()
+            unlock_time = datetime.now() + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+            lockout["unlock_at"] = unlock_time.isoformat()
+            logger.warning(f"Account locked: {username} after {attempts} failed attempts")
+            save_lockouts(lockouts_data)
+            return True, unlock_time.isoformat(), 0
+        
+        save_lockouts(lockouts_data)
+        return False, None, attempts_remaining
+    
+    @staticmethod
+    def clear_failed_attempts(user_id: str):
+        """Clear failed login attempts (on successful login)."""
+        lockouts_data = load_lockouts()
+        lockouts = lockouts_data.get("lockouts", [])
+        
+        for lockout in lockouts:
+            if lockout.get("user_id") == user_id:
+                lockout["failed_attempts"] = 0
+                lockout["locked"] = False
+                lockout["locked_at"] = None
+                lockout["unlock_at"] = None
+                break
+        
+        save_lockouts(lockouts_data)
+    
+    @staticmethod
+    def unlock_account(user_id: str) -> bool:
+        """Manually unlock an account (admin function)."""
+        lockouts_data = load_lockouts()
+        lockouts = lockouts_data.get("lockouts", [])
+        
+        for lockout in lockouts:
+            if lockout.get("user_id") == user_id:
+                lockout["locked"] = False
+                lockout["failed_attempts"] = 0
+                lockout["locked_at"] = None
+                lockout["unlock_at"] = None
+                save_lockouts(lockouts_data)
+                logger.info(f"Account unlocked: {lockout.get('username')}")
+                return True
+        
+        return False
+    
+    @staticmethod
     def authenticate_user(username: str, password: str) -> Optional[Dict]:
         """Authenticate a user and return user info if successful."""
         users_data = load_users()
@@ -192,7 +483,21 @@ class UserManager:
         
         for user in users:
             if user.get("username") == username and user.get("active", True):
+                user_id = user["id"]
+                
+                # Check if account is locked
+                is_locked, unlock_time = UserManager.is_account_locked(user_id)
+                if is_locked:
+                    logger.warning(f"Login attempt blocked: {username} (account locked)")
+                    return {
+                        "error": "account_locked",
+                        "unlock_time": unlock_time
+                    }
+                
                 if verify_password(password, user.get("hashed_password", "")):
+                    # Successful login - clear failed attempts
+                    UserManager.clear_failed_attempts(user_id)
+                    
                     # Update last login
                     user["last_login"] = datetime.now().isoformat()
                     save_users(users_data)
@@ -205,6 +510,22 @@ class UserManager:
                         "created_at": user.get("created_at"),
                         "last_login": user["last_login"]
                     }
+                else:
+                    # Failed login - record attempt
+                    is_locked, unlock_time, attempts_remaining = UserManager.record_failed_login(username)
+                    if is_locked:
+                        return {
+                            "error": "account_locked",
+                            "unlock_time": unlock_time
+                        }
+                    return {
+                        "error": "invalid_credentials",
+                        "attempts_remaining": attempts_remaining
+                    }
+        
+        # User doesn't exist - don't reveal this (security best practice)
+        # But still record attempt to prevent enumeration
+        UserManager.record_failed_login(username)
         return None
     
     @staticmethod
@@ -215,6 +536,21 @@ class UserManager:
         
         for user in users:
             if user.get("id") == user_id:
+                # Get lockout status
+                is_locked, unlock_time = UserManager.is_account_locked(user_id)
+                
+                # Get failed attempts count
+                lockouts_data = load_lockouts()
+                lockouts = lockouts_data.get("lockouts", [])
+                failed_attempts = 0
+                for lockout in lockouts:
+                    if lockout.get("user_id") == user_id:
+                        failed_attempts = lockout.get("failed_attempts", 0)
+                        break
+                
+                # Check password expiration
+                password_expired, password_expires_at = check_password_expiration(user_id)
+                
                 return {
                     "id": user["id"],
                     "username": user["username"],
@@ -222,7 +558,12 @@ class UserManager:
                     "role": user["role"],
                     "created_at": user.get("created_at"),
                     "last_login": user.get("last_login"),
-                    "active": user.get("active", True)
+                    "active": user.get("active", True),
+                    "locked": is_locked,
+                    "unlock_time": unlock_time,
+                    "failed_attempts": failed_attempts,
+                    "password_expires_at": password_expires_at,
+                    "password_expired": password_expired
                 }
         return None
     
@@ -234,6 +575,22 @@ class UserManager:
         
         for user in users:
             if user.get("username") == username:
+                user_id = user["id"]
+                # Get lockout status
+                is_locked, unlock_time = UserManager.is_account_locked(user_id)
+                
+                # Get failed attempts count
+                lockouts_data = load_lockouts()
+                lockouts = lockouts_data.get("lockouts", [])
+                failed_attempts = 0
+                for lockout in lockouts:
+                    if lockout.get("user_id") == user_id:
+                        failed_attempts = lockout.get("failed_attempts", 0)
+                        break
+                
+                # Check password expiration
+                password_expired, password_expires_at = check_password_expiration(user_id)
+                
                 return {
                     "id": user["id"],
                     "username": user["username"],
@@ -241,7 +598,12 @@ class UserManager:
                     "role": user["role"],
                     "created_at": user.get("created_at"),
                     "last_login": user.get("last_login"),
-                    "active": user.get("active", True)
+                    "active": user.get("active", True),
+                    "locked": is_locked,
+                    "unlock_time": unlock_time,
+                    "failed_attempts": failed_attempts,
+                    "password_expires_at": password_expires_at,
+                    "password_expired": password_expired
                 }
         return None
     
@@ -250,19 +612,48 @@ class UserManager:
         """List all users (admin only)."""
         users_data = load_users()
         users = users_data.get("users", [])
+        lockouts_data = load_lockouts()
+        lockouts = lockouts_data.get("lockouts", [])
         
-        return [
-            {
+        # Create lookup for lockout info
+        lockout_map = {}
+        for lockout in lockouts:
+            user_id = lockout.get("user_id")
+            is_locked, unlock_time = UserManager.is_account_locked(user_id)
+            lockout_map[user_id] = {
+                "locked": is_locked,
+                "unlock_time": unlock_time,
+                "failed_attempts": lockout.get("failed_attempts", 0)
+            }
+        
+        result = []
+        for user in users:
+            user_id = user["id"]
+            lockout_info = lockout_map.get(user_id, {
+                "locked": False,
+                "unlock_time": None,
+                "failed_attempts": 0
+            })
+            
+            # Check password expiration
+            password_expired, password_expires_at = check_password_expiration(user_id)
+            
+            result.append({
                 "id": user["id"],
                 "username": user["username"],
                 "email": user["email"],
                 "role": user["role"],
                 "created_at": user.get("created_at"),
                 "last_login": user.get("last_login"),
-                "active": user.get("active", True)
-            }
-            for user in users
-        ]
+                "active": user.get("active", True),
+                "locked": lockout_info["locked"],
+                "unlock_time": lockout_info["unlock_time"],
+                "failed_attempts": lockout_info["failed_attempts"],
+                "password_expires_at": password_expires_at,
+                "password_expired": password_expired
+            })
+        
+        return result
     
     @staticmethod
     def update_user_role(user_id: str, new_role: str) -> bool:
@@ -304,20 +695,42 @@ class UserManager:
         return False
     
     @staticmethod
-    def change_password(user_id: str, old_password: str, new_password: str) -> bool:
-        """Change user password."""
+    def change_password(user_id: str, old_password: str, new_password: str) -> Tuple[bool, Optional[str]]:
+        """
+        Change user password.
+        Returns (success, error_message).
+        """
+        # Validate password policy
+        is_valid, errors = validate_password(new_password)
+        if not is_valid:
+            return False, "Password does not meet requirements: " + "; ".join(errors)
+        
+        # Check password history
+        if check_password_history(user_id, new_password):
+            return False, f"Password cannot be reused. You must use a password different from your last {PASSWORD_HISTORY_COUNT} passwords."
+        
         users_data = load_users()
         users = users_data.get("users", [])
         
         for user in users:
             if user.get("id") == user_id:
                 if verify_password(old_password, user.get("hashed_password", "")):
+                    # Add old password to history before changing
+                    add_to_password_history(user_id, user.get("hashed_password", ""))
+                    
+                    # Update password
                     user["hashed_password"] = hash_password(new_password)
+                    user["password_changed_at"] = datetime.now().isoformat()
                     save_users(users_data)
-                    return True
+                    
+                    # Add new password to history
+                    add_to_password_history(user_id, user["hashed_password"])
+                    
+                    logger.info(f"Password changed for user: {user.get('username')}")
+                    return True, None
                 else:
-                    return False
-        return False
+                    return False, "Current password is incorrect"
+        return False, "User not found"
     
     @staticmethod
     def initialize_default_admin():
@@ -431,20 +844,41 @@ class UserManager:
         return None
     
     @staticmethod
-    def reset_password_with_token(token: str, new_password: str) -> bool:
-        """Reset password using a reset token."""
+    def reset_password_with_token(token: str, new_password: str) -> Tuple[bool, Optional[str]]:
+        """
+        Reset password using a reset token.
+        Returns (success, error_message).
+        """
         token_info = UserManager.verify_reset_token(token)
         if not token_info:
-            return False
+            return False, "Invalid or expired reset token"
+        
+        # Validate password policy
+        is_valid, errors = validate_password(new_password)
+        if not is_valid:
+            return False, "Password does not meet requirements: " + "; ".join(errors)
         
         user_id = token_info["user_id"]
+        
+        # Check password history
+        if check_password_history(user_id, new_password):
+            return False, f"Password cannot be reused. You must use a password different from your last {PASSWORD_HISTORY_COUNT} passwords."
+        
         users_data = load_users()
         users = users_data.get("users", [])
         
         for user in users:
             if user.get("id") == user_id:
+                # Add old password to history before changing
+                add_to_password_history(user_id, user.get("hashed_password", ""))
+                
+                # Update password
                 user["hashed_password"] = hash_password(new_password)
+                user["password_changed_at"] = datetime.now().isoformat()
                 save_users(users_data)
+                
+                # Add new password to history
+                add_to_password_history(user_id, user["hashed_password"])
                 
                 # Mark token as used (match normalized)
                 tokens_data = load_reset_tokens()
@@ -457,9 +891,10 @@ class UserManager:
                         break
                 save_reset_tokens(tokens_data)
                 
-                return True
+                logger.info(f"Password reset for user: {user.get('username')}")
+                return True, None
         
-        return False
+        return False, "User not found"
     
     @staticmethod
     def cleanup_expired_tokens():

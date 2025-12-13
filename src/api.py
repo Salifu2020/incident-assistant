@@ -149,24 +149,57 @@ async def register(user_data: UserRegister):
 @app.post("/auth/login", response_model=Token)
 async def login(credentials: UserLogin):
     """Login and get access token."""
-    user = UserManager.authenticate_user(credentials.username, credentials.password)
-    if not user:
+    result = UserManager.authenticate_user(credentials.username, credentials.password)
+    
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Check for errors (account locked, invalid credentials)
+    if isinstance(result, dict) and "error" in result:
+        error_type = result.get("error")
+        if error_type == "account_locked":
+            unlock_time = result.get("unlock_time")
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=f"Account is locked due to too many failed login attempts. Please try again after {unlock_time} or contact an administrator.",
+            )
+        elif error_type == "invalid_credentials":
+            attempts_remaining = result.get("attempts_remaining", 0)
+            detail_msg = "Incorrect username or password"
+            if attempts_remaining > 0:
+                detail_msg += f". {attempts_remaining} attempt(s) remaining before account lockout."
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=detail_msg,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
+    # Successful authentication
+    user = result
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user["id"], "username": user["username"], "role": user["role"]},
         expires_delta=access_token_expires
     )
     logger.info(f"User logged in: {credentials.username}")
+    
+    # Get lockout status for user info
+    is_locked, unlock_time = UserManager.is_account_locked(user["id"])
+    user_info = UserInfo(
+        **user,
+        locked=is_locked,
+        unlock_time=unlock_time,
+        failed_attempts=0  # Reset on successful login
+    )
+    
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserInfo(**user)
+        "user": user_info
     }
 
 @app.get("/auth/me", response_model=UserInfo)
@@ -180,13 +213,17 @@ async def change_password(
     current_user: UserInfo = Depends(get_current_user)
 ):
     """Change user password."""
-    success = UserManager.change_password(
+    success, error_message = UserManager.change_password(
         current_user.id,
         password_data.old_password,
         password_data.new_password
     )
     if not success:
-        raise HTTPException(status_code=400, detail="Incorrect old password")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_message or "Failed to change password. Please check your current password."
+        )
+    logger.info(f"Password changed for user: {current_user.username}")
     return {"message": "Password changed successfully"}
 
 @app.post("/auth/password-reset/request", response_model=PasswordResetResponse)
@@ -259,22 +296,15 @@ async def verify_reset_token(request: PasswordResetVerifyRequest):
 @app.post("/auth/password-reset/confirm")
 async def confirm_password_reset(request: PasswordResetConfirmRequest):
     """Reset password using a reset token."""
-    # Validate password length
-    if len(request.new_password) < 6:
-        raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 6 characters long"
-        )
-    
-    success = UserManager.reset_password_with_token(
+    success, error_message = UserManager.reset_password_with_token(
         request.token,
         request.new_password
     )
     
     if not success:
         raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired reset token"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_message or "Invalid or expired reset token, or password reset failed."
         )
     
     logger.info("Password reset successful via token")
