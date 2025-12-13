@@ -247,6 +247,9 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserInfo
+    refresh_token: Optional[str] = None
+    session_id: Optional[str] = None
+    requires_2fa: Optional[bool] = False
 
 class TokenData(BaseModel):
     username: Optional[str] = None
@@ -292,4 +295,25 @@ class TwoFALoginRequest(BaseModel):
 
 class TwoFAResponse(BaseModel):
     message: str
-    backup_codes: Optional[List[str]] = None  # For development/testing - remove in production
+    backup_codes: Optional[List[str]] = None
+
+class SessionInfo(BaseModel):
+    session_id: str
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    device_info: Optional[str] = None
+    created_at: str
+    last_activity: str
+    is_current: bool = False
+
+class SessionListResponse(BaseModel):
+    sessions: List[SessionInfo]
+    total: int
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+class TokenRefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"  # For development/testing - remove in production

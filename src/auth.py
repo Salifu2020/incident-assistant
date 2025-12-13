@@ -26,6 +26,7 @@ RATE_LIMIT_FILE = os.path.join(PROJECT_ROOT, "data", "rate_limits.json")
 LOCKOUT_FILE = os.path.join(PROJECT_ROOT, "data", "account_lockouts.json")
 PASSWORD_HISTORY_FILE = os.path.join(PROJECT_ROOT, "data", "password_history.json")
 TWOFA_FILE = os.path.join(PROJECT_ROOT, "data", "twofa.json")
+SESSIONS_FILE = os.path.join(PROJECT_ROOT, "data", "sessions.json")
 
 # Lockout configuration
 MAX_FAILED_ATTEMPTS = 5  # Lock after 5 failed attempts
@@ -50,6 +51,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+REFRESH_TOKEN_EXPIRE_DAYS = 30  # 30 days
+SESSION_TIMEOUT_MINUTES = 60 * 24 * 7  # 7 days of inactivity
 
 
 def ensure_data_dir():
@@ -395,6 +398,226 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def create_refresh_token(user_id: str) -> str:
+    """Create a refresh token."""
+    to_encode = {
+        "sub": user_id,
+        "type": "refresh",
+        "exp": datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    }
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def verify_refresh_token(token: str) -> Optional[str]:
+    """Verify a refresh token and return user_id if valid."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") == "refresh":
+            return payload.get("sub")
+    except JWTError:
+        pass
+    return None
+
+
+def load_sessions() -> Dict:
+    """Load session data from JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        if os.path.exists(SESSIONS_FILE):
+            try:
+                with open(SESSIONS_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {"sessions": []}
+        return {"sessions": []}
+
+
+def save_sessions(data: Dict):
+    """Save session data to JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        with open(SESSIONS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def create_session(
+    user_id: str,
+    access_token: str,
+    refresh_token: str,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    device_info: Optional[str] = None
+) -> str:
+    """Create a new session and return session ID."""
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    session_id = secrets.token_urlsafe(32)
+    now = datetime.now()
+    
+    session = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "ip_address": ip_address,
+        "user_agent": user_agent,
+        "device_info": device_info,
+        "created_at": now.isoformat(),
+        "last_activity": now.isoformat(),
+        "active": True
+    }
+    
+    sessions.append(session)
+    sessions_data["sessions"] = sessions
+    save_sessions(sessions_data)
+    
+    logger.info(f"Session created for user: {user_id}")
+    return session_id
+
+
+def update_session_activity(session_id: str):
+    """Update last activity timestamp for a session."""
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    for session in sessions:
+        if session.get("session_id") == session_id:
+            session["last_activity"] = datetime.now().isoformat()
+            save_sessions(sessions_data)
+            return True
+    
+    return False
+
+
+def revoke_session(session_id: str) -> bool:
+    """Revoke a session."""
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    for session in sessions:
+        if session.get("session_id") == session_id:
+            session["active"] = False
+            session["revoked_at"] = datetime.now().isoformat()
+            save_sessions(sessions_data)
+            logger.info(f"Session revoked: {session_id}")
+            return True
+    
+    return False
+
+
+def revoke_all_user_sessions(user_id: str, exclude_session_id: Optional[str] = None):
+    """Revoke all sessions for a user, optionally excluding one."""
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    revoked_count = 0
+    for session in sessions:
+        if (session.get("user_id") == user_id and 
+            session.get("active", False) and
+            session.get("session_id") != exclude_session_id):
+            session["active"] = False
+            session["revoked_at"] = datetime.now().isoformat()
+            revoked_count += 1
+    
+    if revoked_count > 0:
+        save_sessions(sessions_data)
+        logger.info(f"Revoked {revoked_count} sessions for user: {user_id}")
+
+
+def get_user_sessions(user_id: str) -> List[Dict]:
+    """Get all active sessions for a user."""
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    user_sessions = []
+    now = datetime.now()
+    
+    for session in sessions:
+        if session.get("user_id") == user_id and session.get("active", False):
+            # Check if session has timed out
+            last_activity = datetime.fromisoformat(session.get("last_activity", ""))
+            timeout_threshold = now - timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+            
+            if last_activity < timeout_threshold:
+                # Session timed out, mark as inactive
+                session["active"] = False
+                session["expired_at"] = now.isoformat()
+            else:
+                user_sessions.append({
+                    "session_id": session.get("session_id"),
+                    "ip_address": session.get("ip_address"),
+                    "user_agent": session.get("user_agent"),
+                    "device_info": session.get("device_info"),
+                    "created_at": session.get("created_at"),
+                    "last_activity": session.get("last_activity"),
+                    "is_current": False  # Will be set by caller
+                })
+    
+    # Save any changes
+    save_sessions(sessions_data)
+    
+    return user_sessions
+
+
+def get_session_by_token(access_token: str) -> Optional[Dict]:
+    """Get session by access token."""
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    for session in sessions:
+        if session.get("access_token") == access_token and session.get("active", False):
+            # Check if session has timed out
+            last_activity = datetime.fromisoformat(session.get("last_activity", ""))
+            timeout_threshold = datetime.now() - timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+            
+            if last_activity < timeout_threshold:
+                session["active"] = False
+                session["expired_at"] = datetime.now().isoformat()
+                save_sessions(sessions_data)
+                return None
+            
+            return session
+    
+    return None
+
+
+def cleanup_expired_sessions():
+    """Remove expired sessions (call periodically)."""
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    now = datetime.now()
+    timeout_threshold = now - timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+    refresh_expiry = now - timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    original_count = len(sessions)
+    
+    # Remove expired sessions
+    active_sessions = []
+    for session in sessions:
+        if not session.get("active", False):
+            continue
+        
+        last_activity = datetime.fromisoformat(session.get("last_activity", ""))
+        created_at = datetime.fromisoformat(session.get("created_at", ""))
+        
+        # Check activity timeout
+        if last_activity < timeout_threshold:
+            continue
+        
+        # Check refresh token expiry
+        if created_at < refresh_expiry:
+            continue
+        
+        active_sessions.append(session)
+    
+    if len(active_sessions) < original_count:
+        sessions_data["sessions"] = active_sessions
+        save_sessions(sessions_data)
+        logger.info(f"Cleaned up {original_count - len(active_sessions)} expired sessions")
 
 
 def verify_token(token: str) -> Optional[Dict]:

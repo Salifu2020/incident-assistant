@@ -453,6 +453,10 @@ if not st.session_state.authenticated:
                                 else:
                                     st.session_state.authenticated = True
                                     st.session_state.access_token = data["access_token"]
+                                    if "refresh_token" in data:
+                                        st.session_state.refresh_token = data["refresh_token"]
+                                    if "session_id" in data:
+                                        st.session_state.session_id = data["session_id"]
                                     st.session_state.current_user = data["user"]
                                     st.success("✅ Login successful!")
                                     st.rerun()
@@ -472,6 +476,51 @@ if not st.session_state.authenticated:
                             st.error(f"❌ Error: {str(e)}")
                 else:
                     st.warning("⚠️ Please enter both username and password")
+        
+        # 2FA verification form (shown when 2FA is required)
+        if st.session_state.pending_2fa_username:
+            st.markdown("---")
+            st.markdown("### 🔐 Two-Factor Authentication")
+            st.info(f"Please enter the 6-digit code from your authenticator app for user: **{st.session_state.pending_2fa_username}**")
+            
+            with st.form("2fa_verify_form"):
+                twofa_code = st.text_input("2FA Code", key="2fa_code", help="Enter 6-digit code from your authenticator app or a backup code")
+                submit_2fa = st.form_submit_button("Verify", use_container_width=True)
+                
+                if submit_2fa:
+                    if twofa_code:
+                        try:
+                            response = requests.post(
+                                f"{API_URL}/auth/2fa/verify-login",
+                                json={"code": twofa_code},
+                                params={"username": st.session_state.pending_2fa_username},
+                                timeout=5
+                            )
+                            if response.status_code == 200:
+                                data = response.json()
+                                st.session_state.authenticated = True
+                                st.session_state.access_token = data["access_token"]
+                                if "refresh_token" in data:
+                                    st.session_state.refresh_token = data["refresh_token"]
+                                if "session_id" in data:
+                                    st.session_state.session_id = data["session_id"]
+                                st.session_state.current_user = data["user"]
+                                st.session_state.pending_2fa_username = None
+                                st.success("✅ Login successful!")
+                                st.rerun()
+                            else:
+                                error_detail = response.json().get('detail', 'Invalid 2FA code')
+                                st.error(f"❌ {error_detail}")
+                        except requests.exceptions.ConnectionError:
+                            st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                    else:
+                        st.warning("⚠️ Please enter your 2FA code")
+            
+            if st.button("❌ Cancel", key="cancel_2fa"):
+                st.session_state.pending_2fa_username = None
+                st.rerun()
     
     with tab2:
         st.markdown("### Register")
@@ -546,6 +595,11 @@ with st.sidebar:
         # 2FA management
         if st.button("🔐 Two-Factor Authentication", use_container_width=True):
             st.session_state.show_2fa_setup = True
+            st.rerun()
+        
+        # Session management
+        if st.button("📱 Active Sessions", use_container_width=True):
+            st.session_state.show_sessions = True
             st.rerun()
         
         if st.button("🚪 Logout", use_container_width=True):
@@ -1701,6 +1755,126 @@ if st.session_state.get("show_2fa_setup", False):
     if st.button("❌ Close", use_container_width=True, key="close_2fa"):
         st.session_state.show_2fa_setup = False
         st.session_state["2fa_setup_data"] = None
+        st.rerun()
+    
+    st.markdown("---")
+
+# Session Management Section
+if st.session_state.get("show_sessions", False):
+    st.markdown("---")
+    st.markdown("### 📱 Active Sessions")
+    
+    try:
+        headers = get_auth_headers()
+        
+        with st.spinner("Loading sessions..."):
+            sessions_resp = requests.get(f"{API_URL}/auth/sessions", headers=headers, timeout=5)
+            
+            if sessions_resp.status_code == 200:
+                sessions_data = sessions_resp.json()
+                sessions = sessions_data.get("sessions", [])
+                total = sessions_data.get("total", 0)
+                
+                if total == 0:
+                    st.info("📭 No active sessions found.")
+                else:
+                    st.metric("Active Sessions", total)
+                    st.markdown("---")
+                    
+                    # Display sessions
+                    for idx, session in enumerate(sessions):
+                        with st.container():
+                            col1, col2, col3 = st.columns([3, 2, 1])
+                            
+                            with col1:
+                                if session.get("is_current", False):
+                                    st.markdown(f"**🟢 Current Session** (This device)")
+                                else:
+                                    st.markdown(f"**⚪ Session {idx + 1}**")
+                                
+                                if session.get("ip_address"):
+                                    st.caption(f"📍 IP: {session.get('ip_address')}")
+                                if session.get("user_agent"):
+                                    user_agent = session.get("user_agent", "")
+                                    # Try to extract browser/device info
+                                    device_info = user_agent[:50] + "..." if len(user_agent) > 50 else user_agent
+                                    st.caption(f"🌐 {device_info}")
+                            
+                            with col2:
+                                if session.get("created_at"):
+                                    try:
+                                        from datetime import datetime
+                                        created = datetime.fromisoformat(session.get("created_at"))
+                                        st.caption(f"Created: {created.strftime('%Y-%m-%d %H:%M')}")
+                                    except:
+                                        st.caption(f"Created: {session.get('created_at', '')[:10]}")
+                                
+                                if session.get("last_activity"):
+                                    try:
+                                        from datetime import datetime
+                                        last_act = datetime.fromisoformat(session.get("last_activity"))
+                                        now = datetime.now()
+                                        diff = now - last_act
+                                        if diff.days > 0:
+                                            st.caption(f"Last activity: {diff.days} day(s) ago")
+                                        elif diff.seconds > 3600:
+                                            st.caption(f"Last activity: {diff.seconds // 3600} hour(s) ago")
+                                        elif diff.seconds > 60:
+                                            st.caption(f"Last activity: {diff.seconds // 60} minute(s) ago")
+                                        else:
+                                            st.caption("Last activity: Just now")
+                                    except:
+                                        st.caption(f"Last activity: {session.get('last_activity', '')[:10]}")
+                            
+                            with col3:
+                                if not session.get("is_current", False):
+                                    if st.button("🚫", key=f"revoke_{idx}", help="Revoke this session"):
+                                        try:
+                                            revoke_resp = requests.post(
+                                                f"{API_URL}/auth/sessions/{session.get('session_id')}/revoke",
+                                                headers=headers,
+                                                timeout=5
+                                            )
+                                            if revoke_resp.status_code == 200:
+                                                st.success("✅ Session revoked")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Error: {revoke_resp.json().get('detail', 'Unknown error')}")
+                                        except Exception as e:
+                                            st.error(f"❌ Error: {str(e)}")
+                            
+                            st.markdown("---")
+                    
+                    # Revoke all other sessions button
+                    if total > 1:
+                        st.markdown("#### Revoke All Other Sessions")
+                        st.warning("⚠️ This will log you out from all other devices. You will remain logged in on this device.")
+                        if st.button("🚫 Revoke All Other Sessions", use_container_width=True, type="primary"):
+                            try:
+                                revoke_all_resp = requests.post(
+                                    f"{API_URL}/auth/sessions/revoke-all",
+                                    headers=headers,
+                                    timeout=5
+                                )
+                                if revoke_all_resp.status_code == 200:
+                                    st.success("✅ All other sessions revoked")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Error: {revoke_all_resp.json().get('detail', 'Unknown error')}")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+            else:
+                st.error(f"❌ Failed to load sessions: {sessions_resp.status_code}")
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Cannot connect to API. Please ensure the server is running.")
+    except Exception as e:
+        st.error(f"❌ Error loading sessions: {str(e)}")
+    
+    # Close button
+    if st.button("❌ Close", use_container_width=True, key="close_sessions"):
+        st.session_state.show_sessions = False
         st.rerun()
     
     st.markdown("---")

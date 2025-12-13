@@ -10,7 +10,7 @@ import shutil
 import json
 import asyncio
 from logging.handlers import RotatingFileHandler
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from .dependencies import processor, assistant
 from .models import (
@@ -29,11 +29,18 @@ from .models import (
     ChangePasswordRequest, UpdateUserRoleRequest,
     PasswordResetRequest, PasswordResetVerifyRequest, PasswordResetConfirmRequest,
     PasswordResetResponse,
-    TwoFASetupResponse, TwoFAVerifyRequest, TwoFALoginRequest, TwoFAResponse
+    TwoFASetupResponse, TwoFAVerifyRequest, TwoFALoginRequest, TwoFAResponse,
+    SessionInfo, SessionListResponse, RefreshTokenRequest, TokenRefreshResponse
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
-from .auth import UserManager, verify_token, create_access_token, SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES
+from .auth import (
+    UserManager, verify_token, create_access_token, create_refresh_token,
+    verify_refresh_token, create_session, update_session_activity,
+    revoke_session, revoke_all_user_sessions, get_user_sessions,
+    get_session_by_token, cleanup_expired_sessions, load_sessions, save_sessions,
+    SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+)
 
 # Import email service (optional - will work without it)
 try:
@@ -148,7 +155,7 @@ async def register(user_data: UserRegister):
         raise HTTPException(status_code=500, detail="Registration failed")
 
 @app.post("/auth/login", response_model=Token)
-async def login(credentials: UserLogin):
+async def login(credentials: UserLogin, request: FastAPIRequest = None):
     """Login and get access token."""
     result = UserManager.authenticate_user(credentials.username, credentials.password)
     
@@ -186,7 +193,6 @@ async def login(credentials: UserLogin):
         data={"sub": user["id"], "username": user["username"], "role": user["role"]},
         expires_delta=access_token_expires
     )
-    logger.info(f"User logged in: {credentials.username}")
     
     # Get lockout status for user info
     is_locked, unlock_time = UserManager.is_account_locked(user["id"])
@@ -208,15 +214,42 @@ async def login(credentials: UserLogin):
             "access_token": None,  # No token yet, need 2FA
             "token_type": "bearer",
             "user": user_info,
-            "requires_2fa": True,
-            "temp_token": None  # We'll use a temporary token for 2FA verification
+            "requires_2fa": True
         }
+    
+    # Create refresh token
+    refresh_token = create_refresh_token(user["id"])
+    
+    # Get client info for session
+    ip_address = None
+    user_agent = None
+    if request:
+        ip_address = (
+            request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            request.headers.get("X-Real-IP", "") or
+            (request.client.host if request.client else None)
+        )
+        user_agent = request.headers.get("User-Agent", "")
+    
+    # Create session
+    session_id = create_session(
+        user_id=user["id"],
+        access_token=access_token,
+        refresh_token=refresh_token,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_info=None  # Could parse from user agent
+    )
+    
+    logger.info(f"User logged in: {credentials.username} (session: {session_id[:8]}...)")
     
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user": user_info,
-        "requires_2fa": False
+        "requires_2fa": False,
+        "session_id": session_id
     }
 
 @app.get("/auth/me", response_model=UserInfo)
@@ -423,7 +456,8 @@ async def verify_and_enable_2fa(
 @app.post("/auth/2fa/verify-login")
 async def verify_2fa_login(
     request: TwoFALoginRequest,
-    username: str
+    username: str,
+    http_request: FastAPIRequest = None
 ):
     """
     Verify 2FA code during login.
@@ -445,6 +479,30 @@ async def verify_2fa_login(
             expires_delta=access_token_expires
         )
         
+        # Create refresh token
+        refresh_token = create_refresh_token(user["id"])
+        
+        # Get client info for session
+        ip_address = None
+        user_agent = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+            user_agent = http_request.headers.get("User-Agent", "")
+        
+        # Create session
+        session_id = create_session(
+            user_id=user["id"],
+            access_token=access_token,
+            refresh_token=refresh_token,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_info=None
+        )
+        
         # Get lockout status
         is_locked, unlock_time = UserManager.is_account_locked(user["id"])
         
@@ -456,11 +514,13 @@ async def verify_2fa_login(
             twofa_enabled=True
         )
         
-        logger.info(f"2FA login successful for user: {username}")
+        logger.info(f"2FA login successful for user: {username} (session: {session_id[:8]}...)")
         return {
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
-            "user": user_info
+            "user": user_info,
+            "session_id": session_id
         }
     else:
         raise HTTPException(
@@ -502,6 +562,126 @@ async def regenerate_backup_codes(current_user: UserInfo = Depends(get_current_u
     return {
         "message": "Backup codes regenerated successfully",
         "backup_codes": codes
+    }
+
+# Session management endpoints
+@app.get("/auth/sessions", response_model=SessionListResponse)
+async def get_sessions(
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Get all active sessions for the current user."""
+    sessions = get_user_sessions(current_user.id)
+    
+    # Mark current session
+    current_token = None
+    if http_request:
+        auth_header = http_request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            current_token = auth_header.split(" ")[1]
+    
+    if current_token:
+        current_session = get_session_by_token(current_token)
+        if current_session:
+            for session in sessions:
+                if session["session_id"] == current_session.get("session_id"):
+                    session["is_current"] = True
+                    break
+    
+    return {
+        "sessions": [SessionInfo(**s) for s in sessions],
+        "total": len(sessions)
+    }
+
+@app.post("/auth/sessions/{session_id}/revoke")
+async def revoke_user_session(
+    session_id: str,
+    current_user: UserInfo = Depends(get_current_user)
+):
+    """Revoke a specific session (user can only revoke their own sessions)."""
+    # Verify session belongs to user
+    sessions = get_user_sessions(current_user.id)
+    session_ids = [s["session_id"] for s in sessions]
+    
+    if session_id not in session_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found"
+        )
+    
+    success = revoke_session(session_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to revoke session"
+        )
+    
+    logger.info(f"Session revoked by user: {current_user.username}")
+    return {"message": "Session revoked successfully"}
+
+@app.post("/auth/sessions/revoke-all")
+async def revoke_all_sessions(
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Revoke all sessions except the current one."""
+    current_session_id = None
+    
+    if http_request:
+        auth_header = http_request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            current_token = auth_header.split(" ")[1]
+            current_session = get_session_by_token(current_token)
+            if current_session:
+                current_session_id = current_session.get("session_id")
+    
+    revoke_all_user_sessions(current_user.id, exclude_session_id=current_session_id)
+    logger.info(f"All sessions revoked by user: {current_user.username} (except current)")
+    return {"message": "All other sessions revoked successfully"}
+
+@app.post("/auth/refresh", response_model=TokenRefreshResponse)
+async def refresh_token(request: RefreshTokenRequest):
+    """Refresh access token using refresh token."""
+    user_id = verify_refresh_token(request.refresh_token)
+    
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token"
+        )
+    
+    # Get user info
+    user = UserManager.get_user_by_id(user_id)
+    if not user or not user.get("active", True):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive"
+        )
+    
+    # Generate new tokens
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = create_access_token(
+        data={"sub": user["id"], "username": user["username"], "role": user["role"]},
+        expires_delta=access_token_expires
+    )
+    new_refresh_token = create_refresh_token(user["id"])
+    
+    # Update session with new tokens
+    sessions_data = load_sessions()
+    sessions = sessions_data.get("sessions", [])
+    
+    for session in sessions:
+        if session.get("refresh_token") == request.refresh_token and session.get("active", False):
+            session["access_token"] = new_access_token
+            session["refresh_token"] = new_refresh_token
+            session["last_activity"] = datetime.now().isoformat()
+            save_sessions(sessions_data)
+            break
+    
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer"
     }
 
 @app.get("/status")
