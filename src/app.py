@@ -242,11 +242,141 @@ if "conversations" not in st.session_state:
     st.session_state.conversations = []
 if "show_health" not in st.session_state:
     st.session_state.show_health = False
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
+if "show_login" not in st.session_state:
+    st.session_state.show_login = False
+if "show_register" not in st.session_state:
+    st.session_state.show_register = False
+if "show_user_management" not in st.session_state:
+    st.session_state.show_user_management = False
+if "show_change_password" not in st.session_state:
+    st.session_state.show_change_password = False
 
 MAX_HISTORY = 50
 
+# Authentication check and login UI
+def get_auth_headers():
+    """Get authentication headers if user is authenticated."""
+    if st.session_state.authenticated and st.session_state.access_token:
+        return {"Authorization": f"Bearer {st.session_state.access_token}"}
+    return {}
+
+# Login/Register UI
+if not st.session_state.authenticated:
+    st.title("🔐 Authentication Required")
+    
+    tab1, tab2 = st.tabs(["Login", "Register"])
+    
+    with tab1:
+        st.markdown("### Login")
+        with st.form("login_form"):
+            username = st.text_input("Username", key="login_username")
+            password = st.text_input("Password", type="password", key="login_password")
+            submit = st.form_submit_button("Login", use_container_width=True)
+            
+            if submit:
+                if username and password:
+                    try:
+                        response = requests.post(
+                            f"{API_URL}/auth/login",
+                            json={"username": username, "password": password},
+                            timeout=5
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            st.session_state.authenticated = True
+                            st.session_state.access_token = data["access_token"]
+                            st.session_state.current_user = data["user"]
+                            st.success("✅ Login successful!")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Login failed: {response.json().get('detail', 'Unknown error')}")
+                    except requests.exceptions.ConnectionError:
+                        st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+                else:
+                    st.warning("⚠️ Please enter both username and password")
+    
+    with tab2:
+        st.markdown("### Register")
+        with st.form("register_form"):
+            reg_username = st.text_input("Username", key="reg_username")
+            reg_email = st.text_input("Email", key="reg_email")
+            reg_password = st.text_input("Password", type="password", key="reg_password")
+            reg_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm")
+            reg_role = st.selectbox("Role", ["user", "admin"], key="reg_role", help="Note: Admin role creation may be restricted")
+            submit_reg = st.form_submit_button("Register", use_container_width=True)
+            
+            if submit_reg:
+                if reg_username and reg_email and reg_password:
+                    if reg_password != reg_password_confirm:
+                        st.error("❌ Passwords do not match")
+                    else:
+                        try:
+                            response = requests.post(
+                                f"{API_URL}/auth/register",
+                                json={
+                                    "username": reg_username,
+                                    "email": reg_email,
+                                    "password": reg_password,
+                                    "role": reg_role
+                                },
+                                timeout=5
+                            )
+                            if response.status_code == 200:
+                                st.success("✅ Registration successful! Please login.")
+                                st.info("💡 Default admin credentials: username: admin, password: admin123")
+                            else:
+                                st.error(f"❌ Registration failed: {response.json().get('detail', 'Unknown error')}")
+                        except requests.exceptions.ConnectionError:
+                            st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                else:
+                    st.warning("⚠️ Please fill in all fields")
+    
+    st.info("💡 **Default Admin Credentials:** username: `admin`, password: `admin123`")
+    st.stop()
+
+# Main app (only shown if authenticated)
 # Sidebar
 with st.sidebar:
+    # User info and logout
+    if st.session_state.current_user:
+        user = st.session_state.current_user
+        role_badge = "👑 Admin" if user.get("role") == "admin" else "👤 User"
+        st.markdown(f"### 👤 {user.get('username', 'User')}")
+        st.caption(f"{role_badge}")
+        st.markdown("---")
+        
+        # Change password option
+        if st.button("🔑 Change Password", use_container_width=True):
+            st.session_state.show_change_password = True
+            st.rerun()
+        
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.access_token = None
+            st.session_state.current_user = None
+            st.session_state.chat_history = []
+            st.rerun()
+        
+        # Admin-only user management
+        if user.get("role") == "admin":
+            st.markdown("---")
+            st.markdown("### 👥 User Management")
+            if st.button("👥 Manage Users", use_container_width=True):
+                st.session_state.show_user_management = True
+                st.rerun()
+        
+        st.markdown("---")
+    
     st.markdown("### ⚙️ Settings & Status")
     st.caption("💡 Use ☰ menu in top-left to toggle sidebar")
     st.markdown("---")
@@ -1002,6 +1132,191 @@ if st.session_state.get("show_health", False):
     # Close button
     if st.button("❌ Close Metrics Dashboard", use_container_width=True):
         st.session_state.show_health = False
+        st.rerun()
+    
+    st.markdown("---")
+
+# User Management Dashboard (Admin only)
+if st.session_state.get("show_user_management", False):
+    if st.session_state.current_user and st.session_state.current_user.get("role") == "admin":
+        st.markdown("---")
+        st.markdown("### 👥 User Management Dashboard")
+        
+        try:
+            with st.spinner("Loading users..."):
+                headers = get_auth_headers()
+                users_resp = requests.get(f"{API_URL}/auth/users", headers=headers, timeout=10)
+            
+            if users_resp.status_code == 200:
+                data = users_resp.json()
+                users = data.get("users", [])
+                total = data.get("total", 0)
+                
+                if total == 0:
+                    st.info("📭 No users found.")
+                else:
+                    st.metric("Total Users", total)
+                    st.markdown("---")
+                    
+                    # Display users
+                    for idx, user in enumerate(users):
+                        with st.container():
+                            col1, col2, col3, col4, col5 = st.columns([2, 2, 1, 1, 1])
+                            
+                            with col1:
+                                role_icon = "👑" if user.get("role") == "admin" else "👤"
+                                st.markdown(f"**{role_icon} {user.get('username', 'Unknown')}**")
+                                st.caption(f"📧 {user.get('email', 'N/A')}")
+                            
+                            with col2:
+                                role_badge = "Admin" if user.get("role") == "admin" else "User"
+                                status_badge = "✅ Active" if user.get("active", True) else "❌ Inactive"
+                                st.markdown(f"**Role:** {role_badge}")
+                                st.caption(status_badge)
+                            
+                            with col3:
+                                if user.get("role") != "admin" or user.get("id") != st.session_state.current_user.get("id"):
+                                    new_role = "admin" if user.get("role") == "user" else "user"
+                                    if st.button("🔄", key=f"role_{idx}", help=f"Change to {new_role}"):
+                                        try:
+                                            headers = get_auth_headers()
+                                            resp = requests.put(
+                                                f"{API_URL}/auth/users/{user.get('id')}/role",
+                                                json={"user_id": user.get("id"), "role": new_role},
+                                                headers=headers,
+                                                timeout=5
+                                            )
+                                            if resp.status_code == 200:
+                                                st.success("✅ Role updated")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
+                                        except Exception as e:
+                                            st.error(f"❌ Error: {str(e)}")
+                            
+                            with col4:
+                                if user.get("active", True):
+                                    if st.button("🚫", key=f"deactivate_{idx}", help="Deactivate"):
+                                        try:
+                                            headers = get_auth_headers()
+                                            resp = requests.post(
+                                                f"{API_URL}/auth/users/{user.get('id')}/deactivate",
+                                                headers=headers,
+                                                timeout=5
+                                            )
+                                            if resp.status_code == 200:
+                                                st.success("✅ User deactivated")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
+                                        except Exception as e:
+                                            st.error(f"❌ Error: {str(e)}")
+                                else:
+                                    if st.button("✅", key=f"activate_{idx}", help="Activate"):
+                                        try:
+                                            headers = get_auth_headers()
+                                            resp = requests.post(
+                                                f"{API_URL}/auth/users/{user.get('id')}/activate",
+                                                headers=headers,
+                                                timeout=5
+                                            )
+                                            if resp.status_code == 200:
+                                                st.success("✅ User activated")
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
+                                        except Exception as e:
+                                            st.error(f"❌ Error: {str(e)}")
+                            
+                            with col5:
+                                if user.get("created_at"):
+                                    st.caption(f"Created: {user.get('created_at', '')[:10]}")
+                                if user.get("last_login"):
+                                    st.caption(f"Last login: {user.get('last_login', '')[:10]}")
+                            
+                            st.markdown("---")
+            else:
+                st.error(f"❌ Failed to load users: {users_resp.status_code}")
+        except requests.exceptions.ConnectionError:
+            st.error("❌ Cannot connect to API. Make sure the API server is running.")
+        except Exception as e:
+            st.error(f"❌ Error loading users: {str(e)}")
+        
+        # Close button
+        if st.button("❌ Close User Management", use_container_width=True):
+            st.session_state.show_user_management = False
+            st.rerun()
+        
+        st.markdown("---")
+    else:
+        st.error("❌ Access denied. Admin privileges required.")
+        if st.button("❌ Close", use_container_width=True):
+            st.session_state.show_user_management = False
+            st.rerun()
+
+# Change Password Section
+if st.session_state.get("show_change_password", False):
+    st.markdown("---")
+    st.markdown("### 🔑 Change Password")
+    
+    with st.form("change_password_form"):
+        old_password = st.text_input("Current Password", type="password", key="old_password")
+        new_password = st.text_input("New Password", type="password", key="new_password")
+        confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_password")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submit = st.form_submit_button("✅ Change Password", use_container_width=True)
+        with col2:
+            cancel = st.form_submit_button("❌ Cancel", use_container_width=True)
+        
+        if cancel:
+            st.session_state.show_change_password = False
+            st.rerun()
+        
+        if submit:
+            if not old_password or not new_password or not confirm_password:
+                st.error("❌ Please fill in all fields")
+            elif new_password != confirm_password:
+                st.error("❌ New passwords do not match")
+            elif len(new_password) < 6:
+                st.error("❌ New password must be at least 6 characters long")
+            else:
+                try:
+                    headers = get_auth_headers()
+                    response = requests.post(
+                        f"{API_URL}/auth/change-password",
+                        json={
+                            "old_password": old_password,
+                            "new_password": new_password
+                        },
+                        headers=headers,
+                        timeout=10
+                    )
+                    if response.status_code == 200:
+                        st.success("✅ Password changed successfully!")
+                        st.info("💡 You will need to login again with your new password.")
+                        time.sleep(2)
+                        st.session_state.show_change_password = False
+                        st.session_state.authenticated = False
+                        st.session_state.access_token = None
+                        st.session_state.current_user = None
+                        st.session_state.chat_history = []
+                        st.rerun()
+                    else:
+                        error_detail = response.json().get('detail', 'Unknown error')
+                        st.error(f"❌ Failed to change password: {error_detail}")
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+    
+    # Close button
+    if st.button("❌ Close", use_container_width=True, key="close_change_password"):
+        st.session_state.show_change_password = False
         st.rerun()
     
     st.markdown("---")

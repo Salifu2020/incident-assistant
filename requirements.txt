@@ -7,3 +7,5 @@ sentence-transformers
 ollama
 streamlit
 python-docx
+python-jose[cryptography]
+passlib[bcrypt]

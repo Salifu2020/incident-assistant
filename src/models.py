@@ -216,3 +216,45 @@ class PerformanceStats(BaseModel):
 
 class PerformanceStatsResponse(BaseModel):
     stats: PerformanceStats
+
+# Authentication Models
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+    role: Optional[str] = "user"
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class UserInfo(BaseModel):
+    id: str
+    username: str
+    email: str
+    role: str
+    created_at: Optional[str] = None
+    last_login: Optional[str] = None
+    active: Optional[bool] = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserInfo
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+    user_id: Optional[str] = None
+    role: Optional[str] = None
+
+class UserListResponse(BaseModel):
+    users: List[UserInfo]
+    total: int
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+class UpdateUserRoleRequest(BaseModel):
+    user_id: str
+    role: str

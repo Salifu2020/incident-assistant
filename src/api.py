@@ -1,7 +1,8 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, BackgroundTasks, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Optional
 import os
 import logging
@@ -9,6 +10,7 @@ import shutil
 import json
 import asyncio
 from logging.handlers import RotatingFileHandler
+from datetime import timedelta
 
 from .dependencies import processor, assistant
 from .models import (
@@ -22,10 +24,13 @@ from .models import (
     CreateConversationRequest, UpdateConversationRequest,
     AdvancedSearchFilters, AdvancedQuestionRequest,
     HealthSummary, HealthResponse, MetricEntry, MetricsHistoryResponse,
-    PerformanceStats, PerformanceStatsResponse
+    PerformanceStats, PerformanceStatsResponse,
+    UserRegister, UserLogin, UserInfo, Token, TokenData, UserListResponse,
+    ChangePasswordRequest, UpdateUserRoleRequest
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
+from .auth import UserManager, verify_token, create_access_token, SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -56,13 +61,168 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Security
+security = HTTPBearer()
+
+# Authentication dependencies
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> UserInfo:
+    """Get current authenticated user from JWT token."""
+    token = credentials.credentials
+    payload = verify_token(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = UserManager.get_user_by_id(user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return UserInfo(**user)
+
+async def get_current_admin_user(current_user: UserInfo = Depends(get_current_user)) -> UserInfo:
+    """Get current user and verify admin role."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    return current_user
+
 @app.on_event("startup")
 def startup_event():
     logger.info("🚀 FastAPI app is starting...")
+    # Initialize default admin user if no users exist
+    try:
+        if UserManager.initialize_default_admin():
+            logger.info("✅ Default admin user created (username: admin, password: admin123)")
+    except Exception as e:
+        logger.warning(f"Could not initialize default admin: {e}")
 
 @app.get("/")
 def root():
     return {"message": "📚 Knowledge Assistant API is running"}
+
+# Authentication endpoints
+@app.post("/auth/register", response_model=UserInfo)
+async def register(user_data: UserRegister):
+    """Register a new user."""
+    try:
+        # Validate role
+        if user_data.role not in ["user", "admin"]:
+            raise HTTPException(status_code=400, detail="Invalid role. Must be 'user' or 'admin'")
+        
+        user = UserManager.create_user(
+            username=user_data.username,
+            email=user_data.email,
+            password=user_data.password,
+            role=user_data.role
+        )
+        logger.info(f"New user registered: {user_data.username}")
+        return UserInfo(**user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail="Registration failed")
+
+@app.post("/auth/login", response_model=Token)
+async def login(credentials: UserLogin):
+    """Login and get access token."""
+    user = UserManager.authenticate_user(credentials.username, credentials.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["id"], "username": user["username"], "role": user["role"]},
+        expires_delta=access_token_expires
+    )
+    logger.info(f"User logged in: {credentials.username}")
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": UserInfo(**user)
+    }
+
+@app.get("/auth/me", response_model=UserInfo)
+async def get_current_user_info(current_user: UserInfo = Depends(get_current_user)):
+    """Get current user information."""
+    return current_user
+
+@app.post("/auth/change-password")
+async def change_password(
+    password_data: ChangePasswordRequest,
+    current_user: UserInfo = Depends(get_current_user)
+):
+    """Change user password."""
+    success = UserManager.change_password(
+        current_user.id,
+        password_data.old_password,
+        password_data.new_password
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="Incorrect old password")
+    return {"message": "Password changed successfully"}
+
+# User management endpoints (admin only)
+@app.get("/auth/users", response_model=UserListResponse)
+async def list_users(current_user: UserInfo = Depends(get_current_admin_user)):
+    """List all users (admin only)."""
+    users = UserManager.list_users()
+    return {"users": [UserInfo(**user) for user in users], "total": len(users)}
+
+@app.put("/auth/users/{user_id}/role")
+async def update_user_role(
+    user_id: str,
+    role_data: UpdateUserRoleRequest,
+    current_user: UserInfo = Depends(get_current_admin_user)
+):
+    """Update user role (admin only)."""
+    if role_data.role not in ["user", "admin"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    
+    success = UserManager.update_user_role(user_id, role_data.role)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User role updated successfully"}
+
+@app.post("/auth/users/{user_id}/deactivate")
+async def deactivate_user(
+    user_id: str,
+    current_user: UserInfo = Depends(get_current_admin_user)
+):
+    """Deactivate a user (admin only)."""
+    success = UserManager.deactivate_user(user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User deactivated successfully"}
+
+@app.post("/auth/users/{user_id}/activate")
+async def activate_user(
+    user_id: str,
+    current_user: UserInfo = Depends(get_current_admin_user)
+):
+    """Activate a user (admin only)."""
+    success = UserManager.activate_user(user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User activated successfully"}
 
 @app.get("/status")
 def get_status():
