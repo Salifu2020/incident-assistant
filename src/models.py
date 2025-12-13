@@ -258,3 +258,17 @@ class ChangePasswordRequest(BaseModel):
 class UpdateUserRoleRequest(BaseModel):
     user_id: str
     role: str
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+class PasswordResetVerifyRequest(BaseModel):
+    token: str
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    new_password: str
+
+class PasswordResetResponse(BaseModel):
+    message: str
+    token: Optional[str] = None  # For development/testing - remove in production

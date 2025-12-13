@@ -256,6 +256,12 @@ if "show_user_management" not in st.session_state:
     st.session_state.show_user_management = False
 if "show_change_password" not in st.session_state:
     st.session_state.show_change_password = False
+if "show_password_reset" not in st.session_state:
+    st.session_state.show_password_reset = False
+if "password_reset_token" not in st.session_state:
+    st.session_state.password_reset_token = None
+if "password_reset_email" not in st.session_state:
+    st.session_state.password_reset_email = None
 
 MAX_HISTORY = 50
 
@@ -268,38 +274,168 @@ def get_auth_headers():
 
 # Login/Register UI
 if not st.session_state.authenticated:
+    # Check for reset token in query parameters (for email links)
+    query_params = st.query_params
+    reset_token_from_url = query_params.get("reset_token", None)
+    if reset_token_from_url and not st.session_state.password_reset_token:
+        st.session_state.password_reset_token = reset_token_from_url
+        st.session_state.show_password_reset = True
+        # Verify token to get email
+        try:
+            verify_resp = requests.post(
+                f"{API_URL}/auth/password-reset/verify",
+                json={"token": reset_token_from_url},
+                timeout=5
+            )
+            if verify_resp.status_code == 200:
+                verify_data = verify_resp.json()
+                st.session_state.password_reset_email = verify_data.get("email")
+        except:
+            pass  # Will show error in form
+    
     st.title("🔐 Authentication Required")
     
     tab1, tab2 = st.tabs(["Login", "Register"])
     
     with tab1:
         st.markdown("### Login")
-        with st.form("login_form"):
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            submit = st.form_submit_button("Login", use_container_width=True)
+        
+        # Password reset link
+        if st.session_state.show_password_reset:
+            st.markdown("---")
+            st.markdown("### 🔑 Password Reset")
             
-            if submit:
-                if username and password:
-                    try:
-                        response = requests.post(
-                            f"{API_URL}/auth/login",
-                            json={"username": username, "password": password},
-                            timeout=5
-                        )
-                        if response.status_code == 200:
-                            data = response.json()
-                            st.session_state.authenticated = True
-                            st.session_state.access_token = data["access_token"]
-                            st.session_state.current_user = data["user"]
-                            st.success("✅ Login successful!")
-                            st.rerun()
+            if st.session_state.password_reset_token:
+                # Step 2: Reset password with token
+                st.info(f"📧 Reset token received for: {st.session_state.password_reset_email}")
+                st.warning("⚠️ **Development Mode:** In production, this token would be sent via email.")
+                
+                with st.form("reset_password_form"):
+                    st.text_input("Reset Token", value=st.session_state.password_reset_token, disabled=True, key="display_token")
+                    new_password = st.text_input("New Password", type="password", key="reset_new_password")
+                    confirm_password = st.text_input("Confirm New Password", type="password", key="reset_confirm_password")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        submit_reset = st.form_submit_button("✅ Reset Password", use_container_width=True)
+                    with col2:
+                        cancel_reset = st.form_submit_button("❌ Cancel", use_container_width=True)
+                    
+                    if cancel_reset:
+                        st.session_state.show_password_reset = False
+                        st.session_state.password_reset_token = None
+                        st.session_state.password_reset_email = None
+                        st.rerun()
+                    
+                    if submit_reset:
+                        if not new_password or not confirm_password:
+                            st.error("❌ Please fill in all fields")
+                        elif new_password != confirm_password:
+                            st.error("❌ Passwords do not match")
+                        elif len(new_password) < 6:
+                            st.error("❌ Password must be at least 6 characters long")
                         else:
-                            st.error(f"❌ Login failed: {response.json().get('detail', 'Unknown error')}")
-                    except requests.exceptions.ConnectionError:
-                        st.error("❌ Cannot connect to API. Please ensure the server is running.")
-                    except Exception as e:
-                        st.error(f"❌ Error: {str(e)}")
+                            try:
+                                response = requests.post(
+                                    f"{API_URL}/auth/password-reset/confirm",
+                                    json={
+                                        "token": st.session_state.password_reset_token,
+                                        "new_password": new_password
+                                    },
+                                    timeout=10
+                                )
+                                if response.status_code == 200:
+                                    st.success("✅ Password reset successful! You can now login with your new password.")
+                                    st.session_state.show_password_reset = False
+                                    st.session_state.password_reset_token = None
+                                    st.session_state.password_reset_email = None
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    error_detail = response.json().get('detail', 'Unknown error')
+                                    st.error(f"❌ Password reset failed: {error_detail}")
+                            except requests.exceptions.ConnectionError:
+                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+            else:
+                # Step 1: Request password reset
+                with st.form("request_reset_form"):
+                    reset_email = st.text_input("Email Address", key="reset_email")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        submit_request = st.form_submit_button("📧 Send Reset Link", use_container_width=True)
+                    with col2:
+                        cancel_request = st.form_submit_button("❌ Cancel", use_container_width=True)
+                    
+                    if cancel_request:
+                        st.session_state.show_password_reset = False
+                        st.rerun()
+                    
+                    if submit_request:
+                        if not reset_email:
+                            st.error("❌ Please enter your email address")
+                        else:
+                            try:
+                                response = requests.post(
+                                    f"{API_URL}/auth/password-reset/request",
+                                    json={"email": reset_email},
+                                    timeout=10
+                                )
+                                if response.status_code == 200:
+                                    data = response.json()
+                                    st.success("✅ " + data.get("message", "Reset link sent"))
+                                    
+                                    # In development, show the token
+                                    if data.get("token"):
+                                        st.session_state.password_reset_token = data.get("token")
+                                        st.session_state.password_reset_email = reset_email
+                                        st.info("🔑 **Development Mode:** Your reset token is shown below. In production, this would be sent via email.")
+                                        st.rerun()
+                                else:
+                                    error_detail = response.json().get('detail', 'Unknown error')
+                                    st.error(f"❌ Request failed: {error_detail}")
+                            except requests.exceptions.ConnectionError:
+                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+            
+            st.markdown("---")
+        else:
+            # Normal login form
+            # Forgot password link (outside form)
+            if st.button("🔑 Forgot Password?", use_container_width=True, key="forgot_password_btn"):
+                st.session_state.show_password_reset = True
+                st.rerun()
+            
+            with st.form("login_form"):
+                username = st.text_input("Username", key="login_username")
+                password = st.text_input("Password", type="password", key="login_password")
+                
+                submit = st.form_submit_button("Login", use_container_width=True)
+                
+                if submit:
+                    if username and password:
+                        try:
+                            response = requests.post(
+                                f"{API_URL}/auth/login",
+                                json={"username": username, "password": password},
+                                timeout=5
+                            )
+                            if response.status_code == 200:
+                                data = response.json()
+                                st.session_state.authenticated = True
+                                st.session_state.access_token = data["access_token"]
+                                st.session_state.current_user = data["user"]
+                                st.success("✅ Login successful!")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Login failed: {response.json().get('detail', 'Unknown error')}")
+                        except requests.exceptions.ConnectionError:
+                            st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
                 else:
                     st.warning("⚠️ Please enter both username and password")
     

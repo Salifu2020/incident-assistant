@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request, BackgroundTasks, Depends, status
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, BackgroundTasks, Depends, status, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.exceptions import RequestValidationError
@@ -26,11 +26,20 @@ from .models import (
     HealthSummary, HealthResponse, MetricEntry, MetricsHistoryResponse,
     PerformanceStats, PerformanceStatsResponse,
     UserRegister, UserLogin, UserInfo, Token, TokenData, UserListResponse,
-    ChangePasswordRequest, UpdateUserRoleRequest
+    ChangePasswordRequest, UpdateUserRoleRequest,
+    PasswordResetRequest, PasswordResetVerifyRequest, PasswordResetConfirmRequest,
+    PasswordResetResponse
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
 from .auth import UserManager, verify_token, create_access_token, SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES
+
+# Import email service (optional - will work without it)
+try:
+    from .email_service import EmailService
+except ImportError:
+    EmailService = None
+    logger.warning("Email service not available. Install aiosmtplib, email-validator, and jinja2 for email support.")
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -179,6 +188,97 @@ async def change_password(
     if not success:
         raise HTTPException(status_code=400, detail="Incorrect old password")
     return {"message": "Password changed successfully"}
+
+@app.post("/auth/password-reset/request", response_model=PasswordResetResponse)
+async def request_password_reset(request: PasswordResetRequest, http_request: FastAPIRequest = None):
+    """Request a password reset token."""
+    try:
+        # Get client IP address
+        client_ip = None
+        if http_request:
+            # Try to get IP from various headers (for proxies/load balancers)
+            client_ip = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                http_request.client.host if http_request.client else None
+            )
+        
+        # Cleanup expired tokens first
+        UserManager.cleanup_expired_tokens()
+        
+        token = UserManager.generate_reset_token(request.email, ip_address=client_ip)
+        
+        # For security, always return success message (don't reveal if email exists)
+        if token:
+            # Send email if configured
+            email_sent = False
+            if EmailService and EmailService.is_configured():
+                email_sent = await EmailService.send_password_reset_email(request.email, token)
+                if email_sent:
+                    logger.info(f"Password reset email sent to {request.email}")
+                else:
+                    logger.warning(f"Failed to send password reset email to {request.email}")
+            
+            # In development mode (email not configured), return token
+            if not EmailService or not EmailService.is_configured():
+                logger.info(f"Password reset token generated for {request.email} (email not configured)")
+                return {
+                    "message": "If the email exists, a password reset link has been sent.",
+                    "token": token  # Only returned when email service is not configured
+                }
+            else:
+                return {
+                    "message": "If the email exists, a password reset link has been sent."
+                }
+        else:
+            # Still return success to prevent email enumeration
+            return {
+                "message": "If the email exists, a password reset link has been sent."
+            }
+    except Exception as e:
+        logger.error(f"Error generating reset token: {e}")
+        # Still return success to prevent information leakage
+        return {
+            "message": "If the email exists, a password reset link has been sent."
+        }
+
+@app.post("/auth/password-reset/verify")
+async def verify_reset_token(request: PasswordResetVerifyRequest):
+    """Verify a password reset token."""
+    token_info = UserManager.verify_reset_token(request.token)
+    if not token_info:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired reset token"
+        )
+    return {
+        "message": "Token is valid",
+        "email": token_info.get("email")
+    }
+
+@app.post("/auth/password-reset/confirm")
+async def confirm_password_reset(request: PasswordResetConfirmRequest):
+    """Reset password using a reset token."""
+    # Validate password length
+    if len(request.new_password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 6 characters long"
+        )
+    
+    success = UserManager.reset_password_with_token(
+        request.token,
+        request.new_password
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired reset token"
+        )
+    
+    logger.info("Password reset successful via token")
+    return {"message": "Password has been reset successfully. You can now login with your new password."}
 
 # User management endpoints (admin only)
 @app.get("/auth/users", response_model=UserListResponse)

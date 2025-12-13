@@ -9,3 +9,6 @@ streamlit
 python-docx
 python-jose[cryptography]
 passlib[bcrypt]
+aiosmtplib
+email-validator
+jinja2

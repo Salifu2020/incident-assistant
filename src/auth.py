@@ -10,10 +10,15 @@ from typing import Dict, Optional, List
 import threading
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Get project root directory
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 USERS_FILE = os.path.join(PROJECT_ROOT, "data", "users.json")
+RESET_TOKENS_FILE = os.path.join(PROJECT_ROOT, "data", "reset_tokens.json")
+RATE_LIMIT_FILE = os.path.join(PROJECT_ROOT, "data", "rate_limits.json")
 
 # Thread lock for file operations
 _file_lock = threading.Lock()
@@ -52,6 +57,60 @@ def save_users(data: Dict):
     with _file_lock:
         with open(USERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def load_reset_tokens() -> Dict:
+    """Load password reset tokens from JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        if os.path.exists(RESET_TOKENS_FILE):
+            try:
+                with open(RESET_TOKENS_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {"tokens": []}
+        return {"tokens": []}
+
+
+def save_reset_tokens(data: Dict):
+    """Save password reset tokens to JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        with open(RESET_TOKENS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def load_rate_limits() -> Dict:
+    """Load rate limit data from JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        if os.path.exists(RATE_LIMIT_FILE):
+            try:
+                with open(RATE_LIMIT_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {"limits": []}
+        return {"limits": []}
+
+
+def save_rate_limits(data: Dict):
+    """Save rate limit data to JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        with open(RATE_LIMIT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def generate_user_friendly_token() -> str:
+    """Generate a shorter, user-friendly token."""
+    # Generate 8-character alphanumeric token (case-insensitive for user convenience)
+    import string
+    import random
+    # Use uppercase letters and numbers, exclude confusing characters (0, O, I, 1)
+    chars = string.ascii_uppercase.replace('O', '').replace('I', '') + '23456789'
+    token = ''.join(random.choice(chars) for _ in range(8))
+    # Add a hyphen for readability: XXXX-XXXX
+    return f"{token[:4]}-{token[4:]}"
 
 
 def hash_password(password: str) -> str:
@@ -283,4 +342,139 @@ class UserManager:
             save_users(users_data)
             return True
         return False
+    
+    @staticmethod
+    def generate_reset_token(email: str, ip_address: Optional[str] = None) -> Optional[str]:
+        """Generate a password reset token for a user."""
+        users_data = load_users()
+        users = users_data.get("users", [])
+        
+        # Find user by email
+        user = None
+        for u in users:
+            if u.get("email") == email and u.get("active", True):
+                user = u
+                break
+        
+        if not user:
+            # Don't reveal if email exists or not (security best practice)
+            # But still record rate limit to prevent enumeration
+            UserManager.record_rate_limit(email, ip_address)
+            return None
+        
+        # Check rate limit
+        if not UserManager.check_rate_limit(email, ip_address):
+            logger.warning(f"Rate limit exceeded for password reset: {email}")
+            return None
+        
+        # Generate user-friendly token (8 characters with hyphen: XXXX-XXXX)
+        token = generate_user_friendly_token()
+        expires_at = datetime.now() + timedelta(minutes=30)  # 30 minute expiration
+        
+        # Record rate limit
+        UserManager.record_rate_limit(email, ip_address)
+        
+        # Store token
+        tokens_data = load_reset_tokens()
+        tokens = tokens_data.get("tokens", [])
+        
+        # Remove any existing tokens for this user
+        tokens = [t for t in tokens if t.get("user_id") != user["id"]]
+        
+        # Add new token
+        tokens.append({
+            "token": token,
+            "user_id": user["id"],
+            "email": email,
+            "created_at": datetime.now().isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "used": False
+        })
+        
+        tokens_data["tokens"] = tokens
+        save_reset_tokens(tokens_data)
+        
+        return token
+    
+    @staticmethod
+    def verify_reset_token(token: str) -> Optional[Dict]:
+        """Verify a password reset token and return user info if valid."""
+        tokens_data = load_reset_tokens()
+        tokens = tokens_data.get("tokens", [])
+        
+        # Normalize token (remove hyphens, convert to uppercase for comparison)
+        normalized_token = token.replace('-', '').upper()
+        
+        for token_data in tokens:
+            # Compare normalized tokens (case-insensitive, ignore hyphens)
+            stored_token = token_data.get("token", "").replace('-', '').upper()
+            if (stored_token == normalized_token and 
+                not token_data.get("used", False)):
+                
+                # Check expiration
+                expires_at = datetime.fromisoformat(token_data.get("expires_at", ""))
+                if datetime.now() > expires_at:
+                    # Token expired, mark as used
+                    token_data["used"] = True
+                    save_reset_tokens(tokens_data)
+                    return None
+                
+                # Get user info
+                user = UserManager.get_user_by_id(token_data.get("user_id"))
+                if user:
+                    return {
+                        "user_id": user["id"],
+                        "email": token_data.get("email"),
+                        "token": token
+                    }
+        
+        return None
+    
+    @staticmethod
+    def reset_password_with_token(token: str, new_password: str) -> bool:
+        """Reset password using a reset token."""
+        token_info = UserManager.verify_reset_token(token)
+        if not token_info:
+            return False
+        
+        user_id = token_info["user_id"]
+        users_data = load_users()
+        users = users_data.get("users", [])
+        
+        for user in users:
+            if user.get("id") == user_id:
+                user["hashed_password"] = hash_password(new_password)
+                save_users(users_data)
+                
+                # Mark token as used (match normalized)
+                tokens_data = load_reset_tokens()
+                tokens = tokens_data.get("tokens", [])
+                normalized_token = token.replace('-', '').upper()
+                for t in tokens:
+                    stored_token = t.get("token", "").replace('-', '').upper()
+                    if stored_token == normalized_token:
+                        t["used"] = True
+                        break
+                save_reset_tokens(tokens_data)
+                
+                return True
+        
+        return False
+    
+    @staticmethod
+    def cleanup_expired_tokens():
+        """Remove expired reset tokens (call periodically)."""
+        tokens_data = load_reset_tokens()
+        tokens = tokens_data.get("tokens", [])
+        
+        now = datetime.now()
+        valid_tokens = []
+        
+        for token_data in tokens:
+            expires_at = datetime.fromisoformat(token_data.get("expires_at", ""))
+            if expires_at > now and not token_data.get("used", False):
+                valid_tokens.append(token_data)
+        
+        tokens_data["tokens"] = valid_tokens
+        save_reset_tokens(tokens_data)
 
