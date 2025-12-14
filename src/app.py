@@ -41,178 +41,416 @@ st.set_page_config(
     }
 )
 
-# Custom CSS for modern UI
+# Copilot-style UI Design
 st.markdown(
     """
     <style>
-    /* Main container */
-    .main {
-        padding-top: 2rem;
+    /* Global Styles - Copilot Theme */
+    * {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     }
     
-    /* Header */
+    /* Main container - Dark theme */
+    .main {
+        padding: 0;
+        background: #0f172a;
+        color: #e2e8f0;
+    }
+    
+    /* Header - Dark theme */
     .header-container {
-        text-align: center;
-        padding: 1.5rem 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 15px;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        text-align: left;
+        padding: 1.5rem 2rem;
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border-bottom: 1px solid #334155;
+        margin-bottom: 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
     
     .header-title {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: white;
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #f1f5f9;
         margin: 0;
-        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        letter-spacing: -0.01em;
     }
     
     .header-subtitle {
-        font-size: 1rem;
-        color: rgba(255, 255, 255, 0.9);
-        margin-top: 0.5rem;
+        font-size: 0.875rem;
+        color: #94a3b8;
+        margin-top: 0.25rem;
+        font-weight: 400;
     }
     
-    /* Chat bubbles */
+    /* Copilot-style Chat Interface */
     .chat-container {
-        margin-bottom: 1.5rem;
+        margin-bottom: 0;
+        padding: 1rem 0;
     }
     
     .message-user {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #2563eb;
         color: white;
-        padding: 1rem 1.25rem;
+        padding: 0.875rem 1.125rem;
         border-radius: 18px 18px 4px 18px;
         margin-left: 20%;
-        margin-bottom: 0.75rem;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 1rem;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         word-wrap: break-word;
+        font-size: 0.9375rem;
+        line-height: 1.5;
+        max-width: 75%;
     }
     
     .message-bot {
-        background: #f0f2f6;
-        color: #1f2937;
-        padding: 1rem 1.25rem;
+        background: #1e293b;
+        color: #e2e8f0;
+        padding: 0.875rem 1.125rem;
         border-radius: 18px 18px 18px 4px;
         margin-right: 20%;
-        margin-bottom: 0.75rem;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        border-left: 4px solid #667eea;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        border: 1px solid #334155;
         word-wrap: break-word;
+        font-size: 0.9375rem;
+        line-height: 1.6;
+        max-width: 75%;
     }
     
     .message-time {
         font-size: 0.75rem;
-        color: rgba(0, 0, 0, 0.5);
+        color: #9ca3af;
         margin-top: 0.5rem;
+        font-weight: 400;
     }
     
-    /* Buttons */
+    /* Buttons - Dark theme */
     .stButton>button {
-        border-radius: 10px;
-        padding: 0.5rem 1.5rem;
-        font-weight: 600;
-        transition: all 0.3s;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        font-size: 0.875rem;
+        transition: all 0.15s ease;
+        border: 1px solid #475569;
+        background: #1e293b;
+        color: #e2e8f0;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
     
     .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        background: #334155;
+        border-color: #64748b;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        transform: translateY(-1px);
     }
     
-    /* Input */
-    .stTextInput>div>div>input {
-        border-radius: 10px;
-        padding: 0.75rem;
+    button[kind="primary"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        border-color: #3b82f6 !important;
     }
     
-    /* Status badge */
+    button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        border-color: #2563eb !important;
+    }
+    
+    /* Input Fields - Dark theme */
+    .stTextInput>div>div>input,
+    .stTextArea>div>div>textarea {
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        border: 1px solid #475569;
+        transition: all 0.15s ease;
+        font-size: 0.9375rem;
+        background: #1e293b;
+        color: #e2e8f0;
+    }
+    
+    .stTextInput>div>div>input:focus,
+    .stTextArea>div>div>textarea:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        outline: none;
+        background: #1e293b;
+    }
+    
+    /* Select boxes */
+    .stSelectbox>div>div>select {
+        border-radius: 8px;
+        padding: 0.625rem 0.875rem;
+        border: 1px solid #d1d5db;
+        transition: all 0.15s ease;
+        font-size: 0.9375rem;
+    }
+    
+    /* Status badges - Minimal design */
     .status-badge {
         display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 12px;
-        font-size: 0.85rem;
-        font-weight: 600;
+        padding: 0.25rem 0.625rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 500;
         margin: 0.25rem;
     }
     
     .status-online {
-        background: #10b981;
-        color: white;
+        background: #d1fae5;
+        color: #065f46;
     }
     
     .status-offline {
-        background: #ef4444;
-        color: white;
+        background: #fee2e2;
+        color: #991b1b;
     }
     
-    /* Example questions */
+    /* Example questions - Dark theme */
     .example-question {
-        background: white;
-        border: 2px solid #e5e7eb;
-        border-radius: 10px;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
         padding: 0.75rem 1rem;
         margin: 0.5rem 0;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: all 0.15s ease;
+        font-size: 0.875rem;
+        color: #e2e8f0;
     }
     
     .example-question:hover {
-        border-color: #667eea;
-        background: #f9fafb;
-        transform: translateX(5px);
+        border-color: #3b82f6;
+        background: #1e3a8a;
+        color: #f1f5f9;
+        transform: translateX(4px);
     }
     
-    /* Floating sidebar toggle button */
-    .sidebar-toggle {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 999;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        width: 50px;
-        height: 50px;
-        font-size: 1.5rem;
-        cursor: pointer;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-        transition: all 0.3s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+    /* Sidebar - Dark theme */
+    [data-testid="stSidebar"] {
+        background: #1e293b;
+        border-right: 1px solid #334155;
     }
     
-    .sidebar-toggle:hover {
-        transform: scale(1.1);
-        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    [data-testid="stSidebar"] .stButton>button {
+        width: 100%;
+        margin-bottom: 0.375rem;
+        border-radius: 8px;
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        text-align: left;
+        padding-left: 0.875rem;
+        font-size: 0.875rem;
     }
     
-    /* Show toggle only when sidebar might be closed */
-    @media (max-width: 768px) {
-        .sidebar-toggle {
-            display: flex;
-        }
+    [data-testid="stSidebar"] .stButton>button:hover {
+        background: #334155;
+        border-color: #475569;
     }
     
-    /* Keep header visible for sidebar toggle access */
+    /* Cards and containers */
+    .stExpander {
+        border-radius: 8px;
+        border: 1px solid #334155;
+        margin-bottom: 0.75rem;
+        background: #1e293b;
+    }
+    
+    /* Form styling */
+    .stForm {
+        border-radius: 8px;
+        padding: 1.25rem;
+        background: #1e293b;
+        border: 1px solid #334155;
+    }
+    
+    /* Metrics */
+    [data-testid="stMetricValue"] {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #f1f5f9;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        font-size: 0.875rem;
+        color: #94a3b8;
+        font-weight: 400;
+    }
+    
+    /* Messages - Dark theme */
+    .stSuccess {
+        border-radius: 8px;
+        border-left: 3px solid #10b981;
+        background: #064e3b;
+        border: 1px solid #065f46;
+        color: #d1fae5;
+    }
+    
+    .stError {
+        border-radius: 8px;
+        border-left: 3px solid #ef4444;
+        background: #7f1d1d;
+        border: 1px solid #991b1b;
+        color: #fee2e2;
+    }
+    
+    .stInfo {
+        border-radius: 8px;
+        border-left: 3px solid #3b82f6;
+        background: #1e3a8a;
+        border: 1px solid #1e40af;
+        color: #dbeafe;
+    }
+    
+    .stWarning {
+        border-radius: 8px;
+        border-left: 3px solid #f59e0b;
+        background: #78350f;
+        border: 1px solid #92400e;
+        color: #fef3c7;
+    }
+    
+    /* Checkboxes and radio buttons */
+    .stCheckbox>label,
+    .stRadio>label {
+        font-weight: 400;
+        color: #e2e8f0;
+        font-size: 0.875rem;
+    }
+    
+    /* File uploader */
+    .stFileUploader {
+        border-radius: 8px;
+        border: 1px dashed #475569;
+        padding: 1.5rem;
+        transition: all 0.15s ease;
+        background: #1e293b;
+    }
+    
+    .stFileUploader:hover {
+        border-color: #3b82f6;
+        background: #1e3a8a;
+    }
+    
+    /* Tables */
+    .stDataFrame {
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #334155;
+        background: #1e293b;
+    }
+    
+    /* Hide Streamlit default elements */
     footer {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
     
-    /* Make sure the menu button is visible */
+    /* Header styling */
     [data-testid="stHeader"] {
-        visibility: visible !important;
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+        box-shadow: none;
     }
     
-    /* Help banner styling */
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: #0f172a;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+    }
+    
+    /* Help banner */
     .help-banner {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        display: none;
+    }
+    
+    /* Input container for chat */
+    .chat-input-container {
+        position: sticky;
+        bottom: 0;
+        background: #0f172a;
+        border-top: 1px solid #334155;
         padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        margin-top: 2rem;
+    }
+    
+    /* Code blocks */
+    code {
+        background: #1e293b;
+        padding: 0.125rem 0.375rem;
+        border-radius: 4px;
+        font-size: 0.875em;
+        color: #f1f5f9;
+        border: 1px solid #334155;
+    }
+    
+    /* Markdown content */
+    .stMarkdown {
+        color: #e2e8f0;
+        line-height: 1.6;
+    }
+    
+    /* Dividers */
+    hr {
+        border: none;
+        border-top: 1px solid #334155;
+        margin: 1.5rem 0;
+    }
+    
+    /* Captions */
+    .stCaption {
+        color: #94a3b8;
+        font-size: 0.8125rem;
+    }
+    
+    /* Loading spinner */
+    .stSpinner>div {
+        border-color: #3b82f6 transparent #3b82f6 transparent;
+    }
+    
+    /* Container padding */
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        max-width: 1200px;
+        background: #0f172a;
+    }
+    
+    /* Text colors */
+    h1, h2, h3, h4, h5, h6 {
+        color: #f1f5f9;
+    }
+    
+    p, span, div {
+        color: #e2e8f0;
+    }
+    
+    /* Streamlit chat input */
+    [data-testid="stChatInputContainer"] {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+    }
+    
+    [data-testid="stChatInputContainer"] input {
+        background: #1e293b !important;
+        color: #e2e8f0 !important;
+    }
+    
+    /* Selectbox dropdown */
+    .stSelectbox>div>div>div {
+        background: #1e293b;
+        color: #e2e8f0;
     }
     </style>
     """,
@@ -277,6 +515,40 @@ def get_auth_headers():
     if st.session_state.authenticated and st.session_state.access_token:
         return {"Authorization": f"Bearer {st.session_state.access_token}"}
     return {}
+
+def validate_token(token: str) -> bool:
+    """Validate token with API and restore session if valid."""
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        response = requests.get(f"{API_URL}/auth/me", headers=headers, timeout=5)
+        if response.status_code == 200:
+            user_data = response.json()
+            st.session_state.authenticated = True
+            st.session_state.access_token = token
+            st.session_state.current_user = user_data
+            return True
+    except:
+        pass
+    return False
+
+def restore_session_from_query():
+    """Restore session from query parameters if token exists."""
+    query_params = st.query_params
+    token = query_params.get("token", None)
+    
+    if token and not st.session_state.authenticated:
+        if validate_token(token):
+            # Keep token in query params for persistence
+            st.query_params.token = token
+            return True
+        else:
+            # Remove invalid token from query params
+            st.query_params.clear()
+    return False
+
+# Try to restore session from query parameters on page load
+if not st.session_state.authenticated:
+    restore_session_from_query()
 
 # Login/Register UI
 if not st.session_state.authenticated:
@@ -458,6 +730,8 @@ if not st.session_state.authenticated:
                                     if "session_id" in data:
                                         st.session_state.session_id = data["session_id"]
                                     st.session_state.current_user = data["user"]
+                                    # Store token in query params for persistence across page refreshes
+                                    st.query_params.token = data["access_token"]
                                     st.success("✅ Login successful!")
                                     st.rerun()
                             elif response.status_code == 423:  # Locked
@@ -506,6 +780,8 @@ if not st.session_state.authenticated:
                                     st.session_state.session_id = data["session_id"]
                                 st.session_state.current_user = data["user"]
                                 st.session_state.pending_2fa_username = None
+                                # Store token in query params for persistence
+                                st.query_params.token = data["access_token"]
                                 st.success("✅ Login successful!")
                                 st.rerun()
                             else:
@@ -525,17 +801,140 @@ if not st.session_state.authenticated:
     with tab2:
         st.markdown("### Register")
         
-        # Password requirements info
-        with st.expander("📋 Password Requirements", expanded=False):
-            st.markdown("""
-            Your password must meet the following requirements:
-            - **Minimum length:** 8 characters
-            - **At least one uppercase letter** (A-Z)
-            - **At least one lowercase letter** (a-z)
-            - **At least one number** (0-9)
-            - **At least one special character** (!@#$%^&*()_+-=[]{}|;:,.<>?)
-            - **Cannot reuse** your last 5 passwords
-            """)
+        # Dynamic password requirements with real-time validation
+        st.markdown("""
+        <div id="password-requirements-reg" style="margin-bottom: 1rem; padding: 0.75rem; background: #1e293b; border-radius: 8px; border: 1px solid #334155;">
+            <div style="font-weight: 600; margin-bottom: 0.75rem; color: #e2e8f0;">📋 Password Requirements:</div>
+            <div id="req-list-reg" style="font-size: 0.875rem;">
+                <div id="req-length-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ Minimum length: 8 characters</div>
+                <div id="req-upper-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one uppercase letter (A-Z)</div>
+                <div id="req-lower-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one lowercase letter (a-z)</div>
+                <div id="req-number-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one number (0-9)</div>
+                <div id="req-special-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)</div>
+            </div>
+        </div>
+        <script>
+        (function() {
+            function checkPasswordRequirements(password) {
+                const requirements = {
+                    length: password.length >= 8,
+                    upper: /[A-Z]/.test(password),
+                    lower: /[a-z]/.test(password),
+                    number: /[0-9]/.test(password),
+                    special: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)
+                };
+                
+                // Update UI
+                const updateReq = (id, met, text) => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        if (met) {
+                            el.innerHTML = '✅ ' + text;
+                            el.style.color = '#10b981';
+                        } else {
+                            el.innerHTML = '❌ ' + text;
+                            el.style.color = '#94a3b8';
+                        }
+                    }
+                };
+                
+                updateReq('req-length-reg', requirements.length, 'Minimum length: 8 characters');
+                updateReq('req-upper-reg', requirements.upper, 'At least one uppercase letter (A-Z)');
+                updateReq('req-lower-reg', requirements.lower, 'At least one lowercase letter (a-z)');
+                updateReq('req-number-reg', requirements.number, 'At least one number (0-9)');
+                updateReq('req-special-reg', requirements.special, 'At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)');
+            }
+            
+            // Monitor password input - find by label text
+            function setupPasswordValidation() {
+                const inputs = document.querySelectorAll('input[type="password"]');
+                
+                // Find the password input (not the confirm password)
+                // In Streamlit, inputs are in forms, and we can find by looking for the one before "Confirm Password"
+                let passwordInput = null;
+                
+                // Method 1: Find by looking for label containing "Password" but not "Confirm"
+                const allLabels = document.querySelectorAll('label, [data-testid*="stTextInput"]');
+                for (let label of allLabels) {
+                    const text = label.textContent || '';
+                    if (text.includes('Password') && !text.includes('Confirm')) {
+                        // Find the input near this label
+                        const form = label.closest('form') || label.closest('[data-testid*="stForm"]');
+                        if (form) {
+                            const formInputs = form.querySelectorAll('input[type="password"]');
+                            if (formInputs.length > 0) {
+                                passwordInput = formInputs[0];
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // Method 2: If in register form, use first password input
+                if (!passwordInput) {
+                    const registerForm = document.querySelector('form');
+                    if (registerForm) {
+                        const formInputs = registerForm.querySelectorAll('input[type="password"]');
+                        if (formInputs.length >= 1) {
+                            passwordInput = formInputs[0];
+                        }
+                    }
+                }
+                
+                if (passwordInput) {
+                    // Store original value to detect changes
+                    let lastValue = passwordInput.value || '';
+                    
+                    const checkAndUpdate = function() {
+                        const currentValue = passwordInput.value || '';
+                        if (currentValue !== lastValue) {
+                            lastValue = currentValue;
+                            checkPasswordRequirements(currentValue);
+                        }
+                    };
+                    
+                    // Add event listeners
+                    passwordInput.addEventListener('input', checkAndUpdate);
+                    passwordInput.addEventListener('keyup', checkAndUpdate);
+                    passwordInput.addEventListener('change', checkAndUpdate);
+                    
+                    // Check initial value
+                    checkAndUpdate();
+                } else {
+                    // Retry after a delay if inputs aren't ready yet
+                    setTimeout(setupPasswordValidation, 300);
+                }
+            }
+            
+            // Run after page load
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    setTimeout(setupPasswordValidation, 300);
+                });
+            } else {
+                setTimeout(setupPasswordValidation, 300);
+            }
+            
+            // Also monitor for Streamlit reruns
+            const observer = new MutationObserver(function(mutations) {
+                let shouldCheck = false;
+                mutations.forEach(function(mutation) {
+                    if (mutation.addedNodes.length > 0) {
+                        shouldCheck = true;
+                    }
+                });
+                if (shouldCheck) {
+                    setTimeout(setupPasswordValidation, 100);
+                }
+            });
+            
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        })();
+        </script>
+        """, unsafe_allow_html=True)
         
         with st.form("register_form"):
             reg_username = st.text_input("Username", key="reg_username")
@@ -577,75 +976,28 @@ if not st.session_state.authenticated:
     st.stop()
 
 # Main app (only shown if authenticated)
-# Sidebar
+# Simplified Sidebar
 with st.sidebar:
     # User info and logout
     if st.session_state.current_user:
         user = st.session_state.current_user
         role_badge = "👑 Admin" if user.get("role") == "admin" else "👤 User"
-        st.markdown(f"### 👤 {user.get('username', 'User')}")
+        st.markdown(f"### {user.get('username', 'User')}")
         st.caption(f"{role_badge}")
-        st.markdown("---")
-        
-        # Change password option
-        if st.button("🔑 Change Password", use_container_width=True):
-            st.session_state.show_change_password = True
-            st.rerun()
-        
-        # 2FA management
-        if st.button("🔐 Two-Factor Authentication", use_container_width=True):
-            st.session_state.show_2fa_setup = True
-            st.rerun()
-        
-        # Session management
-        if st.button("📱 Active Sessions", use_container_width=True):
-            st.session_state.show_sessions = True
-            st.rerun()
-        
-        # Audit logs (admin only)
-        if st.session_state.current_user and st.session_state.current_user.get("role") == "admin":
-            if st.button("📋 Security Audit Logs", use_container_width=True):
-                st.session_state.show_audit_logs = True
-                st.rerun()
         
         if st.button("🚪 Logout", use_container_width=True):
+            # Clear session state
             st.session_state.authenticated = False
             st.session_state.access_token = None
             st.session_state.current_user = None
             st.session_state.chat_history = []
+            # Clear token from query params
+            st.query_params.clear()
             st.rerun()
-        
-        # Admin-only user management
-        if user.get("role") == "admin":
-            st.markdown("---")
-            st.markdown("### 👥 User Management")
-            if st.button("👥 Manage Users", use_container_width=True):
-                st.session_state.show_user_management = True
-                st.rerun()
         
         st.markdown("---")
     
-    st.markdown("### ⚙️ Settings & Status")
-    st.caption("💡 Use ☰ menu in top-left to toggle sidebar")
-    st.markdown("---")
-    
-    # API Status Check
-    if st.button("🔄 Check API Status", use_container_width=True):
-        try:
-            status_resp = requests.get(f"{API_URL}/status", timeout=2)
-            if status_resp.status_code == 200:
-                status_data = status_resp.json()
-                st.session_state.api_status = "online"
-                st.session_state.kb_status = status_data
-                st.success("✅ API Connected")
-            else:
-                st.session_state.api_status = "offline"
-                st.error("❌ API Error")
-        except:
-            st.session_state.api_status = "offline"
-            st.error("❌ Cannot connect to API")
-    
-    # Display status
+    # Quick Status (compact)
     if st.session_state.api_status:
         status_class = "status-online" if st.session_state.api_status == "online" else "status-offline"
         status_text = "🟢 Online" if st.session_state.api_status == "online" else "🔴 Offline"
@@ -656,90 +1008,31 @@ with st.sidebar:
         if isinstance(kb_data, dict):
             chunk_count = kb_data.get("knowledge_base_chunks", 0)
             doc_count = kb_data.get("document_count", 0)
-            if chunk_count == 0:
-                st.warning("⚠️ **Knowledge Base is empty!** Upload documents to get started.")
-            else:
-                st.info(f"📚 Knowledge Base: **{chunk_count}** chunks from **{doc_count}** document(s)")
-                if doc_count > 0:
-                    documents = kb_data.get("documents", [])
-                    with st.expander(f"📄 View Documents ({doc_count})"):
-                        for doc in documents[:10]:  # Show first 10
-                            st.text(f"• {doc}")
-                        if len(documents) > 10:
-                            st.caption(f"... and {len(documents) - 10} more")
+            if chunk_count > 0:
+                st.caption(f"📚 {chunk_count} chunks • {doc_count} docs")
         else:
-            # Legacy format
             chunk_count = kb_data if isinstance(kb_data, int) else 0
-            if chunk_count == 0:
-                st.warning("⚠️ **Knowledge Base is empty!** Upload documents to get started.")
-            else:
-                st.info(f"📚 Knowledge Base: **{chunk_count}** chunks")
+            if chunk_count > 0:
+                st.caption(f"📚 {chunk_count} chunks")
     
     st.markdown("---")
     
-    # Search History Section
-    st.markdown("### 📜 Search History")
-    if st.button("🕐 View History", use_container_width=True):
-        st.session_state.show_history = True
+    # Main Actions (most used)
+    if st.button("📚 Documents", use_container_width=True):
+        st.session_state.show_documents = True
         st.rerun()
     
-    # Saved Queries Section
-    st.markdown("### ⭐ Saved Queries")
-    if st.button("💾 View Saved", use_container_width=True):
-        st.session_state.show_saved_queries = True
-        st.rerun()
-    
-    st.markdown("---")
-    
-    # Performance Metrics Section
-    st.markdown("### 📊 Performance Metrics")
-    if st.button("📈 View Metrics", use_container_width=True):
-        st.session_state.show_health = True
-        st.rerun()
-    
-    st.markdown("---")
-    
-    # Conversation Management
-    st.markdown("### 💬 Conversations")
-    if st.button("➕ New Conversation", use_container_width=True):
+    if st.button("💬 New Chat", use_container_width=True):
         try:
             resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
             if resp.status_code == 200:
                 conv = resp.json()
                 st.session_state.current_conversation_id = conv.get("id")
                 st.session_state.chat_history = []
-                st.success("✅ New conversation created")
                 st.rerun()
-        except:
-            st.error("Failed to create conversation")
-    
-    if st.button("📋 View Conversations", use_container_width=True):
-        st.session_state.show_conversations = True
-        st.rerun()
-    
-    # Show current conversation
-    if st.session_state.current_conversation_id:
-        try:
-            conv_resp = requests.get(f"{API_URL}/conversations/{st.session_state.current_conversation_id}", timeout=5)
-            if conv_resp.status_code == 200:
-                conv = conv_resp.json()
-                st.caption(f"📌 **Current:** {conv.get('title', 'Conversation')}")
-                st.caption(f"💬 {conv.get('message_count', 0)} messages")
         except:
             pass
     
-    st.markdown("---")
-    
-    # Document Management Section
-    st.markdown("### 📚 Document Management")
-    if st.button("📋 View All Documents", use_container_width=True):
-        st.session_state.show_documents = True
-        st.rerun()
-    
-    st.markdown("---")
-    
-    # Quick actions
-    st.markdown("### 🚀 Quick Actions")
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.chat_history = []
         if st.session_state.current_conversation_id:
@@ -749,30 +1042,132 @@ with st.sidebar:
                 pass
         st.rerun()
     
-    if st.button("📥 Export Chat", use_container_width=True):
-        if st.session_state.chat_history:
-            export_text = "\n\n".join([
-                f"**You:** {msg[0]}\n**Assistant:** {msg[1]}"
-                for msg in st.session_state.chat_history
-            ])
-            st.download_button(
-                "⬇️ Download Chat History",
-                export_text,
-                file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-    
     st.markdown("---")
     
-    # File Upload in Sidebar
-    st.markdown("### 📁 Upload Documents")
+    # More Options (collapsible)
+    with st.expander("⚙️ More Options", expanded=False):
+        # Account Settings
+        if st.session_state.current_user:
+            if st.button("👤 Profile", use_container_width=True):
+                st.session_state.show_profile = True
+                st.rerun()
+            
+            if st.button("🔑 Change Password", use_container_width=True):
+                st.session_state.show_change_password = True
+                st.rerun()
+            
+            if st.button("🔐 2FA", use_container_width=True):
+                st.session_state.show_2fa_setup = True
+                st.rerun()
+            
+            if st.button("📱 Sessions", use_container_width=True):
+                st.session_state.show_sessions = True
+                st.rerun()
+            
+            # Admin only
+            if user.get("role") == "admin":
+                st.markdown("---")
+                if st.button("👥 Manage Users", use_container_width=True):
+                    st.session_state.show_user_management = True
+                    st.rerun()
+                
+                if st.button("📋 Audit Logs", use_container_width=True):
+                    st.session_state.show_audit_logs = True
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # History & Data
+        if st.button("🕐 History", use_container_width=True):
+            st.session_state.show_history = True
+            st.rerun()
+        
+        if st.button("💾 Saved Queries", use_container_width=True):
+            st.session_state.show_saved_queries = True
+            st.rerun()
+        
+        if st.button("📋 Conversations", use_container_width=True):
+            st.session_state.show_conversations = True
+            st.rerun()
+        
+        if st.button("📈 Metrics", use_container_width=True):
+            st.session_state.show_health = True
+            st.rerun()
+        
+        if st.button("📥 Export Chat", use_container_width=True):
+            if st.session_state.chat_history:
+                export_text = "\n\n".join([
+                    f"**You:** {msg[0]}\n**Assistant:** {msg[1]}"
+                    for msg in st.session_state.chat_history
+                ])
+                st.download_button(
+                    "⬇️ Download",
+                    export_text,
+                    file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+        
+        # API Status Check
+        if st.button("🔄 Check Status", use_container_width=True):
+            try:
+                status_resp = requests.get(f"{API_URL}/status", timeout=2)
+                if status_resp.status_code == 200:
+                    status_data = status_resp.json()
+                    st.session_state.api_status = "online"
+                    st.session_state.kb_status = status_data
+                    st.success("✅ Connected")
+                    st.rerun()
+                else:
+                    st.session_state.api_status = "offline"
+                    st.error("❌ Error")
+            except:
+                st.session_state.api_status = "offline"
+                st.error("❌ Offline")
+    
+    # File Upload (always visible at bottom)
+    st.markdown("---")
     uploaded_file = st.file_uploader(
-        "Choose a file",
+        "📤 Upload Document",
         type=["pdf", "docx", "txt", "csv", "html"],
         help="Upload documents to enhance the knowledge base",
-        label_visibility="collapsed"
+        label_visibility="visible"
     )
+    
+    if uploaded_file:
+        with st.spinner("Uploading..."):
+            try:
+                file_ext = uploaded_file.name.split('.')[-1].lower()
+                mime_types = {
+                    "pdf": "application/pdf",
+                    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "txt": "text/plain",
+                    "csv": "text/csv",
+                    "html": "text/html"
+                }
+                mime_type = mime_types.get(file_ext, "application/octet-stream")
+                
+                files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
+                upload_resp = requests.post(f"{API_URL}/upload", files=files, timeout=30)
+                
+                if upload_resp.status_code == 200:
+                    st.success(f"✅ {uploaded_file.name}")
+                    logger.info(f"Uploaded: {uploaded_file.name}")
+                    # Refresh KB status after a delay
+                    time.sleep(2)
+                    try:
+                        status_resp = requests.get(f"{API_URL}/status", timeout=2)
+                        if status_resp.status_code == 200:
+                            st.session_state.kb_status = status_resp.json()
+                            st.rerun()
+                    except:
+                        pass
+                else:
+                    st.error(f"❌ Upload failed: {upload_resp.status_code}")
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
     
     if uploaded_file:
         with st.spinner("Uploading..."):
@@ -814,20 +1209,17 @@ with st.sidebar:
 st.markdown(
     """
     <div class="help-banner">
-        <strong>💡 Sidebar Closed?</strong> Look for the <strong style="font-size: 1.3em;">☰</strong> hamburger menu icon 
-        in the <strong>top-left corner</strong> of this page and click it to reopen the sidebar. 
-        The sidebar contains file upload, settings, and quick actions.
     </div>
     """,
     unsafe_allow_html=True
 )
 
-# Main content
+# Main content - Copilot style header
 st.markdown(
     """
     <div class="header-container">
-        <h1 class="header-title">📚 Incident Assistant</h1>
-        <p class="header-subtitle">Your intelligent knowledge base assistant</p>
+        <h1 class="header-title">Knowledge Assistant</h1>
+        <p class="header-subtitle">Ask questions about your documents</p>
     </div>
     """,
     unsafe_allow_html=True
@@ -881,6 +1273,11 @@ if st.session_state.get("show_documents", False):
                             st.markdown(f"**{file_icon} {doc.get('filename', 'Unknown')}**")
                             if doc.get('upload_date'):
                                 st.caption(f"Uploaded: {doc.get('upload_date')}")
+                            # Show version info
+                            if doc.get("version_count") and doc.get("version_count", 0) > 1:
+                                st.caption(f"📦 Version {doc.get('version', 'N/A')} of {doc.get('version_count')}")
+                            elif doc.get("version"):
+                                st.caption(f"📦 Version {doc.get('version')}")
                         
                         with col2:
                             st.metric("Chunks", doc.get("chunk_count", 0))
@@ -894,6 +1291,13 @@ if st.session_state.get("show_documents", False):
                                 st.metric("Size", "N/A")
                         
                         with col4:
+                            # Version history button
+                            if doc.get("version_count") and doc.get("version_count", 0) > 1:
+                                version_key = f"versions_{idx}_{doc.get('filename', '')}"
+                                if st.button("📦 Versions", key=version_key, use_container_width=True):
+                                    st.session_state[f"show_versions_{doc.get('filename')}"] = True
+                                    st.rerun()
+                            
                             # Delete button with confirmation
                             delete_key = f"delete_{idx}_{doc.get('filename', '')}"
                             confirm_key = f"confirm_{delete_key}"
@@ -1885,6 +2289,225 @@ if st.session_state.get("show_sessions", False):
     
     st.markdown("---")
 
+# User Profile Management Section
+if st.session_state.get("show_profile", False):
+    st.markdown("---")
+    st.markdown("### 👤 My Profile")
+    
+    try:
+        headers = get_auth_headers()
+        
+        # Get current profile
+        with st.spinner("Loading profile..."):
+            profile_resp = requests.get(f"{API_URL}/auth/profile", headers=headers, timeout=10)
+        
+        if profile_resp.status_code == 200:
+            profile_data = profile_resp.json()
+            user_info = profile_data.get("user", {})
+            preferences = profile_data.get("preferences", {})
+            
+            # Display profile
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # Avatar display
+                avatar_url = user_info.get("avatar")
+                if avatar_url:
+                    try:
+                        # Try to load avatar from API
+                        avatar_resp = requests.get(f"{API_URL}{avatar_url}", timeout=5)
+                        if avatar_resp.status_code == 200:
+                            st.image(avatar_resp.content, width=150)
+                        else:
+                            st.image("https://ui-avatars.com/api/?name=" + user_info.get("username", "User"), width=150)
+                    except:
+                        st.image("https://ui-avatars.com/api/?name=" + user_info.get("username", "User"), width=150)
+                else:
+                    st.image("https://ui-avatars.com/api/?name=" + user_info.get("username", "User"), width=150)
+                
+                # Avatar upload
+                uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif"], key="avatar_upload")
+                if uploaded_avatar:
+                    if st.button("📤 Upload Avatar", use_container_width=True):
+                        try:
+                            files = {"file": (uploaded_avatar.name, uploaded_avatar.getvalue(), uploaded_avatar.type)}
+                            upload_resp = requests.post(f"{API_URL}/auth/avatar", headers=headers, files=files, timeout=10)
+                            if upload_resp.status_code == 200:
+                                st.success("✅ Avatar uploaded successfully!")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Failed to upload avatar: {upload_resp.json().get('detail', 'Unknown error')}")
+                        except Exception as e:
+                            st.error(f"❌ Error uploading avatar: {str(e)}")
+                
+                with col2:
+                    st.markdown(f"#### {user_info.get('display_name') or user_info.get('username', 'User')}")
+                    st.caption(f"@{user_info.get('username', '')}")
+                    if user_info.get("bio"):
+                        st.markdown(f"_{user_info.get('bio')}_")
+                    else:
+                        st.caption("No bio set")
+                
+                st.markdown("---")
+                
+                # Edit profile form
+                with st.expander("✏️ Edit Profile", expanded=False):
+                    with st.form("edit_profile_form"):
+                        display_name = st.text_input(
+                            "Display Name",
+                            value=user_info.get("display_name") or "",
+                            placeholder="Enter your display name"
+                        )
+                        email = st.text_input(
+                            "Email",
+                            value=user_info.get("email") or "",
+                            placeholder="Enter your email"
+                        )
+                        bio = st.text_area(
+                            "Bio",
+                            value=user_info.get("bio") or "",
+                            placeholder="Tell us about yourself...",
+                            height=100
+                        )
+                        
+                        submit_profile = st.form_submit_button("💾 Save Profile", use_container_width=True)
+                        
+                        if submit_profile:
+                            try:
+                                update_data = {}
+                                if display_name != (user_info.get("display_name") or ""):
+                                    update_data["display_name"] = display_name
+                                if email != user_info.get("email"):
+                                    update_data["email"] = email
+                                if bio != (user_info.get("bio") or ""):
+                                    update_data["bio"] = bio
+                                
+                                if update_data:
+                                    update_resp = requests.put(
+                                        f"{API_URL}/auth/profile",
+                                        headers=headers,
+                                        json=update_data,
+                                        timeout=10
+                                    )
+                                    if update_resp.status_code == 200:
+                                        st.success("✅ Profile updated successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Failed to update profile: {update_resp.json().get('detail', 'Unknown error')}")
+                                else:
+                                    st.info("ℹ️ No changes to save")
+                            except requests.exceptions.ConnectionError:
+                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                
+                st.markdown("---")
+                
+                # User preferences
+                st.markdown("#### ⚙️ Preferences")
+                with st.expander("🎨 Theme & Notifications", expanded=False):
+                    with st.form("preferences_form"):
+                        theme = st.selectbox(
+                            "Theme",
+                            ["light", "dark", "auto"],
+                            index=["light", "dark", "auto"].index(preferences.get("theme", "light"))
+                        )
+                        notifications_enabled = st.checkbox(
+                            "Enable Notifications",
+                            value=preferences.get("notifications_enabled", True)
+                        )
+                        email_notifications = st.checkbox(
+                            "Email Notifications",
+                            value=preferences.get("email_notifications", True)
+                        )
+                        language = st.selectbox(
+                            "Language",
+                            ["en", "es", "fr", "de", "it", "pt"],
+                            index=["en", "es", "fr", "de", "it", "pt"].index(preferences.get("language", "en"))
+                        )
+                        
+                        submit_prefs = st.form_submit_button("💾 Save Preferences", use_container_width=True)
+                        
+                        if submit_prefs:
+                            try:
+                                prefs_data = {
+                                    "theme": theme,
+                                    "notifications_enabled": notifications_enabled,
+                                    "email_notifications": email_notifications,
+                                    "language": language
+                                }
+                                prefs_resp = requests.put(
+                                    f"{API_URL}/auth/preferences",
+                                    headers=headers,
+                                    json=prefs_data,
+                                    timeout=10
+                                )
+                                if prefs_resp.status_code == 200:
+                                    st.success("✅ Preferences saved successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Failed to save preferences: {prefs_resp.json().get('detail', 'Unknown error')}")
+                            except requests.exceptions.ConnectionError:
+                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                
+                # Account information
+                st.markdown("---")
+                st.markdown("#### 📋 Account Information")
+                info_col1, info_col2 = st.columns(2)
+                with info_col1:
+                    st.caption("**Username:**")
+                    st.text(user_info.get("username", ""))
+                    st.caption("**Role:**")
+                    st.text(user_info.get("role", "").title())
+                    st.caption("**Account Created:**")
+                    if user_info.get("created_at"):
+                        try:
+                            from datetime import datetime
+                            created = datetime.fromisoformat(user_info.get("created_at"))
+                            st.text(created.strftime("%Y-%m-%d %H:%M:%S"))
+                        except:
+                            st.text(user_info.get("created_at", "N/A"))
+                    else:
+                        st.text("N/A")
+                
+            with info_col2:
+                st.caption("**Last Login:**")
+                if user_info.get("last_login"):
+                    try:
+                        from datetime import datetime
+                        last_login = datetime.fromisoformat(user_info.get("last_login"))
+                        st.text(last_login.strftime("%Y-%m-%d %H:%M:%S"))
+                    except:
+                        st.text(user_info.get("last_login", "N/A"))
+                else:
+                    st.text("Never")
+                st.caption("**2FA Status:**")
+                if user_info.get("twofa_enabled"):
+                    st.success("✅ Enabled")
+                else:
+                    st.info("❌ Disabled")
+                st.caption("**Account Status:**")
+                if user_info.get("active"):
+                    st.success("✅ Active")
+                else:
+                    st.error("❌ Inactive")
+        else:
+            st.error(f"❌ Failed to load profile: {profile_resp.status_code}")
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Cannot connect to API. Please ensure the server is running.")
+    except Exception as e:
+        st.error(f"❌ Error loading profile: {str(e)}")
+    
+    # Close button (always visible)
+    st.markdown("---")
+    if st.button("❌ Close", use_container_width=True, key="close_profile"):
+        st.session_state.show_profile = False
+        st.rerun()
+    
+    st.markdown("---")
+
 # Troubleshooting section
 with st.expander("🔧 Troubleshooting: No results found?", expanded=False):
     st.markdown("""
@@ -1908,8 +2531,6 @@ with st.expander("🔧 Troubleshooting: No results found?", expanded=False):
 
 # Add a prominent help section for sidebar access
 st.info("""
-    **📌 Sidebar Access:** If the sidebar is closed, click the **☰ (hamburger menu)** icon in the **top-left corner** 
-    of your browser window to reopen it. The sidebar contains file upload, settings, and quick actions.
 """)
 
 # Document Filter Section
@@ -2163,7 +2784,7 @@ elif not current_input:
 
 # Chat input
 if query is None:
-    query = st.chat_input("Ask a question...", key="chat_input")
+    query = st.chat_input("Ask anything...", key="chat_input")
 
 if query:
     if query.strip():

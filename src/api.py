@@ -31,7 +31,8 @@ from .models import (
     PasswordResetResponse,
     TwoFASetupResponse, TwoFAVerifyRequest, TwoFALoginRequest, TwoFAResponse,
     SessionInfo, SessionListResponse, RefreshTokenRequest, TokenRefreshResponse,
-    AuditLogEntry, AuditLogResponse, AuditLogFilter
+    AuditLogEntry, AuditLogResponse, AuditLogFilter,
+    UserPreferences, ProfileUpdateRequest, PreferencesUpdateRequest, ProfileResponse
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
@@ -40,7 +41,9 @@ from .auth import (
     verify_refresh_token, create_session, update_session_activity,
     revoke_session, revoke_all_user_sessions, get_user_sessions,
     get_session_by_token, cleanup_expired_sessions, load_sessions, save_sessions,
-    SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+    log_audit_event, load_audit_logs,
+    SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS,
+    AVATARS_DIR
 )
 
 # Import email service (optional - will work without it)
@@ -962,6 +965,174 @@ async def refresh_token(request: RefreshTokenRequest):
         "token_type": "bearer"
     }
 
+# Profile management endpoints
+@app.get("/auth/profile", response_model=ProfileResponse)
+async def get_profile(current_user: UserInfo = Depends(get_current_user)):
+    """Get current user's profile with preferences."""
+    profile = UserManager.get_user_profile(current_user.id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Convert to UserInfo
+    user_info = UserInfo(
+        id=profile.get("id"),
+        username=profile.get("username"),
+        email=profile.get("email"),
+        role=profile.get("role"),
+        created_at=profile.get("created_at"),
+        last_login=profile.get("last_login"),
+        active=profile.get("active", True),
+        locked=profile.get("locked", False),
+        unlock_time=profile.get("unlock_time"),
+        failed_attempts=profile.get("failed_attempts", 0),
+        password_expires_at=profile.get("password_expires_at"),
+        password_expired=profile.get("password_expired", False),
+        twofa_enabled=profile.get("twofa_enabled", False),
+        display_name=profile.get("display_name"),
+        bio=profile.get("bio"),
+        avatar=profile.get("avatar")
+    )
+    
+    prefs = profile.get("preferences", {})
+    preferences = UserPreferences(
+        theme=prefs.get("theme", "light"),
+        notifications_enabled=prefs.get("notifications_enabled", True),
+        email_notifications=prefs.get("email_notifications", True),
+        language=prefs.get("language", "en"),
+        default_settings=prefs.get("default_settings", {})
+    )
+    
+    return ProfileResponse(user=user_info, preferences=preferences)
+
+@app.put("/auth/profile", response_model=UserInfo)
+async def update_profile(
+    profile_data: ProfileUpdateRequest,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Update user profile."""
+    success = UserManager.update_user_profile(
+        current_user.id,
+        display_name=profile_data.display_name,
+        email=profile_data.email,
+        bio=profile_data.bio
+    )
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="profile_updated",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success",
+        details={"updated_fields": {k: v for k, v in profile_data.dict().items() if v is not None}}
+    )
+    
+    # Get updated profile
+    updated_profile = UserManager.get_user_profile(current_user.id)
+    if not updated_profile:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return UserInfo(
+        id=updated_profile.get("id"),
+        username=updated_profile.get("username"),
+        email=updated_profile.get("email"),
+        role=updated_profile.get("role"),
+        created_at=updated_profile.get("created_at"),
+        last_login=updated_profile.get("last_login"),
+        active=updated_profile.get("active", True),
+        locked=updated_profile.get("locked", False),
+        unlock_time=updated_profile.get("unlock_time"),
+        failed_attempts=updated_profile.get("failed_attempts", 0),
+        password_expires_at=updated_profile.get("password_expires_at"),
+        password_expired=updated_profile.get("password_expired", False),
+        twofa_enabled=updated_profile.get("twofa_enabled", False),
+        display_name=updated_profile.get("display_name"),
+        bio=updated_profile.get("bio"),
+        avatar=updated_profile.get("avatar")
+    )
+
+@app.get("/auth/preferences", response_model=UserPreferences)
+async def get_preferences(current_user: UserInfo = Depends(get_current_user)):
+    """Get user preferences."""
+    prefs = UserManager.get_user_preferences(current_user.id)
+    return UserPreferences(**prefs)
+
+@app.put("/auth/preferences", response_model=UserPreferences)
+async def update_preferences(
+    prefs_data: PreferencesUpdateRequest,
+    current_user: UserInfo = Depends(get_current_user)
+):
+    """Update user preferences."""
+    update_dict = {k: v for k, v in prefs_data.dict().items() if v is not None}
+    UserManager.update_user_preferences(current_user.id, update_dict)
+    
+    # Get updated preferences
+    updated_prefs = UserManager.get_user_preferences(current_user.id)
+    return UserPreferences(**updated_prefs)
+
+@app.post("/auth/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Upload user avatar."""
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Validate file size (max 2MB)
+    MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB
+    content = await file.read()
+    if len(content) > MAX_AVATAR_SIZE:
+        raise HTTPException(status_code=400, detail="Avatar file size must be less than 2MB")
+    
+    # Generate filename
+    ext = os.path.splitext(file.filename)[1] or ".jpg"
+    avatar_filename = f"{current_user.id}{ext}"
+    avatar_path = os.path.join(AVATARS_DIR, avatar_filename)
+    
+    # Save file
+    try:
+        with open(avatar_path, "wb") as f:
+            f.write(content)
+    except Exception as e:
+        logger.error(f"Error saving avatar: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save avatar")
+    
+    # Update user profile with avatar path
+    avatar_url = f"/avatars/{avatar_filename}"
+    UserManager.update_user_profile(current_user.id, avatar=avatar_url)
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="avatar_uploaded",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success"
+    )
+    
+    return {"message": "Avatar uploaded successfully", "avatar_url": avatar_url}
+
 @app.get("/status")
 def get_status():
     """Get status of the knowledge base."""
@@ -1339,18 +1510,37 @@ async def ask_question_stream(payload: QuestionRequest):
             
             # Get conversation context if conversation_id is provided
             conversation_context = []
+            is_followup = False
             if payload.conversation_id:
                 conversation_context = ConversationManager.get_conversation_context(
                     payload.conversation_id,
                     max_messages=5
                 )
+                is_followup = len(conversation_context) > 0
+            
+            # Enhance query for follow-up questions
+            enhanced_query = payload.query
+            if is_followup:
+                # Extract key information from previous conversation
+                previous_summary = []
+                for msg in conversation_context[-4:]:  # Last 4 messages
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        previous_summary.append(f"User: {content[:80]}")
+                    elif role == "assistant":
+                        previous_summary.append(f"Assistant: {content[:120]}")
+                
+                if previous_summary:
+                    context_hint = " | ".join(previous_summary)
+                    enhanced_query = f"{payload.query} [Context: {context_hint}]"
             
             # Retrieve context first (synchronous operation)
             loop = asyncio.get_event_loop()
             context, sources = await loop.run_in_executor(
                 None,
                 assistant.retrieve_context,
-                payload.query,
+                enhanced_query if is_followup else payload.query,
                 4,  # k value
                 payload.document_filters
             )
@@ -1366,16 +1556,18 @@ async def ask_question_stream(payload: QuestionRequest):
             
             # Add conversation context to assistant if provided
             if conversation_context:
-                for msg in conversation_context:
+                # Limit to last 6 messages to avoid token bloat
+                recent_context = conversation_context[-6:] if len(conversation_context) > 6 else conversation_context
+                for msg in recent_context:
                     if msg.get("role") in ["user", "assistant"]:
                         assistant.chat_history.append({
                             "role": msg.get("role"),
                             "content": msg.get("content", "")
                         })
             
-            # Stream the response
+            # Stream the response with follow-up awareness
             response_text = ""
-            for chunk in assistant.generate_response_stream(payload.query, context):
+            for chunk in assistant.generate_response_stream(payload.query, context, is_followup=is_followup):
                 response_text += chunk
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
             

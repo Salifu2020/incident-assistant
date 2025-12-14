@@ -26,6 +26,27 @@ class DocumentInfo(BaseModel):
     upload_date: Optional[str] = None
     file_size: Optional[int] = None
     file_path: Optional[str] = None
+    version: Optional[int] = None
+    version_count: Optional[int] = None
+
+class DocumentVersion(BaseModel):
+    version: int
+    file_path: str
+    file_hash: str
+    file_size: int
+    uploaded_by: Dict[str, str]
+    uploaded_at: str
+    is_current: bool
+
+class DocumentVersionInfo(BaseModel):
+    filename: str
+    versions: List[DocumentVersion]
+    current_version: int
+    created_at: str
+    updated_at: str
+
+class RestoreVersionRequest(BaseModel):
+    version: int
 
 class DocumentListResponse(BaseModel):
     documents: List[DocumentInfo]
@@ -242,6 +263,9 @@ class UserInfo(BaseModel):
     password_expires_at: Optional[str] = None
     password_expired: Optional[bool] = False
     twofa_enabled: Optional[bool] = False
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -341,3 +365,26 @@ class AuditLogFilter(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     limit: Optional[int] = 100  # For development/testing - remove in production
+
+class UserPreferences(BaseModel):
+    theme: Optional[str] = "light"  # light, dark, auto
+    notifications_enabled: Optional[bool] = True
+    email_notifications: Optional[bool] = True
+    language: Optional[str] = "en"
+    default_settings: Optional[Dict] = None
+
+class ProfileUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    bio: Optional[str] = None
+
+class PreferencesUpdateRequest(BaseModel):
+    theme: Optional[str] = None
+    notifications_enabled: Optional[bool] = None
+    email_notifications: Optional[bool] = None
+    language: Optional[str] = None
+    default_settings: Optional[Dict] = None
+
+class ProfileResponse(BaseModel):
+    user: UserInfo
+    preferences: UserPreferences

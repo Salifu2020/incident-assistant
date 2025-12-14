@@ -22,7 +22,11 @@ class KnowledgeAssistant:
                     "- Be specific and cite relevant details from the context\n"
                     "- If the context doesn't contain the answer, say so briefly\n"
                     "- Never make up information or use knowledge outside the context\n"
-                    "- Keep answers concise but complete"
+                    "- Keep answers concise but complete\n"
+                    "- When answering follow-up questions, use the conversation history to understand context\n"
+                    "- If a question refers to something mentioned earlier (like 'it', 'that', 'this', 'they'), "
+                    "use the previous conversation to understand what is being referenced\n"
+                    "- Maintain consistency with previous answers in the conversation"
                 )
             }
         ]
@@ -220,13 +224,23 @@ class KnowledgeAssistant:
             print(f"❌ Error retrieving context: {type(e).__name__}: {e}")
             return "", []
 
-    def generate_response(self, query, context):
+    def generate_response(self, query, context, is_followup=False):
         """Generate response with optimized prompt and optional streaming."""
-        # Optimized prompt format for faster processing
-        user_message = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+        # Build prompt with follow-up awareness
+        if is_followup:
+            user_message = (
+                f"Context from knowledge base:\n{context}\n\n"
+                f"Current question: {query}\n\n"
+                f"Note: This is a follow-up question. Use the conversation history above to understand "
+                f"what the user is referring to. Answer the question using both the provided context "
+                f"and the conversation history.\n\nAnswer:"
+            )
+        else:
+            user_message = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
         
-        # Use minimal history for faster processing (only last 2 exchanges)
-        recent_history = self.chat_history[-2:] if len(self.chat_history) > 2 else self.chat_history
+        # Use conversation history (up to last 4 exchanges for follow-ups, 2 for new questions)
+        max_history = 8 if is_followup else 4
+        recent_history = self.chat_history[-max_history:] if len(self.chat_history) > max_history else self.chat_history
         messages = recent_history + [{"role": "user", "content": user_message}]
 
         try:
@@ -297,13 +311,23 @@ class KnowledgeAssistant:
         except Exception as e:
             return f"❌ Error: {str(e)}"
     
-    def generate_response_stream(self, query, context):
+    def generate_response_stream(self, query, context, is_followup=False):
         """Generate response as a stream of chunks (generator)."""
-        # Optimized prompt format for faster processing
-        user_message = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+        # Build prompt with follow-up awareness
+        if is_followup:
+            user_message = (
+                f"Context from knowledge base:\n{context}\n\n"
+                f"Current question: {query}\n\n"
+                f"Note: This is a follow-up question. Use the conversation history above to understand "
+                f"what the user is referring to. Answer the question using both the provided context "
+                f"and the conversation history.\n\nAnswer:"
+            )
+        else:
+            user_message = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
         
-        # Use minimal history for faster processing (only last 2 exchanges)
-        recent_history = self.chat_history[-2:] if len(self.chat_history) > 2 else self.chat_history
+        # Use conversation history (up to last 4 exchanges for follow-ups, 2 for new questions)
+        max_history = 8 if is_followup else 4
+        recent_history = self.chat_history[-max_history:] if len(self.chat_history) > max_history else self.chat_history
         messages = recent_history + [{"role": "user", "content": user_message}]
 
         try:
@@ -389,19 +413,33 @@ class KnowledgeAssistant:
                 print(f"⚠️ Error validating document filters: {e}")
                 # Continue without filters if validation fails
         
+        # Detect if this is a follow-up question
+        is_followup = bool(conversation_context and len(conversation_context) > 0)
+        
+        # Enhance query for follow-up questions
+        enhanced_query = query
+        if is_followup:
+            # Extract key information from previous conversation for context
+            previous_context_summary = self._extract_conversation_summary(conversation_context)
+            if previous_context_summary:
+                # Enhance query with conversation context
+                enhanced_query = f"{query}\n\n[Previous conversation context: {previous_context_summary}]"
+        
         # Add conversation context to chat history if provided
         if conversation_context:
             # Add conversation messages to history (excluding system message)
-            for msg in conversation_context:
+            # Limit to last 6 messages (3 exchanges) to avoid token bloat
+            recent_context = conversation_context[-6:] if len(conversation_context) > 6 else conversation_context
+            for msg in recent_context:
                 if msg.get("role") in ["user", "assistant"]:
                     self.chat_history.append({
                         "role": msg.get("role"),
                         "content": msg.get("content", "")
                     })
         
-        # Retrieve context with sources and filters
+        # Retrieve context with sources and filters (use enhanced query for better retrieval)
         context, sources = self.retrieve_context(
-            query, 
+            enhanced_query if is_followup else query, 
             document_filters=document_filters,
             advanced_filters=advanced_filters
         )
@@ -417,9 +455,28 @@ class KnowledgeAssistant:
             except:
                 return "⚠️ No relevant information found. Please ensure documents have been uploaded and processed, then try rephrasing your question.", []
         
-        # Generate response
+        # Generate response with follow-up awareness
         try:
-            response = self.generate_response(query, context)
+            response = self.generate_response(query, context, is_followup=is_followup)
             return response, sources
         except Exception as e:
             return f"❌ Error: {str(e)}", []
+    
+    def _extract_conversation_summary(self, conversation_context: list) -> str:
+        """Extract a concise summary of previous conversation for context enhancement."""
+        if not conversation_context:
+            return ""
+        
+        # Get last few exchanges
+        recent = conversation_context[-4:] if len(conversation_context) > 4 else conversation_context
+        
+        summary_parts = []
+        for msg in recent:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                summary_parts.append(f"User asked: {content[:100]}")
+            elif role == "assistant":
+                summary_parts.append(f"Assistant answered: {content[:150]}")
+        
+        return " | ".join(summary_parts) if summary_parts else ""

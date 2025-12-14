@@ -15,6 +15,23 @@ import logging
 import pyotp
 import qrcode
 from io import BytesIO
+import warnings
+
+# Suppress bcrypt compatibility warnings
+# This is a known issue with passlib and newer bcrypt versions
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="passlib")
+# Suppress AttributeError about __about__ in bcrypt (known compatibility issue)
+import sys
+import logging
+logging.getLogger("passlib").setLevel(logging.ERROR)
+# Suppress the specific AttributeError by catching it during import
+try:
+    import bcrypt
+    # Workaround for passlib trying to access bcrypt.__about__
+    if not hasattr(bcrypt, '__about__'):
+        bcrypt.__about__ = None
+except (AttributeError, ImportError):
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +45,8 @@ PASSWORD_HISTORY_FILE = os.path.join(PROJECT_ROOT, "data", "password_history.jso
 TWOFA_FILE = os.path.join(PROJECT_ROOT, "data", "twofa.json")
 SESSIONS_FILE = os.path.join(PROJECT_ROOT, "data", "sessions.json")
 AUDIT_LOG_FILE = os.path.join(PROJECT_ROOT, "data", "audit_log.json")
+PREFERENCES_FILE = os.path.join(PROJECT_ROOT, "data", "user_preferences.json")
+AVATARS_DIR = os.path.join(PROJECT_ROOT, "data", "avatars")
 
 # Lockout configuration
 MAX_FAILED_ATTEMPTS = 5  # Lock after 5 failed attempts
@@ -60,6 +79,8 @@ def ensure_data_dir():
     """Ensure data directory exists."""
     data_dir = os.path.dirname(USERS_FILE)
     os.makedirs(data_dir, exist_ok=True)
+    # Ensure avatars directory exists
+    os.makedirs(AVATARS_DIR, exist_ok=True)
 
 
 def load_users() -> Dict:
@@ -144,6 +165,83 @@ def save_lockouts(data: Dict):
     with _file_lock:
         with open(LOCKOUT_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def load_audit_logs() -> Dict:
+    """Load audit log data from JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        if os.path.exists(AUDIT_LOG_FILE):
+            try:
+                with open(AUDIT_LOG_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {"logs": []}
+        return {"logs": []}
+
+
+def save_audit_logs(data: Dict):
+    """Save audit log data to JSON file."""
+    ensure_data_dir()
+    with _file_lock:
+        with open(AUDIT_LOG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def log_audit_event(
+    event_type: str,
+    user_id: Optional[str] = None,
+    username: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    details: Optional[Dict] = None,
+    status: str = "success",
+    error_message: Optional[str] = None
+):
+    """
+    Log a security audit event.
+    
+    Event types:
+    - login_success, login_failed, login_locked
+    - logout
+    - password_change, password_reset
+    - user_created, user_deleted, user_activated, user_deactivated
+    - role_changed
+    - account_locked, account_unlocked
+    - 2fa_enabled, 2fa_disabled, 2fa_verified
+    - session_created, session_revoked
+    - document_uploaded, document_deleted
+    - profile_updated, avatar_uploaded
+    """
+    audit_data = load_audit_logs()
+    logs = audit_data.get("logs", [])
+    
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "event_type": event_type,
+        "user_id": user_id,
+        "username": username,
+        "ip_address": ip_address,
+        "user_agent": user_agent,
+        "status": status,
+        "error_message": error_message,
+        "details": details or {}
+    }
+    
+    logs.append(log_entry)
+    
+    # Keep only last 10000 entries to prevent file from growing too large
+    if len(logs) > 10000:
+        logs = logs[-10000:]
+    
+    audit_data["logs"] = logs
+    save_audit_logs(audit_data)
+    
+    # Also log to application logger
+    log_message = f"Audit: {event_type} - User: {username or 'N/A'} - Status: {status}"
+    if error_message:
+        log_message += f" - Error: {error_message}"
+    logger.info(log_message)
 
 
 def generate_user_friendly_token() -> str:
@@ -1402,4 +1500,95 @@ class UserManager:
                 return new_codes
         
         return []
-
+    
+    @staticmethod
+    def load_preferences() -> Dict:
+        """Load user preferences from JSON file."""
+        ensure_data_dir()
+        with _file_lock:
+            if os.path.exists(PREFERENCES_FILE):
+                try:
+                    with open(PREFERENCES_FILE, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except Exception:
+                    return {"preferences": {}}
+            return {"preferences": {}}
+    
+    @staticmethod
+    def save_preferences(data: Dict):
+        """Save user preferences to JSON file."""
+        ensure_data_dir()
+        with _file_lock:
+            with open(PREFERENCES_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+    
+    @staticmethod
+    def get_user_preferences(user_id: str) -> Dict:
+        """Get user preferences."""
+        prefs_data = UserManager.load_preferences()
+        prefs = prefs_data.get("preferences", {})
+        user_prefs = prefs.get(user_id, {
+            "theme": "light",
+            "notifications_enabled": True,
+            "email_notifications": True,
+            "language": "en",
+            "default_settings": {}
+        })
+        return user_prefs
+    
+    @staticmethod
+    def update_user_preferences(user_id: str, preferences: Dict) -> bool:
+        """Update user preferences."""
+        prefs_data = UserManager.load_preferences()
+        prefs = prefs_data.get("preferences", {})
+        if user_id not in prefs:
+            prefs[user_id] = {}
+        
+        # Update only provided fields
+        for key, value in preferences.items():
+            if value is not None:
+                prefs[user_id][key] = value
+        
+        prefs_data["preferences"] = prefs
+        UserManager.save_preferences(prefs_data)
+        return True
+    
+    @staticmethod
+    def update_user_profile(user_id: str, display_name: Optional[str] = None,
+                           email: Optional[str] = None, bio: Optional[str] = None,
+                           avatar: Optional[str] = None) -> bool:
+        """Update user profile information."""
+        users_data = load_users()
+        users = users_data.get("users", [])
+        
+        for user in users:
+            if user.get("id") == user_id:
+                if display_name is not None:
+                    user["display_name"] = display_name
+                if email is not None:
+                    user["email"] = email
+                if bio is not None:
+                    user["bio"] = bio
+                if avatar is not None:
+                    user["avatar"] = avatar
+                user["profile_updated_at"] = datetime.now().isoformat()
+                save_users(users_data)
+                return True
+        
+        return False
+    
+    @staticmethod
+    def get_user_profile(user_id: str) -> Optional[Dict]:
+        """Get user profile with preferences."""
+        users_data = load_users()
+        users = users_data.get("users", [])
+        
+        for user in users:
+            if user.get("id") == user_id:
+                profile = user.copy()
+                # Add preferences
+                profile["preferences"] = UserManager.get_user_preferences(user_id)
+                return profile
+        
+        return None
+    
