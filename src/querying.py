@@ -9,7 +9,7 @@ from datetime import datetime
 
 
 class KnowledgeAssistant:
-    def __init__(self, processor, model_name: str = "mistral", max_context_chars=2500, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2):
+    def __init__(self, processor, model_name: str = "mistral", max_context_chars=2500, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2, enable_confidence_scoring=True):
         self.processor = processor
         self.llm_model = model_name
         self.max_context_chars = max_context_chars
@@ -22,6 +22,7 @@ class KnowledgeAssistant:
         self.enable_learning_from_feedback = enable_learning_from_feedback
         self.enable_context_summarization = enable_context_summarization
         self.summarization_threshold = summarization_threshold  # Summarize if context exceeds max_context_chars * threshold
+        self.enable_confidence_scoring = enable_confidence_scoring
         
         # Initialize learning data storage
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1392,7 +1393,28 @@ class KnowledgeAssistant:
         else:
             intent_info = {"intent": "factual", "confidence": 0.5}
         
-        return final_answer, sorted_sources, intent_info
+        # Calculate confidence for multi-step reasoning answer
+        confidence_info = None
+        if self.enable_confidence_scoring:
+            # For multi-step, confidence is based on all sub-answers
+            # Use average of sub-answer confidences or calculate overall
+            try:
+                # Calculate confidence based on final answer
+                confidence_info = self.score_answer_confidence(
+                    query, 
+                    final_answer, 
+                    "\n\n".join(sub_answers),  # Use all sub-answers as context
+                    sorted_sources
+                )
+                # Multi-step reasoning typically has higher confidence due to thoroughness
+                # Boost confidence slightly
+                if confidence_info["confidence"] < 0.9:
+                    confidence_info["confidence"] = min(0.95, confidence_info["confidence"] + 0.1)
+                    confidence_info["level"] = "high" if confidence_info["confidence"] >= 0.8 else confidence_info["level"]
+            except Exception as e:
+                print(f"⚠️ Error calculating confidence for multi-step answer: {e}")
+        
+        return final_answer, sorted_sources, intent_info, confidence_info
 
     def classify_query_intent(self, query: str) -> dict:
         """Classify the intent of a query.
@@ -1792,7 +1814,8 @@ class KnowledgeAssistant:
         """
         # Quick validation
         if not query or not query.strip():
-            return "Please provide a valid question.", [], {"intent": "factual", "confidence": 0.0}
+            confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
+            return "Please provide a valid question.", [], {"intent": "factual", "confidence": 0.0}, confidence_info
         
         # Classify query intent
         intent_info = self.classify_query_intent(query)
@@ -1817,7 +1840,8 @@ class KnowledgeAssistant:
                 valid_filters = [f for f in document_filters if f in available_doc_names]
                 
                 if not valid_filters:
-                    return f"⚠️ None of the selected documents exist in the knowledge base. Available documents: {', '.join(list(available_doc_names)[:5])}", [], intent_info
+                    confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
+                    return f"⚠️ None of the selected documents exist in the knowledge base. Available documents: {', '.join(list(available_doc_names)[:5])}", [], intent_info, confidence_info
                 
                 # Use only valid filters
                 document_filters = valid_filters
@@ -1898,18 +1922,28 @@ class KnowledgeAssistant:
             try:
                 kb_count = self.processor.collection.count()
                 if kb_count > 0:
-                    return f"⚠️ No relevant information found for your query. The knowledge base has {kb_count} chunks, but they don't match your question. Try:\n- Rephrasing your question\n- Using different keywords\n- Asking a more general question", [], intent_info
+                    confidence_info = {"confidence": 0.2, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
+                    return f"⚠️ No relevant information found for your query. The knowledge base has {kb_count} chunks, but they don't match your question. Try:\n- Rephrasing your question\n- Using different keywords\n- Asking a more general question", [], intent_info, confidence_info
                 else:
-                    return "⚠️ Knowledge base is empty. Please upload documents and wait for processing to complete.", [], intent_info
+                    confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
+                    return "⚠️ Knowledge base is empty. Please upload documents and wait for processing to complete.", [], intent_info, confidence_info
             except:
-                return "⚠️ No relevant information found. Please ensure documents have been uploaded and processed, then try rephrasing your question.", [], intent_info
+                confidence_info = {"confidence": 0.2, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
+                return "⚠️ No relevant information found. Please ensure documents have been uploaded and processed, then try rephrasing your question.", [], intent_info, confidence_info
         
         # Generate response with follow-up awareness and intent guidance
         try:
             response = self.generate_response(query, context, is_followup=is_followup, intent=intent_info)
-            return response, sources, intent_info
+            
+            # Calculate confidence score
+            confidence_info = None
+            if self.enable_confidence_scoring:
+                confidence_info = self.score_answer_confidence(query, response, context, sources)
+            
+            # Return response with sources, intent, and confidence
+            return response, sources, intent_info, confidence_info
         except Exception as e:
-            return f"❌ Error: {str(e)}", [], intent_info
+            return f"❌ Error: {str(e)}", [], intent_info, None
     
     def _extract_conversation_summary(self, conversation_context: list) -> str:
         """Extract a concise summary of previous conversation for context enhancement."""
@@ -1929,3 +1963,136 @@ class KnowledgeAssistant:
                 summary_parts.append(f"Assistant answered: {content[:150]}")
         
         return " | ".join(summary_parts) if summary_parts else ""
+
+    def _calculate_avg_relevance(self, sources: List[Dict]) -> float:
+        """Calculate average relevance score from sources.
+        
+        Args:
+            sources: List of source citation dictionaries
+            
+        Returns:
+            Average relevance score (0.0-1.0)
+        """
+        if not sources:
+            return 0.0
+        
+        relevance_scores = [s.get("relevance", 0.0) for s in sources if s]
+        if not relevance_scores:
+            return 0.0
+        
+        return sum(relevance_scores) / len(relevance_scores)
+
+    def _assess_answer_completeness(self, query: str, answer: str) -> float:
+        """Assess how completely the answer addresses the query.
+        
+        Args:
+            query: The user's query
+            answer: The generated answer
+            
+        Returns:
+            Completeness score (0.0-1.0)
+        """
+        if not query or not answer:
+            return 0.0
+        
+        query_lower = query.lower()
+        answer_lower = answer.lower()
+        
+        # Extract key terms from query
+        query_terms = set(re.findall(r'\b\w{4,}\b', query_lower))  # Words with 4+ chars
+        
+        if not query_terms:
+            # If no meaningful terms, check if answer is substantial
+            return min(1.0, len(answer) / 100.0)  # Normalize by length
+        
+        # Check how many query terms appear in answer
+        matched_terms = sum(1 for term in query_terms if term in answer_lower)
+        term_coverage = matched_terms / len(query_terms) if query_terms else 0.0
+        
+        # Check answer length (too short = incomplete, too long might be verbose)
+        # Optimal answer length is roughly 50-500 chars for most queries
+        length_score = 1.0
+        if len(answer) < 50:
+            length_score = len(answer) / 50.0  # Penalize very short answers
+        elif len(answer) > 1000:
+            length_score = 0.9  # Slight penalty for very long answers
+        
+        # Combine term coverage and length
+        completeness = (term_coverage * 0.7 + length_score * 0.3)
+        return min(1.0, completeness)
+
+    def score_answer_confidence(self, query: str, answer: str, context: str, sources: List[Dict]) -> Dict:
+        """Calculate confidence score for an answer.
+        
+        Args:
+            query: The user's query
+            answer: The generated answer
+            context: The context used to generate the answer
+            sources: List of source citations
+            
+        Returns:
+            Dictionary with confidence score and breakdown of factors
+        """
+        if not self.enable_confidence_scoring:
+            return {"confidence": 0.5, "factors": {}}
+        
+        try:
+            # Factor 1: Source relevance (40% weight)
+            # Higher relevance = more confidence
+            avg_relevance = self._calculate_avg_relevance(sources)
+            source_relevance_score = avg_relevance
+            
+            # Factor 2: Context coverage (30% weight)
+            # More context = potentially better answer
+            context_coverage = min(1.0, len(context) / self.max_context_chars) if context else 0.0
+            # Bonus if context is substantial but not excessive
+            if 0.3 <= context_coverage <= 0.9:
+                context_coverage_score = 1.0
+            else:
+                context_coverage_score = context_coverage
+            
+            # Factor 3: Source count (15% weight)
+            # More sources = more confidence (up to a point)
+            source_count = len(sources) if sources else 0
+            source_count_score = min(1.0, source_count / 3.0)  # Optimal at 3+ sources
+            
+            # Factor 4: Answer completeness (15% weight)
+            # How well the answer addresses the query
+            completeness_score = self._assess_answer_completeness(query, answer)
+            
+            # Calculate weighted confidence score
+            confidence = (
+                source_relevance_score * 0.40 +
+                context_coverage_score * 0.30 +
+                source_count_score * 0.15 +
+                completeness_score * 0.15
+            )
+            
+            # Round to 2 decimal places
+            confidence = round(confidence, 2)
+            
+            # Determine confidence level
+            if confidence >= 0.8:
+                level = "high"
+            elif confidence >= 0.6:
+                level = "medium"
+            elif confidence >= 0.4:
+                level = "low"
+            else:
+                level = "very_low"
+            
+            return {
+                "confidence": confidence,
+                "level": level,
+                "factors": {
+                    "source_relevance": round(source_relevance_score, 2),
+                    "context_coverage": round(context_coverage_score, 2),
+                    "source_count": source_count,
+                    "source_count_score": round(source_count_score, 2),
+                    "answer_completeness": round(completeness_score, 2)
+                }
+            }
+            
+        except Exception as e:
+            print(f"⚠️ Error calculating confidence score: {e}")
+            return {"confidence": 0.5, "level": "unknown", "factors": {}}

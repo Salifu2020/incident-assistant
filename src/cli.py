@@ -32,8 +32,24 @@ def main():
                 # Ignore empty inputs
                 continue
 
-            response = assistant.ask_question(query)
-            print("Salibot:", response, "\n")
+            result = assistant.ask_question(query)
+            # Handle new return format (answer, sources, intent, confidence)
+            if isinstance(result, tuple) and len(result) >= 2:
+                answer = result[0]
+                sources = result[1] if len(result) > 1 else []
+                confidence_info = result[3] if len(result) > 3 else None
+                
+                print("Salibot:", answer)
+                if confidence_info and confidence_info.get("confidence"):
+                    conf = confidence_info.get("confidence", 0.0)
+                    level = confidence_info.get("level", "unknown")
+                    print(f"   [Confidence: {conf:.0%} ({level})]")
+                if sources:
+                    print(f"   [Sources: {', '.join([s.get('source', 'Unknown') for s in sources[:3]])}]")
+                print()
+            else:
+                # Fallback for old format
+                print("Salibot:", result, "\n")
 
     except KeyboardInterrupt:
         print("\n🛑 Exiting. Goodbye!")

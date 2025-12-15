@@ -23,6 +23,7 @@ from .models import (
     Conversation, ConversationListResponse, ConversationMessage,
     CreateConversationRequest, UpdateConversationRequest,
     AdvancedSearchFilters, AdvancedQuestionRequest,
+    ConfidenceScore,
     HealthSummary, HealthResponse, MetricEntry, MetricsHistoryResponse,
     PerformanceStats, PerformanceStatsResponse,
     UserRegister, UserLogin, UserInfo, Token, TokenData, UserListResponse,
@@ -1240,6 +1241,66 @@ def delete_document(
         logger.error(f"Error deleting document: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/reindex", response_model=dict)
+def reindex_documents(
+    new_embedding_model: str = None,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Re-index all documents with a new embedding model.
+    
+    This is required when changing the embedding model because embeddings
+    are model-specific. All existing documents will be re-processed.
+    
+    Args:
+        new_embedding_model: Optional new embedding model name. 
+                           If not provided, uses the model from processor config.
+                           Options: "all-MiniLM-L6-v2", "all-mpnet-base-v2", 
+                                   "BAAI/bge-large-en-v1.5"
+    """
+    try:
+        # Use provided model or default to the one in processor
+        if new_embedding_model:
+            model_to_use = new_embedding_model
+        else:
+            model_to_use = processor.embedding_model if hasattr(processor, 'embedding_model') else "all-mpnet-base-v2"
+        
+        logger.info(f"Starting re-indexing with model: {model_to_use}")
+        
+        # Perform re-indexing
+        success, message = processor.reindex_with_new_model(model_to_use)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+        
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="documents_reindexed",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="success",
+            details={"embedding_model": model_to_use, "message": message}
+        )
+        
+        return {
+            "message": message,
+            "embedding_model": model_to_use,
+            "success": True
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error re-indexing documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Search History Endpoints
 @app.get("/history", response_model=HistoryResponse)
 def get_history(limit: int = 50):
@@ -1478,16 +1539,21 @@ async def ask_question(payload: QuestionRequest):
             None  # advanced_filters - will be None for regular requests
         )
         
-        # Unpack result (answer, sources, intent_info)
-        if len(result) == 3:
+        # Unpack result (answer, sources, intent_info, confidence_info)
+        if len(result) == 4:
+            answer, sources, intent_info, confidence_info = result
+        elif len(result) == 3:
             answer, sources, intent_info = result
+            confidence_info = None
         else:
             # Backward compatibility: if only 2 values returned
             answer, sources = result
             intent_info = {"intent": "factual", "confidence": 0.5}
+            confidence_info = None
         
         elapsed_time = time.time() - start_time
-        logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources, intent: {intent_info.get('intent', 'unknown')} in {elapsed_time:.2f}s")
+        confidence_log = f", confidence: {confidence_info.get('confidence', 'N/A')}" if confidence_info else ""
+        logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources, intent: {intent_info.get('intent', 'unknown')}{confidence_log} in {elapsed_time:.2f}s")
         
         # Record performance metric
         try:
@@ -1533,7 +1599,16 @@ async def ask_question(payload: QuestionRequest):
             confidence=intent_info.get("confidence", 0.5)
         ) if intent_info else None
         
-        return {"response": answer, "sources": sources, "intent": intent_obj}
+        # Build confidence object
+        confidence_obj = None
+        if confidence_info:
+            confidence_obj = ConfidenceScore(
+                confidence=confidence_info.get("confidence", 0.5),
+                level=confidence_info.get("level", "unknown"),
+                factors=confidence_info.get("factors")
+            )
+        
+        return {"response": answer, "sources": sources, "intent": intent_obj, "confidence": confidence_obj}
     except Exception as e:
         logger.error(f"Error: {type(e).__name__}: {e}")
         # Record error metric
@@ -1619,8 +1694,18 @@ async def ask_question_stream(payload: QuestionRequest):
                 response_text += chunk
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
             
-            # Send completion signal
-            yield f"data: {json.dumps({'type': 'done', 'full_response': response_text.strip()})}\n\n"
+            # Calculate confidence score for streaming response
+            confidence_info = None
+            if assistant.enable_confidence_scoring:
+                confidence_info = assistant.score_answer_confidence(
+                    payload.query, 
+                    response_text.strip(), 
+                    context, 
+                    sources
+                )
+            
+            # Send completion signal with confidence
+            yield f"data: {json.dumps({'type': 'done', 'full_response': response_text.strip(), 'confidence': confidence_info})}\n\n"
             
             # Record query metric
             try:

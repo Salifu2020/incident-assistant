@@ -8,6 +8,7 @@ import shutil
 from docx import Document as DocxDocument
 import csv
 import datetime
+import re
 
 
 # Get project root directory (parent of src)
@@ -19,23 +20,45 @@ INGESTED_DIR = os.path.join(PROJECT_ROOT, "ingested_files")
 
 
 class DocumentProcessor:
-    def __init__(self, persist_directory=None):
+    def __init__(self, persist_directory=None, embedding_model="all-mpnet-base-v2"):
+        """
+        Initialize DocumentProcessor with configurable embedding model.
+        
+        Args:
+            persist_directory: Directory for ChromaDB persistence
+            embedding_model: Embedding model to use. Options:
+                - "all-MiniLM-L6-v2" (fast, smaller, default old)
+                - "all-mpnet-base-v2" (better accuracy, recommended)
+                - "BAAI/bge-large-en-v1.5" (state-of-the-art, slower)
+        """
         if persist_directory is None:
             persist_directory = os.path.join(PROJECT_ROOT, ".chromadb")
         self.client = chromadb.PersistentClient(path=persist_directory)
+        self.embedding_model = embedding_model
+        
+        # Create embedding function with specified model
         self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
+            model_name=embedding_model
         )
 
         try:
-            self.collection = self.client.get_collection(name="knowledge_base")
-            print("📂 Loaded existing 'knowledge_base' collection.")
+            # Try to get existing collection
+            existing_collection = self.client.get_collection(name="knowledge_base")
+            
+            # Check if embedding model matches (by checking collection metadata or function)
+            # Note: ChromaDB doesn't store model name directly, so we'll check on first use
+            self.collection = existing_collection
+            print(f"📂 Loaded existing 'knowledge_base' collection.")
+            print(f"🔤 Using embedding model: {embedding_model}")
+            print("⚠️  Note: If you changed the embedding model, you may need to re-index documents.")
         except:
+            # Create new collection with the embedding function
             self.collection = self.client.get_or_create_collection(
                 name="knowledge_base",
                 embedding_function=self.embedding_function
             )
             print("🆕 Created new 'knowledge_base' collection.")
+            print(f"🔤 Using embedding model: {embedding_model}")
 
     def extract_text(self, file_path):
         """Extract text from a file with comprehensive error handling."""
@@ -168,11 +191,196 @@ class DocumentProcessor:
                 except:
                     pass
 
-    def chunk_text(self, text, chunk_size=800, overlap=150):
+    def chunk_text(self, text, chunk_size=800, overlap=150, min_chunk_size=100):
         """
-        Optimized chunking with better semantic boundaries.
-        Smaller chunks (800) with less overlap (150) for faster retrieval.
+        Advanced semantic chunking with multiple strategies:
+        1. Paragraph-aware chunking (preferred)
+        2. Sentence boundary detection
+        3. Adaptive chunk sizes based on content structure
+        4. Smart overlap to preserve context
+        
+        Args:
+            text: The text to chunk
+            chunk_size: Target chunk size in characters
+            overlap: Overlap size in characters
+            min_chunk_size: Minimum chunk size to keep
         """
+        if not text or len(text.strip()) < min_chunk_size:
+            return [text.strip()] if text.strip() else []
+        
+        # Strategy 1: Try paragraph-based chunking first (best for structured documents)
+        paragraphs = self._split_into_paragraphs(text)
+        if len(paragraphs) > 1:
+            chunks = self._chunk_by_paragraphs(paragraphs, chunk_size, overlap, min_chunk_size)
+            if chunks:
+                return chunks
+        
+        # Strategy 2: Sentence-aware chunking (good for narrative text)
+        sentences = self._split_into_sentences(text)
+        if len(sentences) > 1:
+            chunks = self._chunk_by_sentences(sentences, chunk_size, overlap, min_chunk_size)
+            if chunks:
+                return chunks
+        
+        # Strategy 3: Fallback to smart character-based chunking
+        return self._chunk_by_characters(text, chunk_size, overlap, min_chunk_size)
+    
+    def _split_into_paragraphs(self, text):
+        """Split text into paragraphs, preserving structure."""
+        # Split by double newlines (paragraph breaks)
+        paragraphs = re.split(r'\n\s*\n+', text)
+        # Also split by single newlines if they look like paragraph breaks
+        refined = []
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            # If paragraph is very long, try to split by single newlines
+            if len(para) > 1000:
+                lines = para.split('\n')
+                current = []
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        if current:
+                            refined.append('\n'.join(current))
+                            current = []
+                    else:
+                        current.append(line)
+                if current:
+                    refined.append('\n'.join(current))
+            else:
+                refined.append(para)
+        return [p for p in refined if p.strip()]
+    
+    def _split_into_sentences(self, text):
+        """Split text into sentences using improved regex."""
+        # Enhanced sentence splitting regex
+        # Handles abbreviations, decimals, URLs, etc.
+        sentence_endings = r'(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])\n+(?=[A-Z])'
+        sentences = re.split(sentence_endings, text)
+        
+        # Clean up sentences
+        cleaned = []
+        for sent in sentences:
+            sent = sent.strip()
+            if sent and len(sent) > 10:  # Skip very short fragments
+                cleaned.append(sent)
+        
+        return cleaned
+    
+    def _chunk_by_paragraphs(self, paragraphs, chunk_size, overlap, min_chunk_size):
+        """Chunk text by combining paragraphs intelligently."""
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        for i, para in enumerate(paragraphs):
+            para_length = len(para)
+            
+            # If single paragraph exceeds chunk size, split it
+            if para_length > chunk_size * 1.5:
+                # Split this paragraph using sentences
+                sentences = self._split_into_sentences(para)
+                if len(sentences) > 1:
+                    # Recursively chunk this paragraph
+                    sub_chunks = self._chunk_by_sentences(sentences, chunk_size, overlap, min_chunk_size)
+                    # Add completed chunks
+                    for sub_chunk in sub_chunks[:-1]:  # All but last
+                        chunks.append(sub_chunk)
+                    # Continue with last sub-chunk
+                    if sub_chunks:
+                        current_chunk = [sub_chunks[-1]]
+                        current_length = len(sub_chunks[-1])
+                    continue
+            
+            # Check if adding this paragraph would exceed chunk size
+            if current_length + para_length > chunk_size and current_chunk:
+                # Save current chunk
+                chunk_text = '\n\n'.join(current_chunk)
+                if len(chunk_text) >= min_chunk_size:
+                    chunks.append(chunk_text)
+                
+                # Start new chunk with overlap
+                if overlap > 0 and len(current_chunk) > 0:
+                    # Keep last paragraph(s) for overlap
+                    overlap_text = current_chunk[-1]
+                    if len(overlap_text) <= overlap:
+                        current_chunk = [overlap_text, para]
+                        current_length = len(overlap_text) + para_length
+                    else:
+                        # Use part of last paragraph for overlap
+                        overlap_part = overlap_text[-overlap:]
+                        current_chunk = [overlap_part, para]
+                        current_length = len(overlap_part) + para_length
+                else:
+                    current_chunk = [para]
+                    current_length = para_length
+            else:
+                # Add paragraph to current chunk
+                current_chunk.append(para)
+                current_length += para_length
+        
+        # Add final chunk
+        if current_chunk:
+            chunk_text = '\n\n'.join(current_chunk)
+            if len(chunk_text) >= min_chunk_size:
+                chunks.append(chunk_text)
+        
+        return chunks if chunks else None
+    
+    def _chunk_by_sentences(self, sentences, chunk_size, overlap, min_chunk_size):
+        """Chunk text by combining sentences intelligently."""
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        for i, sent in enumerate(sentences):
+            sent_length = len(sent)
+            
+            # Check if adding this sentence would exceed chunk size
+            if current_length + sent_length > chunk_size and current_chunk:
+                # Save current chunk
+                chunk_text = ' '.join(current_chunk)
+                if len(chunk_text) >= min_chunk_size:
+                    chunks.append(chunk_text)
+                
+                # Start new chunk with overlap
+                if overlap > 0 and len(current_chunk) > 0:
+                    # Keep last sentence(s) for overlap
+                    overlap_sentences = []
+                    overlap_length = 0
+                    for j in range(len(current_chunk) - 1, -1, -1):
+                        if overlap_length + len(current_chunk[j]) <= overlap:
+                            overlap_sentences.insert(0, current_chunk[j])
+                            overlap_length += len(current_chunk[j])
+                        else:
+                            break
+                    
+                    if overlap_sentences:
+                        current_chunk = overlap_sentences + [sent]
+                        current_length = overlap_length + sent_length
+                    else:
+                        current_chunk = [sent]
+                        current_length = sent_length
+                else:
+                    current_chunk = [sent]
+                    current_length = sent_length
+            else:
+                # Add sentence to current chunk
+                current_chunk.append(sent)
+                current_length += sent_length
+        
+        # Add final chunk
+        if current_chunk:
+            chunk_text = ' '.join(current_chunk)
+            if len(chunk_text) >= min_chunk_size:
+                chunks.append(chunk_text)
+        
+        return chunks if chunks else None
+    
+    def _chunk_by_characters(self, text, chunk_size, overlap, min_chunk_size):
+        """Fallback: Smart character-based chunking with sentence boundary awareness."""
         chunks = []
         start = 0
         text_length = len(text)
@@ -183,17 +391,46 @@ class DocumentProcessor:
             # Try to break at sentence boundaries for better semantic chunks
             if end < text_length:
                 # Look for sentence endings near the chunk boundary
-                for punct in ['. ', '.\n', '! ', '!\n', '? ', '?\n']:
-                    last_punct = text.rfind(punct, start, end)
-                    if last_punct > start + chunk_size * 0.7:  # Only if not too early
-                        end = last_punct + len(punct)
-                        break
+                # Search in a window around the target end position
+                search_start = max(start, end - chunk_size * 0.3)
+                search_end = min(text_length, end + chunk_size * 0.2)
+                
+                # Enhanced sentence ending patterns
+                sentence_patterns = [
+                    r'\.\s+',      # Period followed by space
+                    r'\.\n+',      # Period followed by newline
+                    r'!\s+',       # Exclamation
+                    r'!\n+',
+                    r'\?\s+',      # Question mark
+                    r'\?\n+',
+                    r'\.\"\s+',    # Period with quote
+                    r'\.\"\n+',
+                ]
+                
+                best_break = -1
+                for pattern in sentence_patterns:
+                    matches = list(re.finditer(pattern, text[search_start:search_end]))
+                    if matches:
+                        # Use the match closest to target end
+                        for match in reversed(matches):
+                            pos = search_start + match.end()
+                            if start < pos <= end:
+                                best_break = pos
+                                break
+                        if best_break > 0:
+                            break
+                
+                if best_break > start + min_chunk_size:
+                    end = best_break
             
             chunk = text[start:end].strip()
-            if chunk and len(chunk) > 50:  # Skip very small chunks
+            if chunk and len(chunk) >= min_chunk_size:
                 chunks.append(chunk)
             
-            start += (chunk_size - overlap)
+            # Move start position with overlap
+            if end >= text_length:
+                break
+            start = max(start + 1, end - overlap)
         
         return chunks
 
@@ -502,6 +739,93 @@ class DocumentProcessor:
             error_msg = f"Error deleting document: {type(e).__name__}: {e}"
             print(f"❌ {error_msg}")
             return 0, error_msg
+
+    def reindex_with_new_model(self, new_embedding_model: str):
+        """Re-index all documents with a new embedding model.
+        
+        This is required when changing the embedding model because embeddings
+        are model-specific and cannot be reused across different models.
+        
+        Args:
+            new_embedding_model: Name of the new embedding model to use
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            print(f"🔄 Starting re-indexing with new embedding model: {new_embedding_model}")
+            
+            # Get all existing documents and their metadata
+            all_results = self.collection.get()
+            if not all_results or not all_results.get('ids') or len(all_results['ids']) == 0:
+                return True, "No documents to re-index"
+            
+            # Get list of unique source files
+            metadatas = all_results.get('metadatas', [])
+            sources = set()
+            for meta in metadatas:
+                if meta and 'source' in meta:
+                    sources.add(meta['source'])
+            
+            if not sources:
+                return True, "No source files found to re-index"
+            
+            print(f"📚 Found {len(sources)} documents to re-index")
+            
+            # Delete existing collection
+            try:
+                self.client.delete_collection(name="knowledge_base")
+                print("🗑️  Deleted old collection")
+            except Exception as e:
+                print(f"⚠️  Error deleting old collection: {e}")
+            
+            # Update embedding model
+            self.embedding_model = new_embedding_model
+            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name=new_embedding_model
+            )
+            
+            # Create new collection with new embedding function
+            self.collection = self.client.get_or_create_collection(
+                name="knowledge_base",
+                embedding_function=self.embedding_function
+            )
+            print(f"🆕 Created new collection with model: {new_embedding_model}")
+            
+            # Re-process all source files
+            reindexed_count = 0
+            for source_file in sources:
+                # Find the file in ingested_files directory
+                file_found = False
+                for ext in SUPPORTED_EXTENSIONS:
+                    ext_dir = os.path.join(INGESTED_DIR, ext[1:])
+                    file_path = os.path.join(ext_dir, source_file)
+                    if os.path.exists(file_path):
+                        try:
+                            # Re-process the file
+                            self.process_document(file_path)
+                            reindexed_count += 1
+                            print(f"✅ Re-indexed: {source_file}")
+                            file_found = True
+                            break
+                        except Exception as e:
+                            print(f"⚠️  Error re-indexing {source_file}: {e}")
+                            import traceback
+                            traceback.print_exc()
+                
+                if not file_found:
+                    print(f"⚠️  Source file not found for: {source_file}")
+            
+            message = f"Re-indexing complete: {reindexed_count}/{len(sources)} documents processed"
+            print(f"✅ {message}")
+            return True, message
+            
+        except Exception as e:
+            error_msg = f"Error during re-indexing: {type(e).__name__}: {e}"
+            print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return False, error_msg
 
     def process_directory(self, directory_path=SOURCE_DIR):
         """Process all supported files in a directory with error handling."""

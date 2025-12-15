@@ -2,7 +2,10 @@
 from .ingestion import DocumentProcessor
 from .querying import KnowledgeAssistant
 
-processor = DocumentProcessor()
+# Initialize processor with improved embedding model
+# Options: "all-MiniLM-L6-v2" (fast), "all-mpnet-base-v2" (better, recommended), 
+#          "BAAI/bge-large-en-v1.5" (state-of-the-art, slower)
+processor = DocumentProcessor(embedding_model="all-mpnet-base-v2")
 # Optimized assistant with faster settings
 assistant = KnowledgeAssistant(
     processor, 
@@ -16,5 +19,6 @@ assistant = KnowledgeAssistant(
     enable_multi_step_reasoning=True,  # Enable multi-step reasoning for complex queries
     enable_learning_from_feedback=True,  # Enable learning from user feedback to improve over time
     enable_context_summarization=True,  # Enable context summarization for long documents
-    summarization_threshold=1.2  # Summarize if context exceeds max_context_chars * 1.2
+    summarization_threshold=1.2,  # Summarize if context exceeds max_context_chars * 1.2
+    enable_confidence_scoring=True  # Enable answer confidence scoring for transparency
 )

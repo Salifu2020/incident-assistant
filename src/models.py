@@ -12,9 +12,20 @@ class QuestionRequest(BaseModel):
     document_filters: Optional[List[str]] = None  # List of document filenames to filter by
     conversation_id: Optional[str] = None  # Conversation ID for context
 
+class QueryIntent(BaseModel):
+    intent: str  # factual, how_to, definition, comparison, list, explanation, verification, follow_up
+    confidence: float  # Confidence score 0.0-1.0
+
+class ConfidenceScore(BaseModel):
+    confidence: float  # Confidence score 0.0-1.0
+    level: str  # "high", "medium", "low", "very_low"
+    factors: Optional[Dict] = None  # Breakdown of confidence factors
+
 class QuestionResponse(BaseModel):
     response: str
     sources: List[SourceCitation] = []
+    intent: Optional[QueryIntent] = None  # Query intent classification result
+    confidence: Optional[ConfidenceScore] = None  # Answer confidence score
 
 class UploadResponse(BaseModel):
     message: str
