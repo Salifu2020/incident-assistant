@@ -1360,6 +1360,11 @@ def get_suggestions(q: str = "", limit: int = 10):
 def submit_feedback(payload: FeedbackRequest):
     """Submit feedback for an answer."""
     try:
+        # Validate payload
+        if not payload.query or not payload.response:
+            raise HTTPException(status_code=400, detail="Query and response are required")
+        
+        # Store feedback first (this is the critical operation)
         entry = AnswerFeedback.add_feedback(
             query=payload.query,
             response=payload.response,
@@ -1369,13 +1374,42 @@ def submit_feedback(payload: FeedbackRequest):
             sources_count=payload.sources_count
         )
         logger.info(f"Feedback submitted: rating={payload.rating}, type={payload.feedback_type}")
+        
+        # Trigger learning from feedback (non-blocking, won't affect feedback submission)
+        try:
+            # Check if assistant has learning capability
+            if hasattr(assistant, 'learn_from_feedback'):
+                # Create a sources list from sources_count (we don't have full source info here)
+                sources = [{"source": "Unknown", "relevance": 0.5}] * payload.sources_count if payload.sources_count > 0 else []
+                
+                assistant.learn_from_feedback(
+                    query=payload.query,
+                    answer=payload.response,
+                    rating=payload.rating,
+                    sources=sources,
+                    comment=payload.comment,
+                    feedback_type=payload.feedback_type
+                )
+            else:
+                logger.debug("Learning from feedback not available (assistant doesn't have learn_from_feedback method)")
+        except Exception as learn_error:
+            # Don't fail the feedback submission if learning fails
+            logger.warning(f"Learning from feedback failed (non-critical): {learn_error}")
+            import traceback
+            logger.debug(traceback.format_exc())
+        
         return {
             "message": "Feedback submitted successfully",
             "feedback_id": entry.get("timestamp", "")
         }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error submitting feedback: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error submitting feedback: {str(e)}")
 
 @app.get("/feedback/stats", response_model=FeedbackStatsResponse)
 def get_feedback_stats():
@@ -1435,7 +1469,7 @@ async def ask_question(payload: QuestionRequest):
         # Process query asynchronously
         import asyncio
         loop = asyncio.get_event_loop()
-        answer, sources = await loop.run_in_executor(
+        result = await loop.run_in_executor(
             None, 
             assistant.ask_question, 
             payload.query,
@@ -1444,8 +1478,16 @@ async def ask_question(payload: QuestionRequest):
             None  # advanced_filters - will be None for regular requests
         )
         
+        # Unpack result (answer, sources, intent_info)
+        if len(result) == 3:
+            answer, sources, intent_info = result
+        else:
+            # Backward compatibility: if only 2 values returned
+            answer, sources = result
+            intent_info = {"intent": "factual", "confidence": 0.5}
+        
         elapsed_time = time.time() - start_time
-        logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources in {elapsed_time:.2f}s")
+        logger.info(f"Response generated ({len(answer)} chars) with {len(sources)} sources, intent: {intent_info.get('intent', 'unknown')} in {elapsed_time:.2f}s")
         
         # Record performance metric
         try:
@@ -1485,7 +1527,13 @@ async def ask_question(payload: QuestionRequest):
         except Exception as e:
             logger.warning(f"Failed to save to history: {e}")
         
-        return {"response": answer, "sources": sources}
+        # Build response with intent information
+        intent_obj = QueryIntent(
+            intent=intent_info.get("intent", "factual"),
+            confidence=intent_info.get("confidence", 0.5)
+        ) if intent_info else None
+        
+        return {"response": answer, "sources": sources, "intent": intent_obj}
     except Exception as e:
         logger.error(f"Error: {type(e).__name__}: {e}")
         # Record error metric
