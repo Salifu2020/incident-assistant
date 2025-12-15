@@ -21,11 +21,25 @@ class ConfidenceScore(BaseModel):
     level: str  # "high", "medium", "low", "very_low"
     factors: Optional[Dict] = None  # Breakdown of confidence factors
 
+class AnswerVerification(BaseModel):
+    status: str  # "supported", "partial", "unsupported", "not_verified", "error"
+    supported: bool  # Whether answer is fully supported by context
+    details: str  # Explanation of verification result
+    has_hallucinations: bool  # Whether answer contains unsupported information
+
+class AnswerVerification(BaseModel):
+    status: str  # "supported", "partial", "unsupported", "not_verified", "error"
+    supported: bool  # Whether answer is fully supported by context
+    details: str  # Explanation of verification result
+    has_hallucinations: bool  # Whether answer contains unsupported information
+
 class QuestionResponse(BaseModel):
     response: str
     sources: List[SourceCitation] = []
     intent: Optional[QueryIntent] = None  # Query intent classification result
     confidence: Optional[ConfidenceScore] = None  # Answer confidence score
+    verification: Optional[AnswerVerification] = None  # Answer verification result
+    verification: Optional[AnswerVerification] = None  # Answer verification result
 
 class UploadResponse(BaseModel):
     message: str

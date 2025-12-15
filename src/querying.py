@@ -9,7 +9,7 @@ from datetime import datetime
 
 
 class KnowledgeAssistant:
-    def __init__(self, processor, model_name: str = "mistral", max_context_chars=2500, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2, enable_confidence_scoring=True):
+    def __init__(self, processor, model_name: str = "mistral", max_context_chars=2500, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2, enable_confidence_scoring=True, enable_answer_verification=True):
         self.processor = processor
         self.llm_model = model_name
         self.max_context_chars = max_context_chars
@@ -23,6 +23,7 @@ class KnowledgeAssistant:
         self.enable_context_summarization = enable_context_summarization
         self.summarization_threshold = summarization_threshold  # Summarize if context exceeds max_context_chars * threshold
         self.enable_confidence_scoring = enable_confidence_scoring
+        self.enable_answer_verification = enable_answer_verification  # Enable answer verification to prevent hallucinations
         
         # Initialize learning data storage
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1414,7 +1415,18 @@ class KnowledgeAssistant:
             except Exception as e:
                 print(f"⚠️ Error calculating confidence for multi-step answer: {e}")
         
-        return final_answer, sorted_sources, intent_info, confidence_info
+        # Verify multi-step answer
+        verification_info = None
+        if self.enable_answer_verification:
+            try:
+                # Use all sub-answers as context for verification
+                combined_context = "\n\n".join(sub_answers)
+                verification_info = self.verify_answer(query, final_answer, combined_context, sorted_sources)
+            except Exception as e:
+                print(f"⚠️ Error verifying multi-step answer: {e}")
+                verification_info = {"status": "error", "supported": True, "details": str(e), "has_hallucinations": False}
+        
+        return final_answer, sorted_sources, intent_info, confidence_info, verification_info
 
     def classify_query_intent(self, query: str) -> dict:
         """Classify the intent of a query.
@@ -1815,7 +1827,8 @@ class KnowledgeAssistant:
         # Quick validation
         if not query or not query.strip():
             confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-            return "Please provide a valid question.", [], {"intent": "factual", "confidence": 0.0}, confidence_info
+            verification_info = {"status": "not_verified", "supported": False, "details": "Invalid query", "has_hallucinations": False} if self.enable_answer_verification else None
+            return "Please provide a valid question.", [], {"intent": "factual", "confidence": 0.0}, confidence_info, verification_info
         
         # Classify query intent
         intent_info = self.classify_query_intent(query)
@@ -1841,7 +1854,8 @@ class KnowledgeAssistant:
                 
                 if not valid_filters:
                     confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-                    return f"⚠️ None of the selected documents exist in the knowledge base. Available documents: {', '.join(list(available_doc_names)[:5])}", [], intent_info, confidence_info
+                    verification_info = {"status": "not_verified", "supported": False, "details": "Invalid document filters", "has_hallucinations": False} if self.enable_answer_verification else None
+                    return f"⚠️ None of the selected documents exist in the knowledge base. Available documents: {', '.join(list(available_doc_names)[:5])}", [], intent_info, confidence_info, verification_info
                 
                 # Use only valid filters
                 document_filters = valid_filters
@@ -1923,13 +1937,16 @@ class KnowledgeAssistant:
                 kb_count = self.processor.collection.count()
                 if kb_count > 0:
                     confidence_info = {"confidence": 0.2, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-                    return f"⚠️ No relevant information found for your query. The knowledge base has {kb_count} chunks, but they don't match your question. Try:\n- Rephrasing your question\n- Using different keywords\n- Asking a more general question", [], intent_info, confidence_info
+                    verification_info = {"status": "not_verified", "supported": False, "details": "No relevant context found", "has_hallucinations": False} if self.enable_answer_verification else None
+                    return f"⚠️ No relevant information found for your query. The knowledge base has {kb_count} chunks, but they don't match your question. Try:\n- Rephrasing your question\n- Using different keywords\n- Asking a more general question", [], intent_info, confidence_info, verification_info
                 else:
                     confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-                    return "⚠️ Knowledge base is empty. Please upload documents and wait for processing to complete.", [], intent_info, confidence_info
+                    verification_info = {"status": "not_verified", "supported": False, "details": "Empty knowledge base", "has_hallucinations": False} if self.enable_answer_verification else None
+                    return "⚠️ Knowledge base is empty. Please upload documents and wait for processing to complete.", [], intent_info, confidence_info, verification_info
             except:
                 confidence_info = {"confidence": 0.2, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-                return "⚠️ No relevant information found. Please ensure documents have been uploaded and processed, then try rephrasing your question.", [], intent_info, confidence_info
+                verification_info = {"status": "error", "supported": False, "details": "Error retrieving context", "has_hallucinations": False} if self.enable_answer_verification else None
+                return "⚠️ No relevant information found. Please ensure documents have been uploaded and processed, then try rephrasing your question.", [], intent_info, confidence_info, verification_info
         
         # Generate response with follow-up awareness and intent guidance
         try:
@@ -1940,10 +1957,19 @@ class KnowledgeAssistant:
             if self.enable_confidence_scoring:
                 confidence_info = self.score_answer_confidence(query, response, context, sources)
             
-            # Return response with sources, intent, and confidence
-            return response, sources, intent_info, confidence_info
+            # Verify answer is supported by context
+            verification_info = None
+            if self.enable_answer_verification:
+                verification_info = self.verify_answer(query, response, context, sources)
+                # Log verification results
+                if verification_info.get("status") != "supported":
+                    print(f"⚠️ Answer verification: {verification_info.get('status')} - {verification_info.get('details', '')[:100]}")
+            
+            # Return response with sources, intent, confidence, and verification
+            return response, sources, intent_info, confidence_info, verification_info
         except Exception as e:
-            return f"❌ Error: {str(e)}", [], intent_info, None
+            verification_info = {"status": "error", "supported": True, "details": str(e), "has_hallucinations": False} if self.enable_answer_verification else None
+            return f"❌ Error: {str(e)}", [], intent_info, None, verification_info
     
     def _extract_conversation_summary(self, conversation_context: list) -> str:
         """Extract a concise summary of previous conversation for context enhancement."""
@@ -1963,6 +1989,117 @@ class KnowledgeAssistant:
                 summary_parts.append(f"Assistant answered: {content[:150]}")
         
         return " | ".join(summary_parts) if summary_parts else ""
+
+    def verify_answer(self, query: str, answer: str, context: str, sources: List[Dict]) -> Dict:
+        """Verify if answer is fully supported by the provided context.
+        
+        Uses LLM to check if the answer:
+        1. Is fully supported by the context
+        2. Contains information not in the context (hallucinations)
+        3. Has any contradictions with the context
+        
+        Args:
+            query: The user's query
+            answer: The generated answer
+            context: The context used to generate the answer
+            sources: List of source citations
+            
+        Returns:
+            Dictionary with verification status and details
+        """
+        if not self.enable_answer_verification:
+            return {"status": "not_verified", "supported": True, "details": "Verification disabled", "has_hallucinations": False}
+        
+        try:
+            # Limit context length for verification prompt (use first portion if very long)
+            context_for_verification = context[:2000] if len(context) > 2000 else context
+            if len(context) > 2000:
+                context_for_verification += "\n\n[... additional context truncated ...]"
+            
+            verification_prompt = (
+                f"Question: {query}\n\n"
+                f"Answer provided: {answer}\n\n"
+                f"Context used to generate answer:\n{context_for_verification}\n\n"
+                "Analyze if this answer is:\n"
+                "1. FULLY SUPPORTED - All information in the answer is present in the context\n"
+                "2. PARTIALLY SUPPORTED - Some information is in context, but answer contains additional unsupported claims\n"
+                "3. UNSUPPORTED - Answer contains information not found in the context or contradicts the context\n\n"
+                "Respond with ONLY one of these three words: SUPPORTED, PARTIAL, or UNSUPPORTED\n"
+                "Then on a new line, provide a brief explanation (1-2 sentences)."
+            )
+            
+            response = ollama.chat(
+                model=self.llm_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a fact-checker. Verify if answers are supported by provided context. Respond with SUPPORTED, PARTIAL, or UNSUPPORTED followed by a brief explanation."
+                    },
+                    {
+                        "role": "user",
+                        "content": verification_prompt
+                    }
+                ],
+                options={
+                    "temperature": 0.1,  # Low temperature for consistent verification
+                    "num_predict": 200,  # Short response
+                }
+            )
+            
+            verification_text = response.get("message", {}).get("content", "").strip()
+            
+            # Parse verification result
+            verification_upper = verification_text.upper()
+            if "SUPPORTED" in verification_upper and "PARTIAL" not in verification_upper and "UNSUPPORTED" not in verification_upper:
+                status = "supported"
+                supported = True
+            elif "UNSUPPORTED" in verification_upper:
+                status = "unsupported"
+                supported = False
+            elif "PARTIAL" in verification_upper:
+                status = "partial"
+                supported = False  # Partial support means some unsupported claims
+            else:
+                # Default to supported if unclear
+                status = "supported"
+                supported = True
+            
+            # Extract explanation (everything after the status word)
+            explanation = verification_text
+            for word in ["SUPPORTED", "PARTIAL", "UNSUPPORTED"]:
+                if word in verification_upper:
+                    # Get text after the status word
+                    parts = verification_text.split(word, 1)
+                    if len(parts) > 1:
+                        explanation = parts[1].strip()
+                        break
+            
+            # Clean up explanation
+            explanation = explanation.lstrip(":.,- ").strip()
+            if not explanation or len(explanation) < 10:
+                if status == "supported":
+                    explanation = "Answer is fully supported by the provided context."
+                elif status == "partial":
+                    explanation = "Answer contains some information not fully supported by the context."
+                else:
+                    explanation = "Answer contains information not found in or contradicts the provided context."
+            
+            return {
+                "status": status,
+                "supported": supported,
+                "details": explanation,
+                "has_hallucinations": not supported
+            }
+            
+        except Exception as e:
+            print(f"⚠️ Answer verification failed: {e}")
+            # On error, assume supported to avoid blocking answers
+            return {
+                "status": "error",
+                "supported": True,
+                "details": f"Verification error: {str(e)}",
+                "has_hallucinations": False
+            }
 
     def _calculate_avg_relevance(self, sources: List[Dict]) -> float:
         """Calculate average relevance score from sources.

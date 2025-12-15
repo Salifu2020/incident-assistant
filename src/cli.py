@@ -33,17 +33,25 @@ def main():
                 continue
 
             result = assistant.ask_question(query)
-            # Handle new return format (answer, sources, intent, confidence)
+            # Handle new return format (answer, sources, intent, confidence, verification)
             if isinstance(result, tuple) and len(result) >= 2:
                 answer = result[0]
                 sources = result[1] if len(result) > 1 else []
                 confidence_info = result[3] if len(result) > 3 else None
+                verification_info = result[4] if len(result) > 4 else None
                 
                 print("Salibot:", answer)
                 if confidence_info and confidence_info.get("confidence"):
                     conf = confidence_info.get("confidence", 0.0)
                     level = confidence_info.get("level", "unknown")
                     print(f"   [Confidence: {conf:.0%} ({level})]")
+                if verification_info:
+                    status = verification_info.get("status", "unknown")
+                    supported = verification_info.get("supported", True)
+                    if not supported:
+                        print(f"   ⚠️  [Verification: {status.upper()}] - {verification_info.get('details', '')[:80]}")
+                    else:
+                        print(f"   ✓  [Verified: {status.upper()}]")
                 if sources:
                     print(f"   [Sources: {', '.join([s.get('source', 'Unknown') for s in sources[:3]])}]")
                 print()

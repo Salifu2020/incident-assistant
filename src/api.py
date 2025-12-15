@@ -23,7 +23,7 @@ from .models import (
     Conversation, ConversationListResponse, ConversationMessage,
     CreateConversationRequest, UpdateConversationRequest,
     AdvancedSearchFilters, AdvancedQuestionRequest,
-    ConfidenceScore,
+    ConfidenceScore, AnswerVerification,
     HealthSummary, HealthResponse, MetricEntry, MetricsHistoryResponse,
     PerformanceStats, PerformanceStatsResponse,
     UserRegister, UserLogin, UserInfo, Token, TokenData, UserListResponse,
@@ -1539,17 +1539,22 @@ async def ask_question(payload: QuestionRequest):
             None  # advanced_filters - will be None for regular requests
         )
         
-        # Unpack result (answer, sources, intent_info, confidence_info)
-        if len(result) == 4:
+        # Unpack result (answer, sources, intent_info, confidence_info, verification_info)
+        if len(result) == 5:
+            answer, sources, intent_info, confidence_info, verification_info = result
+        elif len(result) == 4:
             answer, sources, intent_info, confidence_info = result
+            verification_info = None
         elif len(result) == 3:
             answer, sources, intent_info = result
             confidence_info = None
+            verification_info = None
         else:
             # Backward compatibility: if only 2 values returned
             answer, sources = result
             intent_info = {"intent": "factual", "confidence": 0.5}
             confidence_info = None
+            verification_info = None
         
         elapsed_time = time.time() - start_time
         confidence_log = f", confidence: {confidence_info.get('confidence', 'N/A')}" if confidence_info else ""
@@ -1608,7 +1613,17 @@ async def ask_question(payload: QuestionRequest):
                 factors=confidence_info.get("factors")
             )
         
-        return {"response": answer, "sources": sources, "intent": intent_obj, "confidence": confidence_obj}
+        # Build verification object
+        verification_obj = None
+        if verification_info:
+            verification_obj = AnswerVerification(
+                status=verification_info.get("status", "not_verified"),
+                supported=verification_info.get("supported", True),
+                details=verification_info.get("details", ""),
+                has_hallucinations=verification_info.get("has_hallucinations", False)
+            )
+        
+        return {"response": answer, "sources": sources, "intent": intent_obj, "confidence": confidence_obj, "verification": verification_obj}
     except Exception as e:
         logger.error(f"Error: {type(e).__name__}: {e}")
         # Record error metric
@@ -1704,8 +1719,18 @@ async def ask_question_stream(payload: QuestionRequest):
                     sources
                 )
             
-            # Send completion signal with confidence
-            yield f"data: {json.dumps({'type': 'done', 'full_response': response_text.strip(), 'confidence': confidence_info})}\n\n"
+            # Verify answer for streaming response
+            verification_info = None
+            if assistant.enable_answer_verification:
+                verification_info = assistant.verify_answer(
+                    payload.query,
+                    response_text.strip(),
+                    context,
+                    sources
+                )
+            
+            # Send completion signal with confidence and verification
+            yield f"data: {json.dumps({'type': 'done', 'full_response': response_text.strip(), 'confidence': confidence_info, 'verification': verification_info})}\n\n"
             
             # Record query metric
             try:
