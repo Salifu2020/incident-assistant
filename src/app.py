@@ -2719,8 +2719,8 @@ if current_input and len(current_input.strip()) > 0:
     try:
         suggestions_resp = requests.get(
             f"{API_URL}/suggestions",
-            params={"q": current_input.strip(), "limit": 5},
-            timeout=2
+            params={"q": current_input.strip(), "limit": 5, "include_documents": True},
+            timeout=3  # Slightly longer timeout for document-based suggestions
         )
         if suggestions_resp.status_code == 200:
             suggestions_data = suggestions_resp.json()
@@ -2736,7 +2736,13 @@ if current_input and len(current_input.strip()) > 0:
                         
                         # Create a button for each suggestion
                         label = suggestion_query
-                        icon = "⭐" if suggestion_type == "saved" else "🕐"
+                        # Use different icons for different suggestion types
+                        if suggestion_type == "saved":
+                            icon = "⭐"
+                        elif suggestion_type == "document":
+                            icon = "📚"
+                        else:
+                            icon = "🕐"
                         if suggestion_type == "saved" and suggestion_name:
                             label = f"{suggestion_name}: {suggestion_query}"
                         
@@ -2770,7 +2776,13 @@ elif not current_input:
                         with col:
                             suggestion_query = suggestion.get("query", "")
                             suggestion_type = suggestion.get("type", "")
-                            icon = "⭐" if suggestion_type == "saved" else "🕐"
+                            # Use different icons for different suggestion types
+                            if suggestion_type == "saved":
+                                icon = "⭐"
+                            elif suggestion_type == "document":
+                                icon = "📚"
+                            else:
+                                icon = "🕐"
                             display_text = suggestion_query[:35] + ("..." if len(suggestion_query) > 35 else "")
                             if st.button(
                                 f"{icon} {display_text}",

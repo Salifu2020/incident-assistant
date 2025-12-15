@@ -1403,10 +1403,13 @@ def use_saved_query(query: str):
 
 # Query Suggestions Endpoint
 @app.get("/suggestions", response_model=SuggestionsResponse)
-def get_suggestions(q: str = "", limit: int = 10):
-    """Get query suggestions based on partial input."""
+def get_suggestions(q: str = "", limit: int = 10, include_documents: bool = True):
+    """Get query suggestions based on partial input, history, saved queries, and document content."""
     try:
-        suggestions_data = QuerySuggestions.get_suggestions(q, limit=limit)
+        # Ensure assistant is set for document-based suggestions
+        QuerySuggestions.set_assistant(assistant)
+        
+        suggestions_data = QuerySuggestions.get_suggestions(q, limit=limit, include_documents=include_documents)
         suggestions = [QuerySuggestion(**s) for s in suggestions_data]
         return {
             "suggestions": suggestions,

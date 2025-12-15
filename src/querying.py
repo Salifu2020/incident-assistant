@@ -28,6 +28,11 @@ class KnowledgeAssistant:
         # Initialize learning data storage
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.learning_data_file = os.path.join(project_root, "data", "learning_patterns.json")
+        
+        # Cache for document-based query suggestions
+        self._document_suggestions_cache = None
+        self._document_suggestions_cache_time = None
+        self._document_suggestions_cache_ttl = 3600  # Cache for 1 hour
         self._load_learning_data()
         
         self.reset_history()
@@ -2233,3 +2238,195 @@ class KnowledgeAssistant:
         except Exception as e:
             print(f"⚠️ Error calculating confidence score: {e}")
             return {"confidence": 0.5, "level": "unknown", "factors": {}}
+    
+    def generate_document_suggestions(self, limit: int = 10, force_refresh: bool = False) -> List[Dict]:
+        """Generate query suggestions based on document content in the knowledge base.
+        
+        This method:
+        1. Samples diverse chunks from the knowledge base
+        2. Extracts key topics and concepts
+        3. Uses LLM to generate natural, relevant questions
+        4. Caches results for performance
+        
+        Args:
+            limit: Maximum number of suggestions to return
+            force_refresh: If True, bypass cache and regenerate suggestions
+            
+        Returns:
+            List of suggestion dictionaries with 'query', 'type', 'score', and 'source'
+        """
+        # Check cache first
+        if not force_refresh and self._document_suggestions_cache is not None:
+            import time
+            if self._document_suggestions_cache_time and \
+               (time.time() - self._document_suggestions_cache_time) < self._document_suggestions_cache_ttl:
+                return self._document_suggestions_cache[:limit]
+        
+        try:
+            # Check if knowledge base has content
+            total_chunks = self.processor.collection.count()
+            if total_chunks == 0:
+                return []
+            
+            # Sample diverse chunks from the knowledge base
+            # Get chunks from different documents to ensure diversity
+            sample_size = min(50, total_chunks)  # Sample up to 50 chunks
+            
+            try:
+                # Get a diverse sample of chunks
+                all_results = self.processor.collection.get(
+                    limit=sample_size,
+                    include=['documents', 'metadatas']
+                )
+            except Exception as e:
+                print(f"⚠️ Error sampling chunks for suggestions: {e}")
+                return []
+            
+            if not all_results or not all_results.get('documents'):
+                return []
+            
+            documents = all_results.get('documents', [])
+            metadatas = all_results.get('metadatas', [])
+            
+            # Group chunks by document to ensure diversity
+            doc_chunks = {}
+            for i, (doc, meta) in enumerate(zip(documents, metadatas)):
+                source = meta.get('source', 'unknown') if meta else 'unknown'
+                if source not in doc_chunks:
+                    doc_chunks[source] = []
+                # Limit chunks per document to ensure diversity
+                if len(doc_chunks[source]) < 5:
+                    doc_chunks[source].append(doc[:500])  # Use first 500 chars per chunk
+            
+            # Combine chunks from different documents
+            diverse_chunks = []
+            for source, chunks in doc_chunks.items():
+                diverse_chunks.extend(chunks[:3])  # Max 3 chunks per document
+            
+            if not diverse_chunks:
+                return []
+            
+            # Create a summary of content for LLM
+            content_summary = "\n\n---\n\n".join(diverse_chunks[:20])  # Use up to 20 chunks
+            if len(content_summary) > 3000:
+                content_summary = content_summary[:3000] + "..."
+            
+            # Use LLM to generate questions based on content
+            suggestion_prompt = (
+                f"Based on the following content from a knowledge base, generate {limit} diverse, "
+                f"natural questions that users might ask about this content.\n\n"
+                f"Content samples:\n{content_summary}\n\n"
+                "Requirements:\n"
+                "1. Questions should be natural and conversational\n"
+                "2. Cover different topics and aspects\n"
+                "3. Include various question types (what, how, why, when, where, who)\n"
+                "4. Questions should be answerable from the provided content\n"
+                "5. Make questions specific and actionable\n\n"
+                "Generate exactly {limit} questions, one per line, without numbering or bullets."
+            ).format(limit=limit)
+            
+            try:
+                response = ollama.chat(
+                    model=self.llm_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a query suggestion generator. Create natural, diverse questions based on document content."
+                        },
+                        {
+                            "role": "user",
+                            "content": suggestion_prompt
+                        }
+                    ],
+                    options={
+                        "temperature": 0.7,  # Higher temperature for diversity
+                        "num_predict": limit * 50,  # Allow enough tokens for all questions
+                    }
+                )
+                
+                suggestions_text = response.get("message", {}).get("content", "").strip()
+                
+                # Parse suggestions (one per line)
+                suggestions = []
+                for line in suggestions_text.split('\n'):
+                    line = line.strip()
+                    # Remove numbering, bullets, dashes
+                    line = re.sub(r'^[\d\.\-\*\•\)\s]+', '', line)
+                    line = line.strip()
+                    
+                    # Validate question
+                    if line and len(line) > 10 and len(line) < 200:
+                        # Check if it looks like a question
+                        if any(line.strip().startswith(qword) for qword in ['What', 'How', 'Why', 'When', 'Where', 'Who', 'Which', 'Can', 'Should', 'Is', 'Are', 'Does', 'Do']):
+                            suggestions.append({
+                                "query": line,
+                                "type": "document",
+                                "score": 0.9,  # High score for document-based suggestions
+                                "source": "knowledge_base"
+                            })
+                        elif '?' in line:
+                            # Also accept questions ending with ?
+                            suggestions.append({
+                                "query": line,
+                                "type": "document",
+                                "score": 0.85,
+                                "source": "knowledge_base"
+                            })
+                
+                # If we got fewer suggestions than requested, try to generate more
+                if len(suggestions) < limit and len(diverse_chunks) > 10:
+                    # Try with more chunks
+                    additional_content = "\n\n---\n\n".join(diverse_chunks[10:30])
+                    if len(additional_content) > 2000:
+                        additional_content = additional_content[:2000] + "..."
+                    
+                    additional_prompt = (
+                        f"Generate {limit - len(suggestions)} more diverse questions based on this additional content:\n\n"
+                        f"{additional_content}\n\n"
+                        "Generate natural questions, one per line."
+                    )
+                    
+                    try:
+                        additional_response = ollama.chat(
+                            model=self.llm_model,
+                            messages=[
+                                {"role": "user", "content": additional_prompt}
+                            ],
+                            options={
+                                "temperature": 0.7,
+                                "num_predict": (limit - len(suggestions)) * 50,
+                            }
+                        )
+                        
+                        additional_text = additional_response.get("message", {}).get("content", "").strip()
+                        for line in additional_text.split('\n'):
+                            line = re.sub(r'^[\d\.\-\*\•\)\s]+', '', line.strip())
+                            if line and len(line) > 10 and len(line) < 200 and line not in [s["query"] for s in suggestions]:
+                                if '?' in line or any(line.strip().startswith(qword) for qword in ['What', 'How', 'Why', 'When', 'Where', 'Who', 'Which', 'Can', 'Should', 'Is', 'Are']):
+                                    suggestions.append({
+                                        "query": line,
+                                        "type": "document",
+                                        "score": 0.8,
+                                        "source": "knowledge_base"
+                                    })
+                                if len(suggestions) >= limit:
+                                    break
+                    except Exception as e:
+                        print(f"⚠️ Error generating additional suggestions: {e}")
+                
+                # Cache the results
+                import time
+                self._document_suggestions_cache = suggestions[:limit]
+                self._document_suggestions_cache_time = time.time()
+                
+                return suggestions[:limit]
+                
+            except Exception as e:
+                print(f"⚠️ Error generating document suggestions: {e}")
+                return []
+                
+        except Exception as e:
+            print(f"⚠️ Error in generate_document_suggestions: {e}")
+            import traceback
+            traceback.print_exc()
+            return []

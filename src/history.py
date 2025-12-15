@@ -179,15 +179,24 @@ class SavedQueries:
 
 
 class QuerySuggestions:
-    """Generate query suggestions based on history and saved queries."""
+    """Generate query suggestions based on history, saved queries, and document content."""
+    
+    # Class variable to hold assistant instance for document-based suggestions
+    _assistant_instance = None
+    
+    @classmethod
+    def set_assistant(cls, assistant):
+        """Set the KnowledgeAssistant instance for document-based suggestions."""
+        cls._assistant_instance = assistant
     
     @staticmethod
-    def get_suggestions(partial_query: str, limit: int = 10) -> List[Dict]:
+    def get_suggestions(partial_query: str, limit: int = 10, include_documents: bool = True) -> List[Dict]:
         """Get query suggestions based on partial input.
         
         Args:
             partial_query: The partial query text
             limit: Maximum number of suggestions to return
+            include_documents: If True, include document-based suggestions
             
         Returns:
             List of suggestion dictionaries with 'query', 'type', and 'score'
@@ -196,28 +205,40 @@ class QuerySuggestions:
         partial_lower = partial_query.lower().strip()
         
         if not partial_lower:
-            # If no input, return popular saved queries and recent history
+            # If no input, mix document-based suggestions with saved queries and history
+            if include_documents and QuerySuggestions._assistant_instance:
+                try:
+                    # Get document-based suggestions (use 40% of limit)
+                    doc_suggestions = QuerySuggestions._assistant_instance.generate_document_suggestions(
+                        limit=max(3, limit // 2)
+                    )
+                    suggestions.extend(doc_suggestions)
+                except Exception as e:
+                    print(f"⚠️ Error getting document suggestions: {e}")
+            
+            # Add saved queries (30% of limit)
             saved = SavedQueries.get_all()
-            # Sort by usage count, then by recency
             saved_sorted = sorted(
                 saved,
                 key=lambda x: (x.get("usage_count", 0), x.get("updated_at", "")),
                 reverse=True
             )
-            for item in saved_sorted[:limit//2]:
-                suggestions.append({
-                    "query": item.get("query", ""),
-                    "type": "saved",
-                    "score": 1.0,
-                    "name": item.get("name", ""),
-                    "usage_count": item.get("usage_count", 0)
-                })
+            remaining = limit - len(suggestions)
+            for item in saved_sorted[:max(2, remaining // 2)]:
+                if item.get("query", "") not in [s["query"] for s in suggestions]:
+                    suggestions.append({
+                        "query": item.get("query", ""),
+                        "type": "saved",
+                        "score": 1.0,
+                        "name": item.get("name", ""),
+                        "usage_count": item.get("usage_count", 0)
+                    })
             
-            # Add recent history
-            history = SearchHistory.get_history(limit=limit//2)
+            # Add recent history (remaining slots)
+            history = SearchHistory.get_history(limit=max(2, limit - len(suggestions)))
             for entry in history:
                 query = entry.get("query", "")
-                if query and query not in [s["query"] for s in suggestions]:
+                if query and query not in [s["query"] for s in suggestions] and len(suggestions) < limit:
                     suggestions.append({
                         "query": query,
                         "type": "history",
