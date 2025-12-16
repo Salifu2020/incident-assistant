@@ -116,3 +116,4 @@ You can test your email configuration by:
 - **TLS error**: Try different TLS settings or port
 - **Relay denied**: Some SMTP servers require authentication even for localhost
 
+

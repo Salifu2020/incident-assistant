@@ -318,3 +318,4 @@ class EmailService:
             logger.error(f"Failed to send password reset email to {email}: {e}")
             return False
 
+

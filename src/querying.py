@@ -3,13 +3,217 @@ import ollama
 import re
 import os
 import json
+import hashlib
+import time
 from collections import Counter
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
 
+class QueryCache:
+    """Smart query caching system for improved performance."""
+    
+    def __init__(self, default_ttl: int = 3600, max_size: int = 1000):
+        """
+        Initialize query cache.
+        
+        Args:
+            default_ttl: Default time-to-live in seconds (default: 1 hour)
+            max_size: Maximum number of cached entries (default: 1000)
+        """
+        self.cache: Dict[str, Dict] = {}
+        self.default_ttl = default_ttl
+        self.max_size = max_size
+        self.hit_count = 0
+        self.miss_count = 0
+        self.invalidation_count = 0
+        self._last_invalidation = None
+        
+    def _generate_cache_key(self, query: str, document_filters: List = None, 
+                           advanced_filters: Dict = None, language: str = None) -> str:
+        """Generate a unique cache key for a query."""
+        # Normalize query (lowercase, strip whitespace)
+        normalized_query = query.lower().strip()
+        
+        # Create key components
+        key_parts = [normalized_query]
+        
+        # Add document filters if present
+        if document_filters:
+            key_parts.append("docs:" + ",".join(sorted(document_filters)))
+        
+        # Add advanced filters if present
+        if advanced_filters:
+            filter_str = json.dumps(advanced_filters, sort_keys=True)
+            key_parts.append("filters:" + filter_str)
+        
+        # Add language if present
+        if language:
+            key_parts.append("lang:" + language)
+        
+        # Create hash of combined key
+        key_string = "|".join(key_parts)
+        return hashlib.sha256(key_string.encode('utf-8')).hexdigest()
+    
+    def get(self, cache_key: str) -> Optional[Dict]:
+        """
+        Get cached result if available and not expired.
+        
+        Args:
+            cache_key: The cache key to look up
+            
+        Returns:
+            Cached result dict with 'answer', 'sources', 'intent_info', 'confidence_info', 'verification_info'
+            or None if not found or expired
+        """
+        if cache_key not in self.cache:
+            self.miss_count += 1
+            return None
+        
+        entry = self.cache[cache_key]
+        
+        # Check if expired
+        if time.time() > entry['expires_at']:
+            # Remove expired entry
+            del self.cache[cache_key]
+            self.miss_count += 1
+            return None
+        
+        # Cache hit!
+        self.hit_count += 1
+        entry['access_count'] = entry.get('access_count', 0) + 1
+        entry['last_accessed'] = time.time()
+        
+        return {
+            'answer': entry['answer'],
+            'sources': entry['sources'],
+            'intent_info': entry.get('intent_info', {}),
+            'confidence_info': entry.get('confidence_info'),
+            'verification_info': entry.get('verification_info')
+        }
+    
+    def set(self, cache_key: str, answer: str, sources: List, 
+            intent_info: Dict = None, confidence_info: Dict = None, 
+            verification_info: Dict = None, ttl: int = None):
+        """
+        Store result in cache.
+        
+        Args:
+            cache_key: The cache key
+            answer: The answer text
+            sources: List of source documents
+            intent_info: Intent classification info
+            confidence_info: Confidence scoring info
+            verification_info: Answer verification info
+            ttl: Time-to-live in seconds (uses default if None)
+        """
+        # Enforce max size - remove oldest entries if needed
+        if len(self.cache) >= self.max_size:
+            # Remove least recently used entries (20% of cache)
+            entries_to_remove = max(1, self.max_size // 5)
+            sorted_entries = sorted(
+                self.cache.items(),
+                key=lambda x: x[1].get('last_accessed', x[1]['created_at'])
+            )
+            for key, _ in sorted_entries[:entries_to_remove]:
+                del self.cache[key]
+        
+        # Store entry
+        expires_at = time.time() + (ttl or self.default_ttl)
+        self.cache[cache_key] = {
+            'answer': answer,
+            'sources': sources,
+            'intent_info': intent_info or {},
+            'confidence_info': confidence_info,
+            'verification_info': verification_info,
+            'created_at': time.time(),
+            'expires_at': expires_at,
+            'last_accessed': time.time(),
+            'access_count': 1
+        }
+    
+    def invalidate(self, pattern: str = None):
+        """
+        Invalidate cache entries.
+        
+        Args:
+            pattern: Optional pattern to match (if None, clears all)
+        """
+        if pattern is None:
+            # Clear all cache
+            cleared_count = len(self.cache)
+            self.cache.clear()
+            self.invalidation_count += 1
+            self._last_invalidation = time.time()
+            return cleared_count
+        
+        # Pattern-based invalidation (e.g., by document name)
+        keys_to_remove = []
+        for key, entry in self.cache.items():
+            # Check if any source matches the pattern
+            sources = entry.get('sources', [])
+            for source in sources:
+                if pattern in str(source.get('source', '')):
+                    keys_to_remove.append(key)
+                    break
+        
+        for key in keys_to_remove:
+            del self.cache[key]
+        
+        if keys_to_remove:
+            self.invalidation_count += 1
+            self._last_invalidation = time.time()
+        
+        return len(keys_to_remove)
+    
+    def clear_expired(self):
+        """Remove all expired entries from cache."""
+        current_time = time.time()
+        expired_keys = [
+            key for key, entry in self.cache.items()
+            if current_time > entry['expires_at']
+        ]
+        for key in expired_keys:
+            del self.cache[key]
+        return len(expired_keys)
+    
+    def get_stats(self) -> Dict:
+        """Get cache statistics."""
+        self.clear_expired()  # Clean up expired entries first
+        
+        total_requests = self.hit_count + self.miss_count
+        hit_rate = (self.hit_count / total_requests * 100) if total_requests > 0 else 0
+        
+        # Calculate average access count for cached entries
+        avg_access_count = 0
+        if self.cache:
+            avg_access_count = sum(
+                entry.get('access_count', 0) for entry in self.cache.values()
+            ) / len(self.cache)
+        
+        return {
+            'size': len(self.cache),
+            'max_size': self.max_size,
+            'hits': self.hit_count,
+            'misses': self.miss_count,
+            'hit_rate': round(hit_rate, 2),
+            'invalidations': self.invalidation_count,
+            'last_invalidation': self._last_invalidation,
+            'avg_access_count': round(avg_access_count, 2),
+            'total_requests': total_requests
+        }
+    
+    def clear(self):
+        """Clear all cache entries."""
+        cleared_count = len(self.cache)
+        self.cache.clear()
+        self.invalidation_count += 1
+        self._last_invalidation = time.time()
+        return cleared_count
+
+
 class KnowledgeAssistant:
-    def __init__(self, processor, model_name: str = "mistral", max_context_chars=2500, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2, enable_confidence_scoring=True, enable_answer_verification=True):
+    def __init__(self, processor, model_name: str = "mistral", max_context_chars=2500, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2, enable_confidence_scoring=True, enable_answer_verification=True, enable_query_caching=True, cache_ttl=3600, cache_max_size=1000):
         self.processor = processor
         self.llm_model = model_name
         self.max_context_chars = max_context_chars
@@ -24,6 +228,14 @@ class KnowledgeAssistant:
         self.summarization_threshold = summarization_threshold  # Summarize if context exceeds max_context_chars * threshold
         self.enable_confidence_scoring = enable_confidence_scoring
         self.enable_answer_verification = enable_answer_verification  # Enable answer verification to prevent hallucinations
+        self.enable_query_caching = enable_query_caching  # Enable smart query caching
+        
+        # Initialize query cache
+        if self.enable_query_caching:
+            self.query_cache = QueryCache(default_ttl=cache_ttl, max_size=cache_max_size)
+            print(f"✅ Query caching enabled (TTL: {cache_ttl}s, Max size: {cache_max_size})")
+        else:
+            self.query_cache = None
         
         # Initialize learning data storage
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,6 +245,13 @@ class KnowledgeAssistant:
         self._document_suggestions_cache = None
         self._document_suggestions_cache_time = None
         self._document_suggestions_cache_ttl = 3600  # Cache for 1 hour
+        
+        # Multi-language support
+        self.enable_multilanguage = True  # Enable multi-language support
+        self.default_language = "en"  # Default language (English)
+        self.supported_languages = ["en", "es", "fr", "de", "it", "pt", "zh", "ja", "ko", "ar", "ru", "hi"]
+        self._translation_cache = {}  # Cache for translations
+        
         self._load_learning_data()
         
         self.reset_history()
@@ -1820,7 +2039,139 @@ class KnowledgeAssistant:
         except Exception as e:
             print(f"⚠️ Error generating improvement suggestion: {e}")
 
-    def ask_question(self, query, document_filters=None, conversation_context=None, advanced_filters=None):
+    def detect_language(self, text: str) -> str:
+        """Detect the language of the input text.
+        
+        Args:
+            text: The text to detect language for
+            
+        Returns:
+            Language code (e.g., 'en', 'es', 'fr')
+        """
+        if not self.enable_multilanguage or not text or len(text.strip()) < 3:
+            return self.default_language
+        
+        try:
+            # Use LLM for language detection
+            detection_prompt = (
+                f"Detect the language of this text and respond with ONLY the ISO 639-1 language code (e.g., 'en', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ja', 'ko', 'ar', 'ru', 'hi').\n\n"
+                f"Text: {text[:200]}\n\n"
+                "Language code:"
+            )
+            
+            response = ollama.chat(
+                model=self.llm_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a language detector. Respond with only the ISO 639-1 language code."
+                    },
+                    {
+                        "role": "user",
+                        "content": detection_prompt
+                    }
+                ],
+                options={
+                    "temperature": 0.1,
+                    "num_predict": 5,  # Very short response
+                }
+            )
+            
+            detected = response.get("message", {}).get("content", "").strip().lower()
+            # Clean up response (remove any extra text)
+            detected = detected.split()[0] if detected.split() else self.default_language
+            
+            # Validate it's a supported language
+            if detected in self.supported_languages:
+                return detected
+            else:
+                return self.default_language
+                
+        except Exception as e:
+            print(f"⚠️ Language detection failed: {e}")
+            return self.default_language
+    
+    def translate_text(self, text: str, target_language: str, source_language: str = None) -> str:
+        """Translate text to target language.
+        
+        Args:
+            text: The text to translate
+            target_language: Target language code (e.g., 'en', 'es', 'fr')
+            source_language: Optional source language code (auto-detected if not provided)
+            
+        Returns:
+            Translated text
+        """
+        if not self.enable_multilanguage:
+            return text
+        
+        if target_language == self.default_language and (not source_language or source_language == self.default_language):
+            return text  # No translation needed
+        
+        # Check cache
+        cache_key = f"{source_language or 'auto'}_{target_language}_{hash(text[:100])}"
+        if cache_key in self._translation_cache:
+            return self._translation_cache[cache_key]
+        
+        try:
+            # Get language names for better translation
+            lang_names = {
+                "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+                "it": "Italian", "pt": "Portuguese", "zh": "Chinese", "ja": "Japanese",
+                "ko": "Korean", "ar": "Arabic", "ru": "Russian", "hi": "Hindi"
+            }
+            
+            target_lang_name = lang_names.get(target_language, "English")
+            source_lang_name = lang_names.get(source_language, "the detected language") if source_language else "the detected language"
+            
+            translation_prompt = (
+                f"Translate the following text from {source_lang_name} to {target_lang_name}.\n\n"
+                f"Text: {text}\n\n"
+                f"Provide only the translation in {target_lang_name}, without any explanations or additional text."
+            )
+            
+            response = ollama.chat(
+                model=self.llm_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"You are a professional translator. Translate accurately and naturally to {target_lang_name}."
+                    },
+                    {
+                        "role": "user",
+                        "content": translation_prompt
+                    }
+                ],
+                options={
+                    "temperature": 0.3,  # Lower temperature for more accurate translation
+                    "num_predict": len(text) * 2,  # Allow enough tokens
+                }
+            )
+            
+            translated = response.get("message", {}).get("content", "").strip()
+            
+            # Clean up translation (remove quotes if present)
+            if translated.startswith('"') and translated.endswith('"'):
+                translated = translated[1:-1]
+            if translated.startswith("'") and translated.endswith("'"):
+                translated = translated[1:-1]
+            
+            # Cache the translation
+            self._translation_cache[cache_key] = translated
+            # Limit cache size
+            if len(self._translation_cache) > 1000:
+                # Remove oldest entries (simple FIFO)
+                keys_to_remove = list(self._translation_cache.keys())[:200]
+                for key in keys_to_remove:
+                    del self._translation_cache[key]
+            
+            return translated
+            
+        except Exception as e:
+            print(f"⚠️ Translation failed: {e}")
+            return text  # Return original on error
+
+    def ask_question(self, query, document_filters=None, conversation_context=None, advanced_filters=None, user_language: str = None):
         """Ask a question and return answer with source citations.
         
         Args:
@@ -1828,12 +2179,81 @@ class KnowledgeAssistant:
             document_filters: Optional list of document filenames to filter by (legacy)
             conversation_context: Optional list of previous messages for context
             advanced_filters: Optional AdvancedSearchFilters object for advanced filtering
+            user_language: Optional user's preferred language code (auto-detected if not provided)
         """
         # Quick validation
         if not query or not query.strip():
             confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
             verification_info = {"status": "not_verified", "supported": False, "details": "Invalid query", "has_hallucinations": False} if self.enable_answer_verification else None
             return "Please provide a valid question.", [], {"intent": "factual", "confidence": 0.0}, confidence_info, verification_info
+        
+        # Check cache first (if enabled and not a follow-up question)
+        cache_key = None
+        if self.enable_query_caching and self.query_cache and not conversation_context:
+            # Generate cache key
+            advanced_filters_dict = None
+            if advanced_filters:
+                advanced_filters_dict = {
+                    "date_from": advanced_filters.date_from.isoformat() if advanced_filters.date_from else None,
+                    "date_to": advanced_filters.date_to.isoformat() if advanced_filters.date_to else None,
+                    "min_relevance": advanced_filters.min_relevance,
+                    "max_results": advanced_filters.max_results,
+                    "exclude_documents": advanced_filters.exclude_documents
+                }
+            
+            cache_key = self.query_cache._generate_cache_key(
+                query, 
+                document_filters, 
+                advanced_filters_dict,
+                user_language
+            )
+            
+            # Try to get from cache
+            cached_result = self.query_cache.get(cache_key)
+            if cached_result:
+                print(f"⚡ Cache HIT for query: {query[:50]}...")
+                # Record analytics for cache hit (with minimal data)
+                try:
+                    from .analytics import AnalyticsTracker
+                    AnalyticsTracker.record_query_analytics(
+                        query=query,
+                        response_time=0.01,  # Cache hits are very fast
+                        sources=cached_result.get('sources', []),
+                        intent=cached_result.get('intent_info', {}).get('intent') if cached_result.get('intent_info') else None,
+                        confidence=cached_result.get('confidence_info', {}).get('confidence') if cached_result.get('confidence_info') else None,
+                        verification_status=cached_result.get('verification_info', {}).get('status') if cached_result.get('verification_info') else None,
+                        cache_hit=True,  # Mark as cache hit
+                        user_id=None
+                    )
+                except Exception as e:
+                    print(f"⚠️ Failed to record cache hit analytics: {e}")
+                
+                return (
+                    cached_result['answer'],
+                    cached_result['sources'],
+                    cached_result.get('intent_info', {}),
+                    cached_result.get('confidence_info'),
+                    cached_result.get('verification_info')
+                )
+            else:
+                print(f"💾 Cache MISS for query: {query[:50]}...")
+        
+        # Multi-language support: detect and translate query if needed
+        detected_language = self.default_language
+        original_query = query
+        query_for_processing = query
+        
+        if self.enable_multilanguage:
+            # Detect language if not provided
+            if user_language:
+                detected_language = user_language if user_language in self.supported_languages else self.default_language
+            else:
+                detected_language = self.detect_language(query)
+            
+            # Translate query to English for processing (since embeddings are English-based)
+            if detected_language != self.default_language:
+                query_for_processing = self.translate_text(query, self.default_language, detected_language)
+                print(f"🌐 Detected language: {detected_language}, translated query for processing")
         
         # Classify query intent
         intent_info = self.classify_query_intent(query)
@@ -1954,8 +2374,9 @@ class KnowledgeAssistant:
                 return "⚠️ No relevant information found. Please ensure documents have been uploaded and processed, then try rephrasing your question.", [], intent_info, confidence_info, verification_info
         
         # Generate response with follow-up awareness and intent guidance
+        # Use original query for response generation to maintain context
         try:
-            response = self.generate_response(query, context, is_followup=is_followup, intent=intent_info)
+            response = self.generate_response(query_for_processing, context, is_followup=is_followup, intent=intent_info)
             
             # Calculate confidence score
             confidence_info = None
@@ -1965,13 +2386,31 @@ class KnowledgeAssistant:
             # Verify answer is supported by context
             verification_info = None
             if self.enable_answer_verification:
-                verification_info = self.verify_answer(query, response, context, sources)
+                verification_info = self.verify_answer(query_for_processing, response, context, sources)
                 # Log verification results
                 if verification_info.get("status") != "supported":
                     print(f"⚠️ Answer verification: {verification_info.get('status')} - {verification_info.get('details', '')[:100]}")
             
+            # Translate answer back to user's language if needed
+            final_response = response
+            if self.enable_multilanguage and detected_language != self.default_language:
+                final_response = self.translate_text(response, detected_language, self.default_language)
+                print(f"🌐 Translated answer to {detected_language}")
+            
+            # Store in cache if enabled and not a follow-up question
+            if self.enable_query_caching and self.query_cache and cache_key and not conversation_context:
+                self.query_cache.set(
+                    cache_key,
+                    final_response,
+                    sources,
+                    intent_info,
+                    confidence_info,
+                    verification_info
+                )
+                print(f"💾 Cached result for query: {query[:50]}...")
+            
             # Return response with sources, intent, confidence, and verification
-            return response, sources, intent_info, confidence_info, verification_info
+            return final_response, sources, intent_info, confidence_info, verification_info
         except Exception as e:
             verification_info = {"status": "error", "supported": True, "details": str(e), "has_hallucinations": False} if self.enable_answer_verification else None
             return f"❌ Error: {str(e)}", [], intent_info, None, verification_info

@@ -21,5 +21,8 @@ assistant = KnowledgeAssistant(
     enable_context_summarization=True,  # Enable context summarization for long documents
     summarization_threshold=1.2,  # Summarize if context exceeds max_context_chars * 1.2
     enable_confidence_scoring=True,  # Enable answer confidence scoring for transparency
-    enable_answer_verification=True  # Enable answer verification to prevent hallucinations
+    enable_answer_verification=True,  # Enable answer verification to prevent hallucinations
+    enable_query_caching=True,  # Enable smart query caching for improved performance
+    cache_ttl=3600,  # Cache for 1 hour
+    cache_max_size=1000  # Maximum 1000 cached queries
 )

@@ -11,6 +11,7 @@ class QuestionRequest(BaseModel):
     query: str
     document_filters: Optional[List[str]] = None  # List of document filenames to filter by
     conversation_id: Optional[str] = None  # Conversation ID for context
+    language: Optional[str] = None  # User's preferred language code (e.g., 'en', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ja', 'ko', 'ar', 'ru', 'hi')
 
 class QueryIntent(BaseModel):
     intent: str  # factual, how_to, definition, comparison, list, explanation, verification, follow_up
@@ -413,3 +414,76 @@ class PreferencesUpdateRequest(BaseModel):
 class ProfileResponse(BaseModel):
     user: UserInfo
     preferences: UserPreferences
+
+# Analytics Models
+class QueryAnalyticsEntry(BaseModel):
+    query: str
+    count: int
+    pattern_data: Optional[Dict] = None
+
+class DocumentUsageEntry(BaseModel):
+    document: str
+    query_count: int
+    last_accessed: Optional[str] = None
+
+class IntentPerformance(BaseModel):
+    avg_response_time: float
+    query_count: int
+
+class ConfidenceStats(BaseModel):
+    avg: float
+    min: float
+    max: float
+    high_confidence_count: int
+    low_confidence_count: int
+    total_with_confidence: int
+
+class CachePerformance(BaseModel):
+    hits: int
+    misses: int
+    hit_rate: float
+
+class VerificationStats(BaseModel):
+    total_verified: int
+    supported_count: int
+    partial_count: int
+    unsupported_count: int
+    not_verified_count: int
+    by_status: Dict[str, int]
+
+class QueryTrendEntry(BaseModel):
+    hour: str
+    count: int
+
+class QueryAnalyticsResponse(BaseModel):
+    period_hours: int
+    total_queries: int
+    most_asked_queries: List[QueryAnalyticsEntry]
+    document_usage: List[DocumentUsageEntry]
+    intent_distribution: Dict[str, int]
+    intent_performance: Dict[str, IntentPerformance]
+    confidence_stats: Optional[ConfidenceStats] = None
+    cache_performance: CachePerformance
+    query_trends: List[QueryTrendEntry]
+    verification_stats: VerificationStats
+
+class KnowledgeGap(BaseModel):
+    intent: str
+    query_count: int
+    avg_confidence: float
+    sample_queries: List[str]
+    recommendation: str
+
+class KnowledgeGapsResponse(BaseModel):
+    gaps: List[KnowledgeGap]
+    total_gaps: int
+
+class UserActivityEntry(BaseModel):
+    user_id: str
+    query_count: int
+    last_activity: Optional[str] = None
+
+class UserInsightsResponse(BaseModel):
+    total_active_users: int
+    top_users: List[UserActivityEntry]
+    total_user_queries: int

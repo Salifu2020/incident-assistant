@@ -33,10 +33,15 @@ from .models import (
     TwoFASetupResponse, TwoFAVerifyRequest, TwoFALoginRequest, TwoFAResponse,
     SessionInfo, SessionListResponse, RefreshTokenRequest, TokenRefreshResponse,
     AuditLogEntry, AuditLogResponse, AuditLogFilter,
-    UserPreferences, ProfileUpdateRequest, PreferencesUpdateRequest, ProfileResponse
+    UserPreferences, ProfileUpdateRequest, PreferencesUpdateRequest, ProfileResponse,
+    QueryAnalyticsResponse, QueryAnalyticsEntry, DocumentUsageEntry, IntentPerformance,
+    ConfidenceStats, CachePerformance, VerificationStats, QueryTrendEntry,
+    KnowledgeGapsResponse, KnowledgeGap, UserInsightsResponse, UserActivityEntry
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
+from .analytics import AnalyticsTracker
+from .analytics import AnalyticsTracker
 from .auth import (
     UserManager, verify_token, create_access_token, create_refresh_token,
     verify_refresh_token, create_session, update_session_activity,
@@ -46,13 +51,6 @@ from .auth import (
     SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS,
     AVATARS_DIR
 )
-
-# Import email service (optional - will work without it)
-try:
-    from .email_service import EmailService
-except ImportError:
-    EmailService = None
-    logger.warning("Email service not available. Install aiosmtplib, email-validator, and jinja2 for email support.")
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -72,6 +70,13 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Import email service (optional - will work without it) - Must be after logger definition
+try:
+    from .email_service import EmailService
+except ImportError:
+    EmailService = None
+    logger.warning("Email service not available. Install aiosmtplib, email-validator, and jinja2 for email support.")
 
 app = FastAPI(title="Knowledge Assistant API")
 
@@ -1213,6 +1218,11 @@ def delete_document(
         
         logger.info(f"Deleted {deleted_count} chunks for document '{filename}'")
         
+        # Invalidate cache entries related to this document
+        if assistant.enable_query_caching and assistant.query_cache:
+            cleared = assistant.query_cache.invalidate(filename)
+            logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to document deletion: {filename}")
+        
         # Log audit event
         ip_address = None
         if http_request:
@@ -1539,7 +1549,8 @@ async def ask_question(payload: QuestionRequest):
             payload.query,
             payload.document_filters,
             conversation_context,
-            None  # advanced_filters - will be None for regular requests
+            None,  # advanced_filters - will be None for regular requests
+            payload.language  # Pass user's language preference
         )
         
         # Unpack result (answer, sources, intent_info, confidence_info, verification_info)
@@ -1573,6 +1584,27 @@ async def ask_question(payload: QuestionRequest):
             )
         except Exception as e:
             logger.warning(f"Failed to record query metric: {e}")
+        
+        # Record detailed analytics
+        try:
+            user_id = None
+            if hasattr(payload, 'user_id'):
+                user_id = payload.user_id
+            elif hasattr(request, 'state') and hasattr(request.state, 'user'):
+                user_id = request.state.user.id if hasattr(request.state.user, 'id') else None
+            
+            AnalyticsTracker.record_query_analytics(
+                query=payload.query,
+                response_time=elapsed_time,
+                sources=sources,
+                intent=intent_info.get("intent") if intent_info else None,
+                confidence=confidence_info.get("confidence") if confidence_info else None,
+                verification_status=verification_info.get("status") if verification_info else None,
+                cache_hit=False,  # Will be updated if we track cache hits
+                user_id=user_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record analytics: {e}")
         
         # Save to conversation if conversation_id is provided
         if payload.conversation_id:
@@ -1659,8 +1691,21 @@ async def ask_question_stream(payload: QuestionRequest):
                 )
                 is_followup = len(conversation_context) > 0
             
+            # Multi-language support: detect and translate query if needed
+            query_for_retrieval = payload.query
+            detected_language = assistant.default_language
+            if assistant.enable_multilanguage:
+                if payload.language:
+                    detected_language = payload.language if payload.language in assistant.supported_languages else assistant.default_language
+                else:
+                    detected_language = assistant.detect_language(payload.query)
+                
+                # Translate query to English for processing
+                if detected_language != assistant.default_language:
+                    query_for_retrieval = assistant.translate_text(payload.query, assistant.default_language, detected_language)
+            
             # Enhance query for follow-up questions
-            enhanced_query = payload.query
+            enhanced_query = query_for_retrieval
             if is_followup:
                 # Extract key information from previous conversation
                 previous_summary = []
@@ -1674,14 +1719,14 @@ async def ask_question_stream(payload: QuestionRequest):
                 
                 if previous_summary:
                     context_hint = " | ".join(previous_summary)
-                    enhanced_query = f"{payload.query} [Context: {context_hint}]"
+                    enhanced_query = f"{query_for_retrieval} [Context: {context_hint}]"
             
             # Retrieve context first (synchronous operation)
             loop = asyncio.get_event_loop()
             context, sources = await loop.run_in_executor(
                 None,
                 assistant.retrieve_context,
-                enhanced_query if is_followup else payload.query,
+                enhanced_query if is_followup else query_for_retrieval,
                 4,  # k value
                 payload.document_filters
             )
@@ -1707,8 +1752,10 @@ async def ask_question_stream(payload: QuestionRequest):
                         })
             
             # Stream the response with follow-up awareness
+            # Use translated query for response generation
+            query_for_response = query_for_retrieval if assistant.enable_multilanguage and detected_language != assistant.default_language else payload.query
             response_text = ""
-            for chunk in assistant.generate_response_stream(payload.query, context, is_followup=is_followup):
+            for chunk in assistant.generate_response_stream(query_for_response, context, is_followup=is_followup):
                 response_text += chunk
                 yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
             
@@ -1726,14 +1773,19 @@ async def ask_question_stream(payload: QuestionRequest):
             verification_info = None
             if assistant.enable_answer_verification:
                 verification_info = assistant.verify_answer(
-                    payload.query,
+                    query_for_response,
                     response_text.strip(),
                     context,
                     sources
                 )
             
+            # Translate answer back to user's language if needed
+            final_response = response_text.strip()
+            if assistant.enable_multilanguage and detected_language != assistant.default_language:
+                final_response = assistant.translate_text(response_text.strip(), detected_language, assistant.default_language)
+            
             # Send completion signal with confidence and verification
-            yield f"data: {json.dumps({'type': 'done', 'full_response': response_text.strip(), 'confidence': confidence_info, 'verification': verification_info})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'full_response': final_response, 'confidence': confidence_info, 'verification': verification_info})}\n\n"
             
             # Record query metric
             try:
@@ -1741,6 +1793,21 @@ async def ask_question_stream(payload: QuestionRequest):
                 HealthMonitor.record_query(payload.query, response_time, len(sources), success=True)
             except Exception as e:
                 logger.warning(f"Failed to record query metric: {e}")
+            
+            # Record detailed analytics
+            try:
+                AnalyticsTracker.record_query_analytics(
+                    query=payload.query,
+                    response_time=response_time,
+                    sources=sources,
+                    intent=None,  # Could extract from response if available
+                    confidence=confidence_info.get("confidence") if confidence_info else None,
+                    verification_status=verification_info.get("status") if verification_info else None,
+                    cache_hit=False,
+                    user_id=None
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record analytics: {e}")
             
             # Save to conversation if conversation_id is provided
             if payload.conversation_id:
@@ -1866,6 +1933,13 @@ async def upload_file(
         
         # Schedule background task
         background_tasks.add_task(process_and_move_file, source_path, ext)
+        
+        # Invalidate cache when new document is uploaded (will be processed in background)
+        # Note: We invalidate by filename pattern, but since processing is async,
+        # we'll invalidate all cache to be safe
+        if assistant.enable_query_caching and assistant.query_cache:
+            cleared = assistant.query_cache.clear()
+            logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to document upload: {filename}")
         
         # Log audit event
         ip_address = None
@@ -2035,11 +2109,153 @@ async def get_metrics_history(metric_type: Optional[str] = None, hours: int = 24
 
 
 @app.get("/health/performance", response_model=PerformanceStatsResponse)
-async def get_performance_stats(hours: int = 24):
-    """Get performance statistics."""
+def get_performance_stats(hours: int = 24):
+    """Get performance statistics for the specified time period."""
     try:
         stats = HealthMonitor.get_performance_stats(hours=hours)
-        return {"stats": stats}
+        return stats
     except Exception as e:
         logger.error(f"Error getting performance stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Error getting performance stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Cache Management Endpoints
+@app.get("/cache/stats")
+def get_cache_stats():
+    """Get query cache statistics."""
+    try:
+        if not assistant.enable_query_caching or not assistant.query_cache:
+            return {
+                "enabled": False,
+                "message": "Query caching is not enabled"
+            }
+        
+        stats = assistant.query_cache.get_stats()
+        return {
+            "enabled": True,
+            **stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/cache")
+def clear_cache():
+    """Clear all cached queries."""
+    try:
+        if not assistant.enable_query_caching or not assistant.query_cache:
+            raise HTTPException(status_code=400, detail="Query caching is not enabled")
+        
+        cleared = assistant.query_cache.clear()
+        logger.info(f"Cache cleared: {cleared} entries removed")
+        return {
+            "message": f"Cache cleared successfully",
+            "entries_cleared": cleared
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/invalidate")
+def invalidate_cache(pattern: str = None):
+    """Invalidate cache entries matching a pattern (e.g., document name)."""
+    try:
+        if not assistant.enable_query_caching or not assistant.query_cache:
+            raise HTTPException(status_code=400, detail="Query caching is not enabled")
+        
+        cleared = assistant.query_cache.invalidate(pattern)
+        logger.info(f"Cache invalidated: {cleared} entries removed (pattern: {pattern or 'all'})")
+        return {
+            "message": f"Cache invalidated successfully",
+            "entries_cleared": cleared,
+            "pattern": pattern or "all"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error invalidating cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Analytics Endpoints
+@app.get("/analytics/queries", response_model=QueryAnalyticsResponse)
+def get_query_analytics(hours: int = 24, current_user: UserInfo = Depends(get_current_user)):
+    """Get comprehensive query analytics."""
+    try:
+        analytics_data = AnalyticsTracker.get_query_analytics(hours=hours)
+        
+        # Convert to response models
+        most_asked = [
+            QueryAnalyticsEntry(**entry) for entry in analytics_data.get("most_asked_queries", [])
+        ]
+        
+        doc_usage = [
+            DocumentUsageEntry(**entry) for entry in analytics_data.get("document_usage", [])
+        ]
+        
+        intent_perf = {
+            intent: IntentPerformance(**data)
+            for intent, data in analytics_data.get("intent_performance", {}).items()
+        }
+        
+        confidence_stats = None
+        if analytics_data.get("confidence_stats"):
+            confidence_stats = ConfidenceStats(**analytics_data["confidence_stats"])
+        
+        cache_perf = CachePerformance(**analytics_data.get("cache_performance", {}))
+        
+        verification_stats = VerificationStats(**analytics_data.get("verification_stats", {}))
+        
+        query_trends = [
+            QueryTrendEntry(**entry) for entry in analytics_data.get("query_trends", [])
+        ]
+        
+        return QueryAnalyticsResponse(
+            period_hours=analytics_data.get("period_hours", hours),
+            total_queries=analytics_data.get("total_queries", 0),
+            most_asked_queries=most_asked,
+            document_usage=doc_usage,
+            intent_distribution=analytics_data.get("intent_distribution", {}),
+            intent_performance=intent_perf,
+            confidence_stats=confidence_stats,
+            cache_performance=cache_perf,
+            query_trends=query_trends,
+            verification_stats=verification_stats
+        )
+    except Exception as e:
+        logger.error(f"Error getting query analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/analytics/knowledge-gaps", response_model=KnowledgeGapsResponse)
+def get_knowledge_gaps(hours: int = 24, current_user: UserInfo = Depends(get_current_user)):
+    """Identify knowledge gaps based on low confidence queries."""
+    try:
+        gaps = AnalyticsTracker.get_knowledge_gaps(processor, hours=hours)
+        
+        gap_objects = [KnowledgeGap(**gap) for gap in gaps]
+        
+        return KnowledgeGapsResponse(
+            gaps=gap_objects,
+            total_gaps=len(gap_objects)
+        )
+    except Exception as e:
+        logger.error(f"Error getting knowledge gaps: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/analytics/users", response_model=UserInsightsResponse)
+def get_user_insights(hours: int = 24, current_user: UserInfo = Depends(get_current_user)):
+    """Get user behavior insights."""
+    try:
+        insights = AnalyticsTracker.get_user_insights(hours=hours)
+        
+        top_users = [UserActivityEntry(**user) for user in insights.get("top_users", [])]
+        
+        return UserInsightsResponse(
+            total_active_users=insights.get("total_active_users", 0),
+            top_users=top_users,
+            total_user_queries=insights.get("total_user_queries", 0)
+        )
+    except Exception as e:
+        logger.error(f"Error getting user insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

@@ -8,7 +8,8 @@ import json
 
 os.environ["PYTORCH_NO_LIBRARY_FALLBACK"] = "1"
 
-API_URL = "http://127.0.0.1:8000"
+# API URL - can be configured via environment variable
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +28,43 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Helper function to log errors to both Streamlit UI and browser console
+def log_error_to_console(error_message, error_type="Error", exception=None):
+    """
+    Log error to Streamlit UI and browser console.
+    
+    Args:
+        error_message: The error message to display
+        error_type: Type of error (Error, Warning, Info)
+        exception: Optional exception object for detailed logging
+    """
+    # Log to Python logger
+    if exception:
+        logger.error(f"{error_type}: {error_message}", exc_info=exception)
+    else:
+        logger.error(f"{error_type}: {error_message}")
+    
+    # Display in Streamlit UI
+    if error_type == "Warning":
+        st.warning(f"⚠️ {error_message}")
+    elif error_type == "Info":
+        st.info(f"ℹ️ {error_message}")
+    else:
+        st.error(f"❌ {error_message}")
+    
+    # Send to browser console via JavaScript
+    escaped_message = error_message.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$').replace('\n', '\\n').replace('\r', '\\r')
+    exception_str = json.dumps(str(exception)) if exception else 'null'
+    console_script = f"""
+    <script>
+        console.error('[Streamlit {error_type}]', `{escaped_message}`);
+        if ({exception_str} !== null) {{
+            console.error('[Exception Details]', {exception_str});
+        }}
+    </script>
+    """
+    st.markdown(console_script, unsafe_allow_html=True)
 
 # Page configuration
 st.set_page_config(
@@ -453,6 +491,100 @@ st.markdown(
         color: #e2e8f0;
     }
     </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# Browser Console Error Logging - Inject JavaScript to capture errors
+st.markdown(
+    """
+    <script>
+    // Global error handler for JavaScript errors
+    window.addEventListener('error', function(event) {
+        console.error('JavaScript Error:', {
+            message: event.message,
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+            error: event.error
+        });
+    });
+    
+    // Global handler for unhandled promise rejections
+    window.addEventListener('unhandledrejection', function(event) {
+        console.error('Unhandled Promise Rejection:', event.reason);
+    });
+    
+    // Intercept Streamlit error messages and log to console
+    (function() {
+        const originalConsoleError = console.error;
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            // Also log to browser console with more detail
+            if (args.length > 0) {
+                const errorMsg = args.map(arg => {
+                    if (typeof arg === 'object') {
+                        try {
+                            return JSON.stringify(arg, null, 2);
+                        } catch (e) {
+                            return String(arg);
+                        }
+                    }
+                    return String(arg);
+                }).join(' ');
+                console.error('[Streamlit Error]', errorMsg);
+            }
+        };
+        
+        // Monitor for Streamlit error elements and log them
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1) { // Element node
+                        // Check for Streamlit error elements
+                        if (node.classList && (
+                            node.classList.contains('stAlert') ||
+                            node.classList.contains('stException') ||
+                            node.querySelector && node.querySelector('.stAlert, .stException')
+                        )) {
+                            const errorText = node.textContent || node.innerText;
+                            if (errorText && errorText.trim()) {
+                                console.error('[Streamlit UI Error]', errorText.trim());
+                            }
+                        }
+                        
+                        // Check for error messages in the DOM
+                        const errorElements = node.querySelectorAll ? node.querySelectorAll('[class*="error"], [class*="exception"], [class*="alert"]') : [];
+                        errorElements.forEach(function(el) {
+                            const text = el.textContent || el.innerText;
+                            if (text && text.trim() && text.includes('❌')) {
+                                console.error('[Streamlit Error Message]', text.trim());
+                            }
+                        });
+                    }
+                });
+            });
+        });
+        
+        // Start observing when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            });
+        } else {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        }
+        
+        // Log page load
+        console.log('[Streamlit App] Page loaded, error logging enabled');
+    })();
+    </script>
     """,
     unsafe_allow_html=True
 )
@@ -1000,7 +1132,7 @@ with st.sidebar:
     # Quick Status (compact)
     if st.session_state.api_status:
         status_class = "status-online" if st.session_state.api_status == "online" else "status-offline"
-        status_text = "🟢 Online" if st.session_state.api_status == "online" else "🔴 Offline"
+        status_text = "🟢 Connected" if st.session_state.api_status == "online" else "🔴 Offline"
         st.markdown(f'<div class="status-badge {status_class}">{status_text}</div>', unsafe_allow_html=True)
     
     if st.session_state.kb_status is not None:
@@ -1014,6 +1146,21 @@ with st.sidebar:
             chunk_count = kb_data if isinstance(kb_data, int) else 0
             if chunk_count > 0:
                 st.caption(f"📚 {chunk_count} chunks")
+    
+    # Cache status (if available and API is online)
+    if st.session_state.api_status == "online":
+        try:
+            cache_resp = requests.get(f"{API_URL}/cache/stats", timeout=2)
+            if cache_resp.status_code == 200:
+                cache_data = cache_resp.json()
+                if cache_data.get("enabled"):
+                    hit_rate = cache_data.get("hit_rate", 0)
+                    cache_size = cache_data.get("size", 0)
+                    max_size = cache_data.get("max_size", 0)
+                    if cache_size > 0:
+                        st.caption(f"⚡ Cache: {hit_rate:.0f}% hit ({cache_size}/{max_size})")
+        except:
+            pass  # Cache status is optional, don't fail if unavailable
     
     st.markdown("---")
     
@@ -1030,16 +1177,27 @@ with st.sidebar:
                 st.session_state.current_conversation_id = conv.get("id")
                 st.session_state.chat_history = []
                 st.rerun()
-        except:
-            pass
+            else:
+                st.warning(f"⚠️ Failed to create conversation: {resp.status_code}")
+        except requests.exceptions.ConnectionError:
+            st.error("❌ Cannot connect to API. Please ensure the server is running.")
+        except requests.exceptions.Timeout:
+            st.warning("⏱️ Request timed out. Please try again.")
+        except Exception as e:
+            logger.error(f"Error creating conversation: {e}")
+            st.warning(f"⚠️ Error: {str(e)}")
     
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.chat_history = []
         if st.session_state.current_conversation_id:
             try:
-                requests.post(f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear", timeout=5)
-            except:
-                pass
+                resp = requests.post(f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear", timeout=5)
+                if resp.status_code != 200:
+                    logger.warning(f"Failed to clear conversation on server: {resp.status_code}")
+            except requests.exceptions.ConnectionError:
+                logger.warning("Cannot connect to API to clear conversation")
+            except Exception as e:
+                logger.warning(f"Error clearing conversation: {e}")
         st.rerun()
     
     st.markdown("---")
@@ -1116,14 +1274,33 @@ with st.sidebar:
                     status_data = status_resp.json()
                     st.session_state.api_status = "online"
                     st.session_state.kb_status = status_data
-                    st.success("✅ Connected")
+                    
+                    # Also check cache status
+                    try:
+                        cache_resp = requests.get(f"{API_URL}/cache/stats", timeout=2)
+                        if cache_resp.status_code == 200:
+                            cache_data = cache_resp.json()
+                            if cache_data.get("enabled"):
+                                hit_rate = cache_data.get("hit_rate", 0)
+                                cache_size = cache_data.get("size", 0)
+                                st.success(f"✅ Connected | ⚡ Cache: {hit_rate:.1f}% hit rate ({cache_size} entries)")
+                            else:
+                                st.success("✅ Connected")
+                        else:
+                            st.success("✅ Connected")
+                    except:
+                        st.success("✅ Connected")
+                    
                     st.rerun()
                 else:
                     st.session_state.api_status = "offline"
                     st.error("❌ Error")
-            except:
+            except requests.exceptions.ConnectionError:
                 st.session_state.api_status = "offline"
-                st.error("❌ Offline")
+                st.error("❌ Offline - Cannot connect to API")
+            except Exception as e:
+                st.session_state.api_status = "offline"
+                st.error(f"❌ Error: {str(e)}")
     
     # File Upload (always visible at bottom)
     st.markdown("---")
@@ -1160,8 +1337,10 @@ with st.sidebar:
                         if status_resp.status_code == 200:
                             st.session_state.kb_status = status_resp.json()
                             st.rerun()
-                    except:
-                        pass
+                    except requests.exceptions.ConnectionError:
+                        logger.warning("Cannot connect to API to refresh status")
+                    except Exception as e:
+                        logger.warning(f"Error refreshing status: {e}")
                 else:
                     st.error(f"❌ Upload failed: {upload_resp.status_code}")
             except requests.exceptions.ConnectionError:
@@ -1233,9 +1412,17 @@ if st.session_state.get("show_documents", False):
     # Show loading spinner
     try:
         with st.spinner("Loading documents..."):
-            docs_resp = requests.get(f"{API_URL}/documents", timeout=30)
+            try:
+                docs_resp = requests.get(f"{API_URL}/documents", timeout=30)
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+                st.info("💡 **Tip:** Start the API server with: `python run_api.py`")
+                docs_resp = None
+            except requests.exceptions.Timeout:
+                st.error("⏱️ Request timed out. Please try again.")
+                docs_resp = None
         
-        if docs_resp.status_code == 200:
+        if docs_resp and docs_resp.status_code == 200:
             data = docs_resp.json()
             documents = data.get("documents", [])
             total_docs = data.get("total_documents", 0)
@@ -1358,9 +1545,13 @@ if st.session_state.get("show_history", False):
     
     try:
         with st.spinner("Loading history..."):
-            history_resp = requests.get(f"{API_URL}/history?limit=100", timeout=10)
+            try:
+                history_resp = requests.get(f"{API_URL}/history?limit=100", timeout=10)
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+                history_resp = None
         
-        if history_resp.status_code == 200:
+        if history_resp and history_resp.status_code == 200:
             data = history_resp.json()
             history = data.get("history", [])
             total = data.get("total", 0)
@@ -1439,9 +1630,17 @@ if st.session_state.get("show_saved_queries", False):
     
     try:
         with st.spinner("Loading saved queries..."):
-            saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=10)
+            try:
+                saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=10)
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+                st.info("💡 **Tip:** Start the API server with: `python run_api.py`")
+                saved_resp = None
+            except requests.exceptions.Timeout:
+                st.error("⏱️ Request timed out. Please try again.")
+                saved_resp = None
         
-        if saved_resp.status_code == 200:
+        if saved_resp and saved_resp.status_code == 200:
             data = saved_resp.json()
             saved_queries = data.get("saved_queries", [])
             total = data.get("total", 0)
@@ -1555,9 +1754,13 @@ if st.session_state.get("show_conversations", False):
     
     try:
         with st.spinner("Loading conversations..."):
-            convs_resp = requests.get(f"{API_URL}/conversations", timeout=10)
+            try:
+                convs_resp = requests.get(f"{API_URL}/conversations", timeout=10)
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+                convs_resp = None
         
-        if convs_resp.status_code == 200:
+        if convs_resp and convs_resp.status_code == 200:
             data = convs_resp.json()
             conversations = data.get("conversations", [])
             total = data.get("total", 0)
@@ -1744,6 +1947,62 @@ if st.session_state.get("show_health", False):
             if total_size_mb > 0:
                 st.metric("Total Size Processed", f"{total_size_mb:.2f} MB")
             
+            # Cache statistics
+            try:
+                cache_resp = requests.get(f"{API_URL}/cache/stats", timeout=5)
+                if cache_resp.status_code == 200:
+                    cache_data = cache_resp.json()
+                    if cache_data.get("enabled"):
+                        st.markdown("#### ⚡ Query Cache Statistics")
+                        cache_stats = cache_data
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            hit_rate = cache_stats.get("hit_rate", 0)
+                            hit_color = "normal" if hit_rate > 50 else "inverse" if hit_rate < 20 else "off"
+                            st.metric("Cache Hit Rate", f"{hit_rate:.1f}%", delta=None)
+                        with col2:
+                            st.metric("Cache Size", f"{cache_stats.get('size', 0)}/{cache_stats.get('max_size', 0)}")
+                        with col3:
+                            st.metric("Cache Hits", cache_stats.get("hits", 0))
+                        with col4:
+                            st.metric("Cache Misses", cache_stats.get("misses", 0))
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Total Requests", cache_stats.get("total_requests", 0))
+                        with col2:
+                            st.metric("Avg Access Count", f"{cache_stats.get('avg_access_count', 0):.1f}")
+                        
+                        # Cache management buttons
+                        st.markdown("#### 🗑️ Cache Management")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("Clear Cache", use_container_width=True, help="Remove all cached queries"):
+                                try:
+                                    clear_resp = requests.delete(f"{API_URL}/cache", timeout=5)
+                                    if clear_resp.status_code == 200:
+                                        st.success("✅ Cache cleared successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Failed to clear cache: {clear_resp.status_code}")
+                                except Exception as e:
+                                    st.error(f"❌ Error clearing cache: {str(e)}")
+                        with col2:
+                            if st.button("Clear Expired", use_container_width=True, help="Remove expired cache entries"):
+                                st.info("💡 Expired entries are automatically cleaned on access")
+                        
+                        # Cache insights
+                        if hit_rate > 50:
+                            st.success(f"✅ **Excellent cache performance** - {hit_rate:.1f}% of queries are served from cache!")
+                        elif hit_rate > 20:
+                            st.info(f"ℹ️ Cache is working - {hit_rate:.1f}% hit rate. More queries will improve this.")
+                        else:
+                            st.warning(f"⚠️ Low cache hit rate ({hit_rate:.1f}%) - System is still learning query patterns")
+            except Exception as e:
+                # Cache stats are optional, don't fail if unavailable
+                pass
+            
             # Performance insights
             st.markdown("#### 💡 Performance Insights")
             insights = []
@@ -1762,6 +2021,232 @@ if st.session_state.get("show_health", False):
                 insights.append("⚠️ **Elevated error rate** - Monitor closely")
             else:
                 insights.append("✅ **Low error rate** - System is stable")
+            
+            for insight in insights:
+                st.markdown(f"- {insight}")
+        
+        # Advanced Analytics Dashboard
+        st.markdown("---")
+        st.markdown("### 📊 Advanced Analytics Dashboard")
+        
+        # Analytics tabs
+        tab1, tab2, tab3, tab4 = st.tabs(["📈 Query Analytics", "📚 Document Usage", "🎯 Knowledge Gaps", "👥 User Insights"])
+        
+        with tab1:
+            try:
+                with st.spinner("Loading query analytics..."):
+                    auth_headers = get_auth_headers()
+                    analytics_resp = requests.get(f"{API_URL}/analytics/queries?hours={hours}", headers=auth_headers, timeout=10)
+                
+                if analytics_resp.status_code == 200:
+                    analytics_data = analytics_resp.json()
+                    
+                    # Overall stats
+                    st.markdown("#### 📊 Overview")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Queries", analytics_data.get("total_queries", 0))
+                    with col2:
+                        cache_perf = analytics_data.get("cache_performance", {})
+                        st.metric("Cache Hit Rate", f"{cache_perf.get('hit_rate', 0):.1f}%")
+                    with col3:
+                        conf_stats = analytics_data.get("confidence_stats")
+                        if conf_stats:
+                            st.metric("Avg Confidence", f"{conf_stats.get('avg', 0):.3f}")
+                    
+                    # Most asked queries
+                    st.markdown("#### 🔝 Most Asked Queries")
+                    most_asked = analytics_data.get("most_asked_queries", [])
+                    if most_asked:
+                        for idx, entry in enumerate(most_asked[:10], 1):
+                            pattern = entry.get("pattern_data", {})
+                            col1, col2, col3 = st.columns([3, 1, 1])
+                            with col1:
+                                st.text(f"{idx}. {entry.get('query', '')[:80]}...")
+                            with col2:
+                                st.caption(f"Count: {entry.get('count', 0)}")
+                            with col3:
+                                avg_time = pattern.get("avg_response_time", 0)
+                                st.caption(f"Avg: {avg_time:.2f}s")
+                    else:
+                        st.info("No query data available yet. Start asking questions to see analytics!")
+                    
+                    # Intent distribution
+                    st.markdown("#### 🎯 Query Intent Distribution")
+                    intent_dist = analytics_data.get("intent_distribution", {})
+                    if intent_dist:
+                        intent_perf = analytics_data.get("intent_performance", {})
+                        for intent, count in sorted(intent_dist.items(), key=lambda x: x[1], reverse=True):
+                            perf = intent_perf.get(intent, {})
+                            col1, col2, col3 = st.columns([2, 1, 1])
+                            with col1:
+                                st.text(f"**{intent.replace('_', ' ').title()}**")
+                            with col2:
+                                st.caption(f"Queries: {count}")
+                            with col3:
+                                if perf:
+                                    st.caption(f"Avg Time: {perf.get('avg_response_time', 0):.2f}s")
+                    else:
+                        st.info("No intent data available")
+                    
+                    # Confidence statistics
+                    conf_stats = analytics_data.get("confidence_stats")
+                    if conf_stats:
+                        st.markdown("#### 📊 Answer Confidence Statistics")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Average", f"{conf_stats.get('avg', 0):.3f}")
+                        with col2:
+                            st.metric("High Confidence", conf_stats.get("high_confidence_count", 0), help="Confidence >= 0.7")
+                        with col3:
+                            st.metric("Low Confidence", conf_stats.get("low_confidence_count", 0), help="Confidence < 0.5")
+                        with col4:
+                            st.metric("Range", f"{conf_stats.get('min', 0):.2f} - {conf_stats.get('max', 0):.2f}")
+                    
+                    # Verification stats
+                    verif_stats = analytics_data.get("verification_stats", {})
+                    if verif_stats:
+                        st.markdown("#### ✅ Answer Verification Statistics")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Supported", verif_stats.get("supported_count", 0))
+                        with col2:
+                            st.metric("Partial", verif_stats.get("partial_count", 0))
+                        with col3:
+                            st.metric("Unsupported", verif_stats.get("unsupported_count", 0))
+                        with col4:
+                            st.metric("Not Verified", verif_stats.get("not_verified_count", 0))
+                    
+                    # Query trends (hourly)
+                    trends = analytics_data.get("query_trends", [])
+                    if trends and len(trends) > 1:
+                        st.markdown("#### 📈 Query Trends (Hourly)")
+                        import pandas as pd
+                        df_trends = pd.DataFrame(trends)
+                        st.line_chart(df_trends.set_index("hour")["count"])
+                else:
+                    st.error(f"❌ Failed to load analytics: {analytics_resp.status_code}")
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+            except Exception as e:
+                st.error(f"❌ Error loading analytics: {str(e)}")
+        
+        with tab2:
+            try:
+                with st.spinner("Loading document usage analytics..."):
+                    # Get auth headers if available
+                    auth_headers = {}
+                    if st.session_state.authenticated and st.session_state.get("access_token"):
+                        auth_headers = {"Authorization": f"Bearer {st.session_state.access_token}"}
+                    
+                    analytics_resp = requests.get(f"{API_URL}/analytics/queries?hours={hours}", headers=auth_headers, timeout=10)
+                
+                if analytics_resp.status_code == 200:
+                    analytics_data = analytics_resp.json()
+                    doc_usage = analytics_data.get("document_usage", [])
+                    
+                    if doc_usage:
+                        st.markdown("#### 📚 Most Queried Documents")
+                        for idx, doc in enumerate(doc_usage[:10], 1):
+                            col1, col2, col3 = st.columns([3, 1, 1])
+                            with col1:
+                                st.text(f"{idx}. {doc.get('document', 'Unknown')}")
+                            with col2:
+                                st.caption(f"Queries: {doc.get('query_count', 0)}")
+                            with col3:
+                                last_acc = doc.get("last_accessed")
+                                if last_acc:
+                                    try:
+                                        acc_time = datetime.fromisoformat(last_acc.replace('Z', '+00:00'))
+                                        st.caption(f"Last: {acc_time.strftime('%H:%M')}")
+                                    except:
+                                        st.caption("Recent")
+                        
+                        # Document usage chart
+                        if len(doc_usage) > 0:
+                            st.markdown("#### 📊 Document Usage Chart")
+                            import pandas as pd
+                            df_docs = pd.DataFrame(doc_usage)
+                            st.bar_chart(df_docs.set_index("document")["query_count"])
+                    else:
+                        st.info("No document usage data available yet.")
+                else:
+                    st.error(f"❌ Failed to load document usage: {analytics_resp.status_code}")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+        
+        with tab3:
+            try:
+                with st.spinner("Analyzing knowledge gaps..."):
+                    auth_headers = get_auth_headers()
+                    gaps_resp = requests.get(f"{API_URL}/analytics/knowledge-gaps?hours={hours}", headers=auth_headers, timeout=10)
+                
+                if gaps_resp.status_code == 200:
+                    gaps_data = gaps_resp.json()
+                    gaps = gaps_data.get("gaps", [])
+                    
+                    if gaps:
+                        st.markdown(f"#### 🎯 Identified Knowledge Gaps ({len(gaps)})")
+                        st.info("💡 These are areas where queries have low confidence or no sources. Consider adding more content.")
+                        
+                        for gap in gaps:
+                            with st.expander(f"**{gap.get('intent', 'Unknown').replace('_', ' ').title()}** - {gap.get('query_count', 0)} queries"):
+                                st.metric("Average Confidence", f"{gap.get('avg_confidence', 0):.3f}")
+                                st.markdown("**Sample Queries:**")
+                                for query in gap.get("sample_queries", []):
+                                    st.text(f"  • {query}")
+                                st.info(f"💡 **Recommendation:** {gap.get('recommendation', '')}")
+                    else:
+                        st.success("✅ **No significant knowledge gaps detected!** Your knowledge base is well-covered.")
+                else:
+                    st.error(f"❌ Failed to load knowledge gaps: {gaps_resp.status_code}")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+        
+        with tab4:
+            try:
+                with st.spinner("Loading user insights..."):
+                    auth_headers = get_auth_headers()
+                    users_resp = requests.get(f"{API_URL}/analytics/users?hours={hours}", headers=auth_headers, timeout=10)
+                
+                if users_resp.status_code == 200:
+                    users_data = users_resp.json()
+                    
+                    st.markdown("#### 👥 User Activity")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Active Users", users_data.get("total_active_users", 0))
+                    with col2:
+                        st.metric("Total User Queries", users_data.get("total_user_queries", 0))
+                    
+                    top_users = users_data.get("top_users", [])
+                    if top_users:
+                        st.markdown("#### 🔝 Most Active Users")
+                        for idx, user in enumerate(top_users[:10], 1):
+                            col1, col2, col3 = st.columns([2, 1, 1])
+                            with col1:
+                                st.text(f"{idx}. User {user.get('user_id', 'Unknown')[:8]}...")
+                            with col2:
+                                st.caption(f"Queries: {user.get('query_count', 0)}")
+                            with col3:
+                                last_act = user.get("last_activity")
+                                if last_act:
+                                    try:
+                                        act_time = datetime.fromisoformat(last_act.replace('Z', '+00:00'))
+                                        st.caption(f"Last: {act_time.strftime('%H:%M')}")
+                                    except:
+                                        st.caption("Recent")
+                    else:
+                        st.info("No user activity data available.")
+                else:
+                    st.error(f"❌ Failed to load user insights: {users_resp.status_code}")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+        
+        # Close button
+        if st.button("❌ Close Dashboard", use_container_width=True):
+            st.session_state.show_health = False
+            st.rerun()
             
             p95_time = rt_stats.get("p95", 0)
             if p95_time > 10:
@@ -2299,9 +2784,13 @@ if st.session_state.get("show_profile", False):
         
         # Get current profile
         with st.spinner("Loading profile..."):
-            profile_resp = requests.get(f"{API_URL}/auth/profile", headers=headers, timeout=10)
+            try:
+                profile_resp = requests.get(f"{API_URL}/auth/profile", headers=headers, timeout=10)
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+                profile_resp = None
         
-        if profile_resp.status_code == 200:
+        if profile_resp and profile_resp.status_code == 200:
             profile_data = profile_resp.json()
             user_info = profile_data.get("user", {})
             preferences = profile_data.get("preferences", {})
@@ -2420,10 +2909,19 @@ if st.session_state.get("show_profile", False):
                             "Email Notifications",
                             value=preferences.get("email_notifications", True)
                         )
+                        language_options = ["en", "es", "fr", "de", "it", "pt", "zh", "ja", "ko", "ar", "ru", "hi"]
+                        language_labels = {
+                            "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+                            "it": "Italian", "pt": "Portuguese", "zh": "Chinese", "ja": "Japanese",
+                            "ko": "Korean", "ar": "Arabic", "ru": "Russian", "hi": "Hindi"
+                        }
+                        current_lang = preferences.get("language", "en")
+                        default_index = language_options.index(current_lang) if current_lang in language_options else 0
                         language = st.selectbox(
                             "Language",
-                            ["en", "es", "fr", "de", "it", "pt"],
-                            index=["en", "es", "fr", "de", "it", "pt"].index(preferences.get("language", "en"))
+                            options=language_options,
+                            format_func=lambda x: language_labels.get(x, x),
+                            index=default_index
                         )
                         
                         submit_prefs = st.form_submit_button("💾 Save Preferences", use_container_width=True)
@@ -2641,8 +3139,13 @@ if st.session_state.show_advanced_filters:
 else:
     # Simple document filter
     try:
-        docs_resp = requests.get(f"{API_URL}/documents", timeout=5)
-        if docs_resp.status_code == 200:
+        try:
+            docs_resp = requests.get(f"{API_URL}/documents", timeout=5)
+        except requests.exceptions.ConnectionError:
+            st.error("❌ Cannot connect to API. Make sure the API server is running.")
+            docs_resp = None
+        
+        if docs_resp and docs_resp.status_code == 200:
             data = docs_resp.json()
             available_docs = data.get("documents", [])
             
@@ -2827,6 +3330,11 @@ if query:
                     payload["document_filters"] = st.session_state.selected_documents
                 if st.session_state.current_conversation_id:
                     payload["conversation_id"] = st.session_state.current_conversation_id
+                # Add language preference if available
+                if st.session_state.get("user_language"):
+                    payload["language"] = st.session_state.user_language
+                elif st.session_state.get("user_preferences", {}).get("language"):
+                    payload["language"] = st.session_state.user_preferences["language"]
                 endpoint = f"{API_URL}/ask/stream"
                 
                 # Create placeholder for streaming response
@@ -2868,17 +3376,17 @@ if query:
                 st.session_state.chat_history.append(("assistant", answer_text, answer_timestamp, sources))
                 logger.info(f"Streaming response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
             except requests.exceptions.ConnectionError:
-                error_msg = "❌ Cannot connect to API. Please ensure the server is running."
-                st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
-                st.error(error_msg)
+                error_msg = "Cannot connect to API. Please ensure the server is running."
+                st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                log_error_to_console(error_msg, "ConnectionError")
             except requests.exceptions.Timeout:
-                error_msg = "⏱️ Request timed out. Please try again."
-                st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
-                st.error(error_msg)
+                error_msg = "Request timed out. Please try again."
+                st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
+                log_error_to_console(error_msg, "Timeout")
             except Exception as e:
-                error_msg = f"❌ Unexpected error: {str(e)}"
-                st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
-                st.error(error_msg)
+                error_msg = f"Unexpected error: {str(e)}"
+                st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                log_error_to_console(error_msg, "Exception", e)
         else:
             # Regular (non-streaming) response
             with st.spinner("🤔 Thinking..."):
@@ -2901,6 +3409,11 @@ if query:
                             payload["document_filters"] = st.session_state.selected_documents
                         if st.session_state.current_conversation_id:
                             payload["conversation_id"] = st.session_state.current_conversation_id
+                        # Add language preference if available
+                        if st.session_state.get("user_language"):
+                            payload["language"] = st.session_state.user_language
+                        elif st.session_state.get("user_preferences", {}).get("language"):
+                            payload["language"] = st.session_state.user_preferences["language"]
                         endpoint = f"{API_URL}/ask"
                     
                     response = requests.post(endpoint, json=payload, timeout=60)
@@ -2917,17 +3430,17 @@ if query:
                         error_msg = f"⚠️ Error {response.status_code}: {response.text}"
                         st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
                 except requests.exceptions.ConnectionError:
-                    error_msg = "❌ Cannot connect to API. Please ensure the server is running."
-                    st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
-                    st.error(error_msg)
+                    error_msg = "Cannot connect to API. Please ensure the server is running."
+                    st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                    log_error_to_console(error_msg, "ConnectionError")
                 except requests.exceptions.Timeout:
-                    error_msg = "⏱️ Request timed out. Please try again."
-                    st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
-                    st.error(error_msg)
+                    error_msg = "Request timed out. Please try again."
+                    st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
+                    log_error_to_console(error_msg, "Timeout")
                 except Exception as e:
-                    error_msg = f"❌ Unexpected error: {str(e)}"
-                    st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
-                    st.error(error_msg)
+                    error_msg = f"Unexpected error: {str(e)}"
+                    st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                    log_error_to_console(error_msg, "Exception", e)
         
         st.rerun()
 
@@ -3046,14 +3559,14 @@ else:
                 </div>
                 """
             
-            # Display message with feedback buttons
-            col_msg, col_feedback = st.columns([5, 1])
+            # Display message with feedback buttons and copy button
+            col_msg, col_actions = st.columns([5, 1])
             with col_msg:
                 st.markdown(
                     f"""
-                    <div class="message-bot">
+                    <div class="message-bot" id="answer_{idx}">
                         <strong>📚 Assistant</strong>
-                        <div style="margin-top: 0.5rem;">{message}</div>
+                        <div style="margin-top: 0.5rem;" id="answer_text_{idx}">{message}</div>
                         {sources_html}
                         <div class="message-time">{msg_time}</div>
                     </div>
@@ -3061,82 +3574,145 @@ else:
                     unsafe_allow_html=True
                 )
             
-            with col_feedback:
-                # Get the user query for this response (previous message)
-                user_query = ""
-                if idx < len(st.session_state.chat_history) - 1:
-                    prev_item = st.session_state.chat_history[-(idx+2)]
-                    if len(prev_item) >= 2 and prev_item[0] == "user":
-                        user_query = prev_item[1]
+            with col_actions:
+                # Action buttons column
+                col_copy, col_feedback = st.columns([1, 1])
                 
-                # Check if feedback already submitted
-                feedback_key = f"feedback_submitted_{idx}"
-                if not st.session_state.get(feedback_key, False):
-                    col_thumbs_up, col_thumbs_down = st.columns(2)
-                    with col_thumbs_up:
-                        if st.button("👍", key=f"thumbs_up_{idx}", help="Good answer", use_container_width=True):
-                            try:
-                                feedback_resp = requests.post(
-                                    f"{API_URL}/feedback",
-                                    json={
-                                        "query": user_query,
-                                        "response": message,
-                                        "rating": 1,
-                                        "feedback_type": "thumbs",
-                                        "sources_count": len(sources)
-                                    },
-                                    timeout=5
-                                )
-                                if feedback_resp.status_code == 200:
-                                    st.session_state[feedback_key] = True
-                                    st.success("👍 Thanks!")
-                                    time.sleep(1)
-                                    st.rerun()
-                            except:
-                                st.error("Failed to submit feedback")
+                with col_copy:
+                    copy_key = f"copy_answer_{idx}"
+                    if st.button("📋", key=copy_key, help="Copy answer to clipboard", use_container_width=True):
+                        # Store message in session state for JavaScript access
+                        st.session_state[f"copy_text_{idx}"] = message
+                        # Use JavaScript to copy to clipboard
+                        # Escape the message for JavaScript
+                        escaped_message = message.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$').replace('\n', '\\n').replace('\r', '\\r')
+                        copy_script = f"""
+                        <script>
+                            (function() {{
+                                const text = `{escaped_message}`;
+                                if (navigator.clipboard && navigator.clipboard.writeText) {{
+                                    navigator.clipboard.writeText(text).then(function() {{
+                                        // Success - show toast notification
+                                        const toast = document.createElement('div');
+                                        toast.textContent = '✅ Copied to clipboard!';
+                                        toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
+                                        document.body.appendChild(toast);
+                                        setTimeout(() => toast.remove(), 2000);
+                                    }}).catch(function(err) {{
+                                        console.error('Copy failed:', err);
+                                        fallbackCopy(text);
+                                    }});
+                                }} else {{
+                                    fallbackCopy(text);
+                                }}
+                                
+                                function fallbackCopy(text) {{
+                                    const textArea = document.createElement('textarea');
+                                    textArea.value = text;
+                                    textArea.style.position = 'fixed';
+                                    textArea.style.left = '-999999px';
+                                    textArea.style.top = '-999999px';
+                                    document.body.appendChild(textArea);
+                                    textArea.focus();
+                                    textArea.select();
+                                    try {{
+                                        const successful = document.execCommand('copy');
+                                        if (successful) {{
+                                            const toast = document.createElement('div');
+                                            toast.textContent = '✅ Copied to clipboard!';
+                                            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
+                                            document.body.appendChild(toast);
+                                            setTimeout(() => toast.remove(), 2000);
+                                        }} else {{
+                                            alert('❌ Failed to copy. Please select and copy manually.');
+                                        }}
+                                    }} catch (err) {{
+                                        console.error('Fallback copy failed:', err);
+                                        alert('❌ Failed to copy. Please select and copy manually.');
+                                    }}
+                                    document.body.removeChild(textArea);
+                                }}
+                            }})();
+                        </script>
+                        """
+                        st.markdown(copy_script, unsafe_allow_html=True)
+                
+                with col_feedback:
+                    # Get the user query for this response (previous message)
+                    user_query = ""
+                    if idx < len(st.session_state.chat_history) - 1:
+                        prev_item = st.session_state.chat_history[-(idx+2)]
+                        if len(prev_item) >= 2 and prev_item[0] == "user":
+                            user_query = prev_item[1]
                     
-                    with col_thumbs_down:
-                        if st.button("👎", key=f"thumbs_down_{idx}", help="Poor answer", use_container_width=True):
-                            # Show feedback form
-                            st.session_state[f"show_feedback_form_{idx}"] = True
-                            st.rerun()
-                    
-                    # Detailed feedback form
-                    if st.session_state.get(f"show_feedback_form_{idx}", False):
-                        with st.form(f"feedback_form_{idx}"):
-                            st.write("**Help us improve:**")
-                            rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{idx}")
-                            comment = st.text_area("Comments (optional)", key=f"comment_{idx}")
-                            col_submit, col_cancel = st.columns(2)
-                            with col_submit:
-                                if st.form_submit_button("Submit"):
-                                    try:
-                                        feedback_resp = requests.post(
-                                            f"{API_URL}/feedback",
-                                            json={
-                                                "query": user_query,
-                                                "response": message,
-                                                "rating": rating,
-                                                "feedback_type": "detailed",
-                                                "comment": comment,
-                                                "sources_count": len(sources)
-                                            },
-                                            timeout=5
-                                        )
-                                        if feedback_resp.status_code == 200:
-                                            st.session_state[feedback_key] = True
-                                            st.session_state[f"show_feedback_form_{idx}"] = False
-                                            st.success("✅ Feedback submitted!")
-                                            time.sleep(1)
-                                            st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Error: {str(e)}")
-                            with col_cancel:
-                                if st.form_submit_button("Cancel"):
-                                    st.session_state[f"show_feedback_form_{idx}"] = False
-                                    st.rerun()
-                else:
-                    st.caption("✅ Feedback submitted")
+                    # Check if feedback already submitted
+                    feedback_key = f"feedback_submitted_{idx}"
+                    if not st.session_state.get(feedback_key, False):
+                        col_thumbs_up, col_thumbs_down = st.columns(2)
+                        with col_thumbs_up:
+                            if st.button("👍", key=f"thumbs_up_{idx}", help="Good answer", use_container_width=True):
+                                try:
+                                    feedback_resp = requests.post(
+                                        f"{API_URL}/feedback",
+                                        json={
+                                            "query": user_query,
+                                            "response": message,
+                                            "rating": 1,
+                                            "feedback_type": "thumbs",
+                                            "sources_count": len(sources)
+                                        },
+                                        timeout=5
+                                    )
+                                    if feedback_resp.status_code == 200:
+                                        st.session_state[feedback_key] = True
+                                        st.success("👍 Thanks!")
+                                        time.sleep(1)
+                                        st.rerun()
+                                except:
+                                    st.error("Failed to submit feedback")
+                        
+                        with col_thumbs_down:
+                            if st.button("👎", key=f"thumbs_down_{idx}", help="Poor answer", use_container_width=True):
+                                # Show feedback form
+                                st.session_state[f"show_feedback_form_{idx}"] = True
+                                st.rerun()
+                        
+                        # Detailed feedback form
+                        if st.session_state.get(f"show_feedback_form_{idx}", False):
+                            with st.form(f"feedback_form_{idx}"):
+                                st.write("**Help us improve:**")
+                                rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{idx}")
+                                comment = st.text_area("Comments (optional)", key=f"comment_{idx}")
+                                col_submit, col_cancel = st.columns(2)
+                                with col_submit:
+                                    if st.form_submit_button("Submit"):
+                                        try:
+                                            feedback_resp = requests.post(
+                                                f"{API_URL}/feedback",
+                                                json={
+                                                    "query": user_query,
+                                                    "response": message,
+                                                    "rating": rating,
+                                                    "feedback_type": "detailed",
+                                                    "comment": comment,
+                                                    "sources_count": len(sources)
+                                                },
+                                                timeout=5
+                                            )
+                                            if feedback_resp.status_code == 200:
+                                                st.session_state[feedback_key] = True
+                                                st.session_state[f"show_feedback_form_{idx}"] = False
+                                                st.success("✅ Feedback submitted!")
+                                                time.sleep(1)
+                                                st.rerun()
+                                        except Exception as e:
+                                            st.error(f"❌ Error: {str(e)}")
+                                with col_cancel:
+                                    if st.form_submit_button("Cancel"):
+                                        st.session_state[f"show_feedback_form_{idx}"] = False
+                                        st.rerun()
+                    else:
+                        st.caption("✅ Feedback submitted")
 
 # Footer
 st.markdown("---")
