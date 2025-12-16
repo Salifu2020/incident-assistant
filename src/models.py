@@ -45,6 +45,44 @@ class QuestionResponse(BaseModel):
 class UploadResponse(BaseModel):
     message: str
 
+class BulkUploadRequest(BaseModel):
+    filenames: List[str]  # List of filenames to upload from source_files directory
+
+class BulkUploadResponse(BaseModel):
+    total_files: int
+    successful: int
+    failed: int
+    results: List[Dict]  # List of {filename, status, message, chunks_added}
+
+class BatchDeleteRequest(BaseModel):
+    filenames: List[str]  # List of document filenames to delete
+
+class BatchDeleteResponse(BaseModel):
+    total_files: int
+    successful: int
+    failed: int
+    total_chunks_deleted: int
+    results: List[Dict]  # List of {filename, status, message, chunks_deleted}
+
+class BulkReprocessRequest(BaseModel):
+    filenames: Optional[List[str]] = None  # If None, reprocess all documents
+
+class BulkReprocessResponse(BaseModel):
+    total_files: int
+    successful: int
+    failed: int
+    results: List[Dict]  # List of {filename, status, message, chunks_added}
+
+class OperationProgress(BaseModel):
+    operation_id: str
+    operation_type: str  # "upload", "delete", "reprocess"
+    total_items: int
+    completed_items: int
+    failed_items: int
+    current_item: Optional[str] = None
+    status: str  # "running", "completed", "failed"
+    results: List[Dict] = []
+
 class DocumentInfo(BaseModel):
     filename: str
     file_type: str

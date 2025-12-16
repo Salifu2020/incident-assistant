@@ -1304,10 +1304,26 @@ with st.sidebar:
     
     # File Upload (always visible at bottom)
     st.markdown("---")
+    st.markdown("#### 📤 Upload Documents")
+    
+    # Initialize variables
+    uploaded_file = None
+    uploaded_files = None
+    
+    # Single file upload
     uploaded_file = st.file_uploader(
-        "📤 Upload Document",
+        "📄 Upload Single Document",
         type=["pdf", "docx", "txt", "csv", "html"],
-        help="Upload documents to enhance the knowledge base",
+        help="Upload a single document to enhance the knowledge base",
+        label_visibility="visible"
+    )
+    
+    # Bulk file upload
+    uploaded_files = st.file_uploader(
+        "📚 Upload Multiple Documents (Bulk Upload)",
+        type=["pdf", "docx", "txt", "csv", "html"],
+        help="Upload multiple documents at once. All files will be processed in the background.",
+        accept_multiple_files=True,
         label_visibility="visible"
     )
     
@@ -1348,37 +1364,71 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
     
-    if uploaded_file:
-        with st.spinner("Uploading..."):
+    # Handle bulk upload
+    try:
+        has_uploaded_files = uploaded_files is not None and len(uploaded_files) > 0
+    except (NameError, TypeError):
+        has_uploaded_files = False
+    
+    if has_uploaded_files:
+        with st.spinner(f"Uploading {len(uploaded_files)} file(s)..."):
             try:
-                file_ext = uploaded_file.name.split('.')[-1].lower()
-                mime_types = {
-                    "pdf": "application/pdf",
-                    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "txt": "text/plain",
-                    "csv": "text/csv",
-                    "html": "text/html"
-                }
-                mime_type = mime_types.get(file_ext, "application/octet-stream")
+                files_data = []
+                for uploaded_file in uploaded_files:
+                    file_ext = uploaded_file.name.split('.')[-1].lower()
+                    mime_types = {
+                        "pdf": "application/pdf",
+                        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "txt": "text/plain",
+                        "csv": "text/csv",
+                        "html": "text/html"
+                    }
+                    mime_type = mime_types.get(file_ext, "application/octet-stream")
+                    files_data.append(("files", (uploaded_file.name, uploaded_file, mime_type)))
                 
-                files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
-                upload_resp = requests.post(f"{API_URL}/upload", files=files, timeout=30)
+                upload_resp = requests.post(
+                    f"{API_URL}/upload/bulk",
+                    files=files_data,
+                    headers=get_auth_headers(),
+                    timeout=120
+                )
                 
                 if upload_resp.status_code == 200:
-                    st.success(f"✅ {uploaded_file.name}")
-                    st.info("⏳ Processing in background...")
-                    logger.info(f"Uploaded: {uploaded_file.name}")
-                    # Refresh KB status after a delay (processing happens in background)
+                    data = upload_resp.json()
+                    successful = data.get("successful", 0)
+                    failed = data.get("failed", 0)
+                    results = data.get("results", [])
+                    
+                    if successful > 0:
+                        st.success(f"✅ Successfully uploaded {successful} file(s)")
+                    if failed > 0:
+                        st.warning(f"⚠️ {failed} file(s) failed to upload")
+                    
+                    # Show detailed results
+                    if results:
+                        with st.expander("📋 Upload Details", expanded=False):
+                            for result in results:
+                                status_icon = "✅" if result.get("status") == "success" else "❌"
+                                st.write(f"{status_icon} **{result.get('filename')}**: {result.get('message', '')}")
+                    
                     st.info("💡 **Tip:** Processing happens in the background. Wait 5-10 seconds, then click '🔄 Check API Status' to see updated chunk count.")
+                    
+                    # Refresh KB status after a delay
                     time.sleep(2)
                     try:
                         status_resp = requests.get(f"{API_URL}/status", timeout=2)
                         if status_resp.status_code == 200:
                             st.session_state.kb_status = status_resp.json()
+                            st.rerun()
                     except:
                         pass
                 else:
-                    st.error(f"❌ Upload failed: {upload_resp.status_code}")
+                    st.error(f"❌ Bulk upload failed: {upload_resp.status_code}")
+                    try:
+                        error_data = upload_resp.json()
+                        st.error(f"Error: {error_data.get('detail', upload_resp.text)}")
+                    except:
+                        st.error(f"Error: {upload_resp.text}")
             except requests.exceptions.ConnectionError:
                 st.error("❌ Cannot connect to API")
             except Exception as e:
@@ -1443,10 +1493,121 @@ if st.session_state.get("show_documents", False):
             else:
                 st.markdown("---")
                 
-                # Document table
+                # Bulk Operations Section
+                st.markdown("#### 🔧 Bulk Operations")
+                bulk_col1, bulk_col2, bulk_col3 = st.columns(3)
+                
+                with bulk_col1:
+                    if st.button("🔄 Reprocess All Documents", use_container_width=True, help="Reprocess all documents in the knowledge base"):
+                        try:
+                            with st.spinner("Queuing documents for reprocessing..."):
+                                reprocess_resp = requests.post(
+                                    f"{API_URL}/documents/bulk-reprocess",
+                                    json={"filenames": None},  # None means all documents
+                                    headers=get_auth_headers(),
+                                    timeout=60
+                                )
+                                if reprocess_resp.status_code == 200:
+                                    data = reprocess_resp.json()
+                                    st.success(f"✅ Queued {data.get('successful', 0)} document(s) for reprocessing")
+                                    if data.get('failed', 0) > 0:
+                                        st.warning(f"⚠️ {data.get('failed', 0)} document(s) failed to queue")
+                                    st.info("💡 Reprocessing happens in the background. Check back in a few minutes.")
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Reprocess failed: {reprocess_resp.status_code}")
+                        except requests.exceptions.ConnectionError:
+                            st.error("❌ Cannot connect to API")
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                
+                with bulk_col2:
+                    if st.button("🗑️ Batch Delete Selected", use_container_width=True, help="Delete all selected documents"):
+                        selected_for_delete = [doc["filename"] for doc in documents if st.session_state.get(f"select_{doc['filename']}", False)]
+                        if not selected_for_delete:
+                            st.warning("⚠️ No documents selected. Use checkboxes to select documents.")
+                        else:
+                            if st.session_state.get("confirm_batch_delete", False):
+                                try:
+                                    with st.spinner(f"Deleting {len(selected_for_delete)} document(s)..."):
+                                        delete_resp = requests.post(
+                                            f"{API_URL}/documents/batch-delete",
+                                            json={"filenames": selected_for_delete},
+                                            headers=get_auth_headers(),
+                                            timeout=60
+                                        )
+                                        if delete_resp.status_code == 200:
+                                            data = delete_resp.json()
+                                            st.success(f"✅ Deleted {data.get('successful', 0)} document(s), {data.get('total_chunks_deleted', 0)} chunks removed")
+                                            if data.get('failed', 0) > 0:
+                                                st.warning(f"⚠️ {data.get('failed', 0)} document(s) failed to delete")
+                                            # Clear selections
+                                            for filename in selected_for_delete:
+                                                st.session_state[f"select_{filename}"] = False
+                                            st.session_state["confirm_batch_delete"] = False
+                                            time.sleep(2)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Batch delete failed: {delete_resp.status_code}")
+                                            st.session_state["confirm_batch_delete"] = False
+                                except requests.exceptions.ConnectionError:
+                                    st.error("❌ Cannot connect to API")
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                                    st.session_state["confirm_batch_delete"] = False
+                            else:
+                                st.session_state["confirm_batch_delete"] = True
+                                st.warning(f"⚠️ Are you sure you want to delete {len(selected_for_delete)} document(s)?")
+                                st.rerun()
+                
+                with bulk_col3:
+                    if st.button("🔄 Reprocess Selected", use_container_width=True, help="Reprocess selected documents"):
+                        selected_for_reprocess = [doc["filename"] for doc in documents if st.session_state.get(f"select_{doc['filename']}", False)]
+                        if not selected_for_reprocess:
+                            st.warning("⚠️ No documents selected. Use checkboxes to select documents.")
+                        else:
+                            try:
+                                with st.spinner(f"Queuing {len(selected_for_reprocess)} document(s) for reprocessing..."):
+                                    reprocess_resp = requests.post(
+                                        f"{API_URL}/documents/bulk-reprocess",
+                                        json={"filenames": selected_for_reprocess},
+                                        headers=get_auth_headers(),
+                                        timeout=60
+                                    )
+                                    if reprocess_resp.status_code == 200:
+                                        data = reprocess_resp.json()
+                                        st.success(f"✅ Queued {data.get('successful', 0)} document(s) for reprocessing")
+                                        if data.get('failed', 0) > 0:
+                                            st.warning(f"⚠️ {data.get('failed', 0)} document(s) failed to queue")
+                                        st.info("💡 Reprocessing happens in the background. Check back in a few minutes.")
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Reprocess failed: {reprocess_resp.status_code}")
+                            except requests.exceptions.ConnectionError:
+                                st.error("❌ Cannot connect to API")
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                
+                st.markdown("---")
+                
+                # Document table with selection checkboxes
+                st.markdown("#### 📄 Documents")
                 for idx, doc in enumerate(documents):
                     with st.container():
-                        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                        # Add checkbox for selection
+                        filename = doc.get('filename', '')
+                        checkbox_key = f"select_{filename}"
+                        col_check, col1, col2, col3, col4 = st.columns([0.5, 2.5, 1, 1, 1])
+                        
+                        with col_check:
+                            st.checkbox(
+                                "",
+                                value=st.session_state.get(checkbox_key, False),
+                                key=checkbox_key,
+                                label_visibility="collapsed"
+                            )
                         
                         with col1:
                             file_icon = {

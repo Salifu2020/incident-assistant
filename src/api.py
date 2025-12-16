@@ -36,7 +36,9 @@ from .models import (
     UserPreferences, ProfileUpdateRequest, PreferencesUpdateRequest, ProfileResponse,
     QueryAnalyticsResponse, QueryAnalyticsEntry, DocumentUsageEntry, IntentPerformance,
     ConfidenceStats, CachePerformance, VerificationStats, QueryTrendEntry,
-    KnowledgeGapsResponse, KnowledgeGap, UserInsightsResponse, UserActivityEntry
+    KnowledgeGapsResponse, KnowledgeGap, UserInsightsResponse, UserActivityEntry,
+    BulkUploadRequest, BulkUploadResponse, BatchDeleteRequest, BatchDeleteResponse,
+    BulkReprocessRequest, BulkReprocessResponse, OperationProgress
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
@@ -2084,6 +2086,357 @@ def process_and_move_file(source_path: str, ext: str):
         logger.error(f"❌ Permission denied accessing file: {source_path}")
     except Exception as e:
         logger.error(f"❌ Background task failed for {filename}: {type(e).__name__}: {e}")
+
+
+# Progress tracking for bulk operations (in-memory, simple implementation)
+_bulk_operations_progress = {}
+import threading
+_progress_lock = threading.Lock()
+
+
+@app.post("/upload/bulk", response_model=BulkUploadResponse)
+async def bulk_upload_files(
+    files: List[UploadFile] = File(..., description="Multiple files to upload"),
+    background_tasks: BackgroundTasks = None,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Upload multiple files at once."""
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    allowed_extensions = {".pdf", ".docx", ".txt", ".html", ".csv"}
+    source_files_dir = os.path.join(PROJECT_ROOT, "source_files")
+    
+    results = []
+    successful = 0
+    failed = 0
+    
+    # Create directory if it doesn't exist
+    try:
+        os.makedirs(source_files_dir, exist_ok=True)
+    except OSError as e:
+        logger.error(f"Failed to create source_files directory: {e}")
+        raise HTTPException(status_code=500, detail="Server configuration error: cannot create upload directory")
+    
+    for file in files:
+        filename = file.filename
+        result = {"filename": filename, "status": "failed", "message": "", "chunks_added": 0}
+        
+        try:
+            if not filename:
+                result["message"] = "Filename is required"
+                results.append(result)
+                failed += 1
+                continue
+            
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in allowed_extensions:
+                result["message"] = f"Unsupported file type: {ext}"
+                results.append(result)
+                failed += 1
+                continue
+            
+            # Validate and sanitize filename
+            filename = os.path.basename(filename)
+            if not filename or filename.startswith('.'):
+                result["message"] = "Invalid filename"
+                results.append(result)
+                failed += 1
+                continue
+            
+            source_path = os.path.join(source_files_dir, filename)
+            
+            # Read file content
+            content = await file.read()
+            file_size = len(content)
+            
+            if file_size == 0:
+                result["message"] = "File is empty"
+                results.append(result)
+                failed += 1
+                continue
+            
+            if file_size > MAX_FILE_SIZE:
+                result["message"] = f"File size ({file_size / (1024*1024):.2f}MB) exceeds maximum (50MB)"
+                results.append(result)
+                failed += 1
+                continue
+            
+            # Write file
+            try:
+                with open(source_path, "wb") as f:
+                    f.write(content)
+                logger.info(f"📥 File saved to source_files: {source_path} (size: {file_size} bytes)")
+            except Exception as e:
+                result["message"] = f"Failed to save file: {str(e)}"
+                results.append(result)
+                failed += 1
+                continue
+            
+            # Schedule background task
+            background_tasks.add_task(process_and_move_file, source_path, ext)
+            
+            result["status"] = "success"
+            result["message"] = f"File queued for processing"
+            results.append(result)
+            successful += 1
+            
+        except Exception as e:
+            logger.error(f"Error processing file {filename}: {e}")
+            result["message"] = f"Error: {str(e)}"
+            results.append(result)
+            failed += 1
+    
+    # Invalidate cache if any files were successfully uploaded
+    if successful > 0 and assistant.enable_query_caching and assistant.query_cache:
+        cleared = assistant.query_cache.clear()
+        logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to bulk document upload")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="bulk_document_uploaded",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success" if successful > 0 else "failed",
+        details={"total_files": len(files), "successful": successful, "failed": failed}
+    )
+    
+    return {
+        "total_files": len(files),
+        "successful": successful,
+        "failed": failed,
+        "results": results
+    }
+
+
+@app.post("/documents/batch-delete", response_model=BatchDeleteResponse)
+def batch_delete_documents(
+    request: BatchDeleteRequest,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Delete multiple documents at once."""
+    if not request.filenames:
+        raise HTTPException(status_code=400, detail="No filenames provided")
+    
+    results = []
+    successful = 0
+    failed = 0
+    total_chunks_deleted = 0
+    
+    for filename in request.filenames:
+        result = {"filename": filename, "status": "failed", "message": "", "chunks_deleted": 0}
+        
+        try:
+            deleted_count, error = processor.delete_document(filename)
+            
+            if error:
+                result["message"] = error
+                results.append(result)
+                failed += 1
+            else:
+                result["status"] = "success"
+                result["message"] = f"Successfully deleted"
+                result["chunks_deleted"] = deleted_count
+                results.append(result)
+                successful += 1
+                total_chunks_deleted += deleted_count
+                logger.info(f"Deleted {deleted_count} chunks for document '{filename}'")
+        except Exception as e:
+            logger.error(f"Error deleting document {filename}: {e}")
+            result["message"] = f"Error: {str(e)}"
+            results.append(result)
+            failed += 1
+    
+    # Invalidate cache if any documents were successfully deleted
+    if successful > 0 and assistant.enable_query_caching and assistant.query_cache:
+        cleared = assistant.query_cache.clear()
+        logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to batch document deletion")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="batch_document_deleted",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success" if successful > 0 else "failed",
+        details={"total_files": len(request.filenames), "successful": successful, "failed": failed, "total_chunks_deleted": total_chunks_deleted}
+    )
+    
+    return {
+        "total_files": len(request.filenames),
+        "successful": successful,
+        "failed": failed,
+        "total_chunks_deleted": total_chunks_deleted,
+        "results": results
+    }
+
+
+def reprocess_document_in_background(filename: str, source_path: str, ext: str):
+    """Reprocess a document in the background."""
+    try:
+        import time
+        start_time = time.time()
+        
+        # Get initial chunk count
+        initial_count = processor.collection.count()
+        
+        # Delete existing chunks for this document first
+        deleted_count, error = processor.delete_document(filename)
+        if error and "not found" not in error.lower():
+            logger.warning(f"Could not delete existing chunks for {filename}: {error}")
+        
+        # Process the document again
+        processor.process_document(source_path)
+        
+        # Verify chunks were added
+        final_count = processor.collection.count()
+        chunks_added = final_count - initial_count
+        
+        processing_time = time.time() - start_time
+        
+        # Record document processing metric
+        try:
+            file_size = os.path.getsize(source_path) if os.path.exists(source_path) else 0
+            HealthMonitor.record_document_processed(
+                filename,
+                chunks_added,
+                file_size,
+                success=(chunks_added > 0),
+                processing_time=processing_time
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record document metric: {e}")
+        
+        if chunks_added > 0:
+            logger.info(f"✅ Successfully reprocessed {filename}: {chunks_added} chunks added")
+        else:
+            logger.warning(f"⚠️ No new chunks added from {filename} after reprocessing")
+            
+    except Exception as e:
+        logger.error(f"❌ Background reprocessing failed for {filename}: {type(e).__name__}: {e}")
+
+
+@app.post("/documents/bulk-reprocess", response_model=BulkReprocessResponse)
+def bulk_reprocess_documents(
+    request: BulkReprocessRequest,
+    background_tasks: BackgroundTasks = None,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Reprocess multiple documents (or all if no filenames provided)."""
+    results = []
+    successful = 0
+    failed = 0
+    
+    # Get list of documents to reprocess
+    if request.filenames:
+        filenames_to_process = request.filenames
+    else:
+        # Reprocess all documents
+        try:
+            documents = processor.list_documents()
+            filenames_to_process = [doc["filename"] for doc in documents]
+        except Exception as e:
+            logger.error(f"Error listing documents: {e}")
+            raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
+    
+    if not filenames_to_process:
+        return {
+            "total_files": 0,
+            "successful": 0,
+            "failed": 0,
+            "results": []
+        }
+    
+    # Find source files for each document
+    source_files_dir = os.path.join(PROJECT_ROOT, "source_files")
+    ingested_dir = os.path.join(PROJECT_ROOT, "ingested_files")
+    
+    for filename in filenames_to_process:
+        result = {"filename": filename, "status": "failed", "message": "", "chunks_added": 0}
+        
+        try:
+            # Try to find the file in ingested_files first
+            file_ext = os.path.splitext(filename)[1].lower()
+            ext_without_dot = file_ext[1:] if file_ext.startswith('.') else file_ext
+            
+            file_found = False
+            source_path = None
+            
+            # Check ingested_files
+            ingested_path = os.path.join(ingested_dir, ext_without_dot, filename)
+            if os.path.exists(ingested_path):
+                source_path = ingested_path
+                file_found = True
+            else:
+                # Check source_files
+                source_path = os.path.join(source_files_dir, filename)
+                if os.path.exists(source_path):
+                    file_found = True
+            
+            if not file_found:
+                result["message"] = f"Source file not found for {filename}"
+                results.append(result)
+                failed += 1
+                continue
+            
+            # Schedule background reprocessing
+            background_tasks.add_task(reprocess_document_in_background, filename, source_path, file_ext)
+            
+            result["status"] = "success"
+            result["message"] = "Queued for reprocessing"
+            results.append(result)
+            successful += 1
+            
+        except Exception as e:
+            logger.error(f"Error queuing reprocessing for {filename}: {e}")
+            result["message"] = f"Error: {str(e)}"
+            results.append(result)
+            failed += 1
+    
+    # Invalidate cache if any documents were successfully queued for reprocessing
+    if successful > 0 and assistant.enable_query_caching and assistant.query_cache:
+        cleared = assistant.query_cache.clear()
+        logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to bulk reprocessing")
+    
+    # Log audit event
+    ip_address = None
+    if http_request:
+        ip_address = (
+            http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+            http_request.headers.get("X-Real-IP", "") or
+            (http_request.client.host if http_request.client else None)
+        )
+    log_audit_event(
+        event_type="bulk_document_reprocessed",
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=ip_address,
+        status="success" if successful > 0 else "failed",
+        details={"total_files": len(filenames_to_process), "successful": successful, "failed": failed}
+    )
+    
+    return {
+        "total_files": len(filenames_to_process),
+        "successful": successful,
+        "failed": failed,
+        "results": results
+    }
 
 
 @app.get("/health", response_model=HealthResponse)
