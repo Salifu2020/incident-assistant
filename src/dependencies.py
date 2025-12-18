@@ -2,10 +2,14 @@
 from .ingestion import DocumentProcessor
 from .querying import KnowledgeAssistant
 
-# Initialize processor with improved embedding model
-# Options: "all-MiniLM-L6-v2" (fast), "all-mpnet-base-v2" (better, recommended), 
-#          "BAAI/bge-large-en-v1.5" (state-of-the-art, slower)
-processor = DocumentProcessor(embedding_model="all-mpnet-base-v2")
+# Initialize processor with embedding model
+# Options: "all-MiniLM-L6-v2" (fast, ~80MB, recommended for deployment), 
+#          "all-mpnet-base-v2" (better accuracy, ~420MB),
+#          "BAAI/bge-large-en-v1.5" (state-of-the-art, ~1.3GB, slower)
+# Use environment variable to override, default to lighter model for smaller Docker images
+import os
+default_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+processor = DocumentProcessor(embedding_model=default_model)
 # Optimized assistant with faster settings
 assistant = KnowledgeAssistant(
     processor, 

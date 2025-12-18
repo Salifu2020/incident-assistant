@@ -27,16 +27,41 @@ I've created an optimized Dockerfile that:
 
 ## Quick Fix Steps
 
-### 1. Use the Optimized Dockerfile
+### 1. Clear Railway Build Cache (CRITICAL)
 
-The `Dockerfile` has been updated. If Railway is still using the old one:
+**Railway might be using a cached build!** You MUST clear the cache:
 
-1. **Option A: Railway auto-detects Dockerfile** (should work automatically)
-2. **Option B: Force rebuild**
-   - Go to Railway dashboard
-   - Click on your service
-   - Click "Settings" → "Clear Build Cache"
-   - Click "Redeploy"
+1. Go to Railway dashboard
+2. Click on your service (`incident-assistant`)
+3. Click **"Settings"** tab
+4. Scroll down to **"Build"** section
+5. Click **"Clear Build Cache"**
+6. Go back to **"Deployments"** tab
+7. Click **"Redeploy"** or push a new commit
+
+### 2. Verify Dockerfile is Being Used
+
+The optimized `Dockerfile` should:
+- Use multi-stage builds
+- Prevent model downloads during build
+- Use lighter default model (`all-MiniLM-L6-v2`)
+
+If Railway still fails, try the ultra-minimal version:
+```bash
+# Rename the minimal version
+mv Dockerfile Dockerfile.standard
+mv Dockerfile.minimal Dockerfile
+git add Dockerfile
+git commit -m "Use minimal Dockerfile for Railway"
+git push
+```
+
+### 3. Check Build Logs
+
+In Railway, click **"View logs"** on the failed deployment and look for:
+- Image size at each stage
+- Whether models are being downloaded
+- Any cache-related messages
 
 ### 2. Verify .dockerignore is Working
 

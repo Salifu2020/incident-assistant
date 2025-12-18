@@ -19,8 +19,14 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install dependencies (this stage can be large, but won't be in final image)
+# Prevent model downloads during build - models will download at runtime
+ENV TRANSFORMERS_OFFLINE=1
+ENV HF_HUB_OFFLINE=1
+ENV SENTENCE_TRANSFORMERS_HOME=/tmp  # Temporary location, won't be in final image
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    # Clean up any accidentally downloaded models
+    rm -rf /root/.cache/huggingface /root/.cache/torch /tmp/.cache 2>/dev/null || true
 
 # Stage 2: Runtime image (much smaller)
 FROM python:3.11-slim
@@ -32,9 +38,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy virtual environment from builder
+# Copy virtual environment from builder, but exclude model caches
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Remove any model caches that might have been downloaded during pip install
+# (Don't remove the packages themselves, just cached models)
+RUN rm -rf /opt/venv/lib/python*/site-packages/*/models 2>/dev/null || true && \
+    rm -rf /opt/venv/lib/python*/site-packages/sentence_transformers/.cache 2>/dev/null || true && \
+    rm -rf /root/.cache /tmp/.cache /tmp/sentence-transformers 2>/dev/null || true
 
 # Copy application code (only what's needed)
 COPY src/ ./src/
@@ -48,8 +60,13 @@ RUN mkdir -p data logs .chromadb ingested_files source_files
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 # Models will be downloaded at runtime, not at build time (saves GBs)
+# Clear offline flags to allow runtime downloads
+ENV TRANSFORMERS_OFFLINE=0
+ENV HF_HUB_OFFLINE=0
 ENV TRANSFORMERS_CACHE=/app/.cache/transformers
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
+# Use lighter model by default to reduce download size
+ENV EMBEDDING_MODEL=all-MiniLM-L6-v2
 
 # Expose port
 EXPOSE 8000
