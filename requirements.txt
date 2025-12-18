@@ -15,3 +15,4 @@ email-validator
 jinja2
 pyotp
 qrcode[pil]
+numpy

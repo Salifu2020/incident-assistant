@@ -83,6 +83,66 @@ class OperationProgress(BaseModel):
     status: str  # "running", "completed", "failed"
     results: List[Dict] = []
 
+class ExportRequest(BaseModel):
+    export_type: str  # "documents", "conversations", "analytics", "users", "all"
+    format: str = "json"  # "json", "csv", "pdf"
+    include_chunks: bool = False  # For documents export
+    date_from: Optional[str] = None  # ISO date string
+    date_to: Optional[str] = None  # ISO date string
+
+class ExportResponse(BaseModel):
+    message: str
+    file_path: Optional[str] = None
+    file_size: Optional[int] = None
+    download_url: Optional[str] = None
+    expires_at: Optional[str] = None
+
+class BackupRequest(BaseModel):
+    include_files: bool = True  # Include ingested/source files
+    include_data: bool = True  # Include JSON data files
+    include_chromadb: bool = True  # Include ChromaDB
+    description: Optional[str] = None
+
+class BackupResponse(BaseModel):
+    message: str
+    backup_id: str
+    backup_path: str
+    backup_size: int
+    created_at: str
+    includes: Dict[str, bool]
+
+class BackupInfo(BaseModel):
+    backup_id: str
+    backup_path: str
+    backup_size: int
+    created_at: str
+    description: Optional[str] = None
+    includes: Dict[str, bool]
+
+class BackupListResponse(BaseModel):
+    backups: List[BackupInfo]
+    total_backups: int
+    total_size: int
+
+class RestoreRequest(BaseModel):
+    backup_id: str
+    restore_files: bool = True
+    restore_data: bool = True
+    restore_chromadb: bool = True
+
+class ChunkingConfigRequest(BaseModel):
+    strategy: str  # "adaptive", "semantic", "recursive", "sliding_window", "hierarchical", "paragraph", "sentence"
+    chunk_size: Optional[int] = None
+    overlap: Optional[int] = None
+    min_chunk_size: Optional[int] = None
+
+class ChunkingConfigResponse(BaseModel):
+    current_strategy: str
+    chunk_size: int
+    overlap: int
+    min_chunk_size: int
+    available_strategies: List[str]
+
 class DocumentInfo(BaseModel):
     filename: str
     file_type: str

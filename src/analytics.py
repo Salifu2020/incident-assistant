@@ -47,6 +47,19 @@ class AnalyticsTracker:
     """Track comprehensive analytics for insights and optimization."""
     
     @staticmethod
+    def _parse_timestamp_safe(timestamp_str: str, cutoff: datetime) -> bool:
+        """Safely parse timestamp and compare with cutoff."""
+        try:
+            if not timestamp_str:
+                return False
+            if timestamp_str.endswith('Z'):
+                timestamp_str = timestamp_str[:-1] + '+00:00'
+            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            return timestamp >= cutoff
+        except (ValueError, TypeError):
+            return False
+    
+    @staticmethod
     def record_query_analytics(
         query: str,
         response_time: float,
@@ -172,12 +185,33 @@ class AnalyticsTracker:
             "user_activity": {}
         })
         
-        # Filter by time
+        # Filter by time (limit to last 10,000 queries for performance)
         cutoff = datetime.now() - timedelta(hours=hours)
-        recent_queries = [
-            q for q in analytics.get("queries", [])
-            if datetime.fromisoformat(q.get("timestamp", "")) >= cutoff
-        ]
+        all_queries = analytics.get("queries", [])
+        # Process in reverse order (newest first) and limit
+        recent_queries = []
+        max_queries_to_process = 10000
+        processed = 0
+        
+        for q in reversed(all_queries):
+            if processed >= max_queries_to_process:
+                break
+            try:
+                timestamp_str = q.get("timestamp", "")
+                if timestamp_str:
+                    # Handle both with and without timezone
+                    if timestamp_str.endswith('Z'):
+                        timestamp_str = timestamp_str[:-1] + '+00:00'
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    if timestamp >= cutoff:
+                        recent_queries.append(q)
+                        processed += 1
+                    elif timestamp < cutoff:
+                        # Since we're going in reverse, if we hit an old query, we can stop
+                        break
+            except (ValueError, TypeError) as e:
+                # Skip queries with invalid timestamps
+                continue
         
         if not recent_queries:
             return {
@@ -191,13 +225,13 @@ class AnalyticsTracker:
                 "query_trends": []
             }
         
-        # Most asked queries
-        query_counts = Counter([q["normalized_query"] for q in recent_queries])
+        # Most asked queries (limit processing for performance)
+        query_counts = Counter([q.get("normalized_query", "") for q in recent_queries if q.get("normalized_query")])
         most_asked = [
             {
                 "query": query,
                 "count": count,
-                "pattern_data": analytics["query_patterns"].get(query, {})
+                "pattern_data": analytics.get("query_patterns", {}).get(query, {})
             }
             for query, count in query_counts.most_common(10)
         ]
@@ -247,9 +281,16 @@ class AnalyticsTracker:
         # Query trends (hourly breakdown)
         hourly_queries = defaultdict(int)
         for q in recent_queries:
-            timestamp = datetime.fromisoformat(q["timestamp"])
-            hour_key = timestamp.strftime("%Y-%m-%d %H:00")
-            hourly_queries[hour_key] += 1
+            try:
+                timestamp_str = q.get("timestamp", "")
+                if timestamp_str:
+                    if timestamp_str.endswith('Z'):
+                        timestamp_str = timestamp_str[:-1] + '+00:00'
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    hour_key = timestamp.strftime("%Y-%m-%d %H:00")
+                    hourly_queries[hour_key] += 1
+            except (ValueError, TypeError):
+                continue
         
         query_trends = [
             {"hour": hour, "count": count}
@@ -309,10 +350,18 @@ class AnalyticsTracker:
         analytics = load_json_file(ANALYTICS_FILE, {"queries": []})
         
         cutoff = datetime.now() - timedelta(hours=hours)
-        recent_queries = [
-            q for q in analytics.get("queries", [])
-            if datetime.fromisoformat(q.get("timestamp", "")) >= cutoff
-        ]
+        recent_queries = []
+        for q in analytics.get("queries", []):
+            try:
+                timestamp_str = q.get("timestamp", "")
+                if timestamp_str:
+                    if timestamp_str.endswith('Z'):
+                        timestamp_str = timestamp_str[:-1] + '+00:00'
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    if timestamp >= cutoff:
+                        recent_queries.append(q)
+            except (ValueError, TypeError):
+                continue
         
         # Find queries with low confidence or no sources
         low_confidence_queries = [
@@ -335,7 +384,7 @@ class AnalyticsTracker:
                     "avg_confidence": round(
                         sum(q.get("confidence", 0) for q in queries) / len(queries), 3
                     ) if queries else 0,
-                    "sample_queries": [q["query"][:100] for q in queries[:5]],
+                    "sample_queries": [q.get("query", "")[:100] for q in queries[:5] if q.get("query")],
                     "recommendation": f"Consider adding more content related to {intent} queries"
                 })
         
@@ -350,23 +399,30 @@ class AnalyticsTracker:
         })
         
         cutoff = datetime.now() - timedelta(hours=hours)
-        recent_queries = [
-            q for q in analytics.get("queries", [])
-            if datetime.fromisoformat(q.get("timestamp", "")) >= cutoff
-            and q.get("user_id")
-        ]
+        recent_queries = []
+        for q in analytics.get("queries", []):
+            try:
+                timestamp_str = q.get("timestamp", "")
+                if timestamp_str and q.get("user_id"):
+                    if timestamp_str.endswith('Z'):
+                        timestamp_str = timestamp_str[:-1] + '+00:00'
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    if timestamp >= cutoff:
+                        recent_queries.append(q)
+            except (ValueError, TypeError):
+                continue
         
         # Active users
         user_activity = analytics.get("user_activity", {})
-        active_users = [
-            {
-                "user_id": user_id,
-                "query_count": data.get("query_count", 0),
-                "last_activity": data.get("last_activity")
-            }
-            for user_id, data in user_activity.items()
-            if data.get("last_activity") and datetime.fromisoformat(data["last_activity"]) >= cutoff
-        ]
+        active_users = []
+        for user_id, data in user_activity.items():
+            last_activity = data.get("last_activity")
+            if last_activity and AnalyticsTracker._parse_timestamp_safe(last_activity, cutoff):
+                active_users.append({
+                    "user_id": user_id,
+                    "query_count": data.get("query_count", 0),
+                    "last_activity": last_activity
+                })
         
         active_users.sort(key=lambda x: x["query_count"], reverse=True)
         

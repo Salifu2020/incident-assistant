@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request, BackgroundTasks, Depends, status, Request as FastAPIRequest
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import List, Optional
@@ -9,8 +10,11 @@ import logging
 import shutil
 import json
 import asyncio
+import io
+import zipfile
 from logging.handlers import RotatingFileHandler
 from datetime import timedelta, datetime
+from pathlib import Path
 
 from .dependencies import processor, assistant
 from .models import (
@@ -38,7 +42,10 @@ from .models import (
     ConfidenceStats, CachePerformance, VerificationStats, QueryTrendEntry,
     KnowledgeGapsResponse, KnowledgeGap, UserInsightsResponse, UserActivityEntry,
     BulkUploadRequest, BulkUploadResponse, BatchDeleteRequest, BatchDeleteResponse,
-    BulkReprocessRequest, BulkReprocessResponse, OperationProgress
+    BulkReprocessRequest, BulkReprocessResponse, OperationProgress,
+    ExportRequest, ExportResponse, BackupRequest, BackupResponse, BackupInfo,
+    BackupListResponse, RestoreRequest,
+    ChunkingConfigRequest, ChunkingConfigResponse
 )
 from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
@@ -88,6 +95,12 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Add response compression for better performance
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1000,  # Only compress responses larger than 1KB
 )
 
 # Security
@@ -1313,6 +1326,100 @@ def reindex_documents(
         logger.error(f"Error re-indexing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Chunking Strategy Configuration Endpoints
+@app.get("/chunking/config", response_model=ChunkingConfigResponse)
+def get_chunking_config(current_user: UserInfo = Depends(get_current_user)):
+    """Get current chunking configuration."""
+    try:
+        # Only admins can view/modify chunking config
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can view chunking configuration")
+        
+        available_strategies = [
+            "adaptive", "semantic", "recursive", "sliding_window", 
+            "hierarchical", "paragraph", "sentence"
+        ]
+        
+        return {
+            "current_strategy": getattr(processor, 'chunking_strategy', 'adaptive'),
+            "chunk_size": getattr(processor, 'chunk_size', 800),
+            "overlap": getattr(processor, 'overlap', 150),
+            "min_chunk_size": getattr(processor, 'min_chunk_size', 100),
+            "available_strategies": available_strategies
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting chunking config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chunking/config", response_model=ChunkingConfigResponse)
+def update_chunking_config(
+    request: ChunkingConfigRequest,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Update chunking configuration."""
+    try:
+        # Only admins can modify chunking config
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can modify chunking configuration")
+        
+        available_strategies = [
+            "adaptive", "semantic", "recursive", "sliding_window", 
+            "hierarchical", "paragraph", "sentence"
+        ]
+        
+        if request.strategy not in available_strategies:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid strategy. Available: {', '.join(available_strategies)}"
+            )
+        
+        # Update processor configuration
+        processor.chunking_strategy = request.strategy
+        if request.chunk_size is not None:
+            processor.chunk_size = request.chunk_size
+        if request.overlap is not None:
+            processor.overlap = request.overlap
+        if request.min_chunk_size is not None:
+            processor.min_chunk_size = request.min_chunk_size
+        
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="chunking_config_updated",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="success",
+            details={
+                "strategy": request.strategy,
+                "chunk_size": processor.chunk_size,
+                "overlap": processor.overlap,
+                "min_chunk_size": processor.min_chunk_size
+            }
+        )
+        
+        return {
+            "current_strategy": processor.chunking_strategy,
+            "chunk_size": processor.chunk_size,
+            "overlap": processor.overlap,
+            "min_chunk_size": processor.min_chunk_size,
+            "available_strategies": available_strategies
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating chunking config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Search History Endpoints
 @app.get("/history", response_model=HistoryResponse)
 def get_history(limit: int = 50):
@@ -1681,7 +1788,19 @@ async def ask_question_stream(payload: QuestionRequest):
         try:
             logger.info(f"Streaming query: {payload.query[:100]}...")
             import time
+            import threading
             start_time = time.time()
+            loop = asyncio.get_running_loop()
+
+            def _elapsed() -> float:
+                return time.time() - start_time
+
+            def _sse(obj: dict) -> str:
+                # ensure_ascii=False so non-English text survives streaming intact
+                return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+            # Emit immediately so clients don't hit read-timeouts while we retrieve context / warm models
+            yield _sse({"type": "status", "stage": "starting", "elapsed": round(_elapsed(), 1)})
             
             # Get conversation context if conversation_id is provided
             conversation_context = []
@@ -1697,14 +1816,27 @@ async def ask_question_stream(payload: QuestionRequest):
             query_for_retrieval = payload.query
             detected_language = assistant.default_language
             if assistant.enable_multilanguage:
+                yield _sse({"type": "status", "stage": "detecting_language", "elapsed": round(_elapsed(), 1)})
                 if payload.language:
                     detected_language = payload.language if payload.language in assistant.supported_languages else assistant.default_language
                 else:
-                    detected_language = assistant.detect_language(payload.query)
+                    detected_language = await loop.run_in_executor(None, assistant.detect_language, payload.query)
                 
                 # Translate query to English for processing
                 if detected_language != assistant.default_language:
-                    query_for_retrieval = assistant.translate_text(payload.query, assistant.default_language, detected_language)
+                    yield _sse({"type": "status", "stage": "translating_query", "elapsed": round(_elapsed(), 1)})
+                    # translate_text signature: translate_text(text, target_lang, source_lang)
+                    # target is default_language (en), source is detected_language
+                    translate_q_future = loop.run_in_executor(
+                        None, assistant.translate_text, payload.query, assistant.default_language, detected_language
+                    )
+                    while True:
+                        try:
+                            # Shield so heartbeat timeouts don't cancel the underlying executor work
+                            query_for_retrieval = await asyncio.wait_for(asyncio.shield(translate_q_future), timeout=2.0)
+                            break
+                        except asyncio.TimeoutError:
+                            yield _sse({"type": "status", "stage": "translating_query", "elapsed": round(_elapsed(), 1)})
             
             # Enhance query for follow-up questions
             enhanced_query = query_for_retrieval
@@ -1723,24 +1855,31 @@ async def ask_question_stream(payload: QuestionRequest):
                     context_hint = " | ".join(previous_summary)
                     enhanced_query = f"{query_for_retrieval} [Context: {context_hint}]"
             
-            # Retrieve context first (synchronous operation)
-            loop = asyncio.get_event_loop()
-            context, sources = await loop.run_in_executor(
+            # Retrieve context (may be slow on first request while embedding model loads)
+            yield _sse({"type": "status", "stage": "retrieving_context", "elapsed": round(_elapsed(), 1)})
+            retrieve_future = loop.run_in_executor(
                 None,
                 assistant.retrieve_context,
                 enhanced_query if is_followup else query_for_retrieval,
                 4,  # k value
-                payload.document_filters
+                payload.document_filters,
             )
+            while True:
+                try:
+                    # Shield so heartbeat timeouts don't cancel the underlying executor work
+                    context, sources = await asyncio.wait_for(asyncio.shield(retrieve_future), timeout=2.0)
+                    break
+                except asyncio.TimeoutError:
+                    yield _sse({"type": "status", "stage": "retrieving_context", "elapsed": round(_elapsed(), 1)})
             
             if not context:
                 # Send error message
                 error_msg = "⚠️ No relevant information found in the knowledge base."
-                yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+                yield _sse({"type": "error", "content": error_msg})
                 return
             
             # Send sources first
-            yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+            yield _sse({"type": "sources", "sources": sources})
             
             # Add conversation context to assistant if provided
             if conversation_context:
@@ -1753,41 +1892,113 @@ async def ask_question_stream(payload: QuestionRequest):
                             "content": msg.get("content", "")
                         })
             
-            # Stream the response with follow-up awareness
-            # Use translated query for response generation
-            query_for_response = query_for_retrieval if assistant.enable_multilanguage and detected_language != assistant.default_language else payload.query
+            # Stream the response with follow-up awareness.
+            # Important: assistant.generate_response_stream() is synchronous and can block;
+            # run it in a background thread and forward chunks via an asyncio.Queue so we can send heartbeats.
+            query_for_response = (
+                query_for_retrieval
+                if assistant.enable_multilanguage and detected_language != assistant.default_language
+                else payload.query
+            )
+            yield _sse({"type": "status", "stage": "generating_answer", "elapsed": round(_elapsed(), 1)})
+
+            q: asyncio.Queue = asyncio.Queue()
+
+            def _producer():
+                try:
+                    for chunk in assistant.generate_response_stream(query_for_response, context, is_followup=is_followup):
+                        loop.call_soon_threadsafe(q.put_nowait, {"type": "chunk", "content": chunk})
+                except Exception as e:
+                    loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "content": f"❌ Error: {str(e)}"})
+                finally:
+                    loop.call_soon_threadsafe(q.put_nowait, {"type": "producer_done"})
+
+            threading.Thread(target=_producer, daemon=True).start()
+
             response_text = ""
-            for chunk in assistant.generate_response_stream(query_for_response, context, is_followup=is_followup):
-                response_text += chunk
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            while True:
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    yield _sse({"type": "status", "stage": "generating_answer", "elapsed": round(_elapsed(), 1)})
+                    continue
+
+                if item.get("type") == "producer_done":
+                    break
+                if item.get("type") == "error":
+                    yield _sse({"type": "error", "content": item.get("content", "❌ Error")})
+                    return
+                if item.get("type") == "chunk":
+                    chunk = item.get("content", "")
+                    response_text += chunk
+                    yield _sse({"type": "chunk", "content": chunk})
             
             # Calculate confidence score for streaming response
             confidence_info = None
             if assistant.enable_confidence_scoring:
-                confidence_info = assistant.score_answer_confidence(
-                    payload.query, 
-                    response_text.strip(), 
-                    context, 
-                    sources
+                yield _sse({"type": "status", "stage": "scoring_confidence", "elapsed": round(_elapsed(), 1)})
+                confidence_future = loop.run_in_executor(
+                    None,
+                    assistant.score_answer_confidence,
+                    payload.query,
+                    response_text.strip(),
+                    context,
+                    sources,
                 )
+                while True:
+                    try:
+                        # Shield so heartbeat timeouts don't cancel the underlying executor work
+                        confidence_info = await asyncio.wait_for(asyncio.shield(confidence_future), timeout=2.0)
+                        break
+                    except asyncio.TimeoutError:
+                        yield _sse({"type": "status", "stage": "scoring_confidence", "elapsed": round(_elapsed(), 1)})
             
             # Verify answer for streaming response
             verification_info = None
             if assistant.enable_answer_verification:
-                verification_info = assistant.verify_answer(
+                yield _sse({"type": "status", "stage": "verifying_answer", "elapsed": round(_elapsed(), 1)})
+                verify_future = loop.run_in_executor(
+                    None,
+                    assistant.verify_answer,
                     query_for_response,
                     response_text.strip(),
                     context,
-                    sources
+                    sources,
                 )
+                while True:
+                    try:
+                        # Shield so heartbeat timeouts don't cancel the underlying executor work
+                        verification_info = await asyncio.wait_for(asyncio.shield(verify_future), timeout=2.0)
+                        break
+                    except asyncio.TimeoutError:
+                        yield _sse({"type": "status", "stage": "verifying_answer", "elapsed": round(_elapsed(), 1)})
             
             # Translate answer back to user's language if needed
             final_response = response_text.strip()
             if assistant.enable_multilanguage and detected_language != assistant.default_language:
-                final_response = assistant.translate_text(response_text.strip(), detected_language, assistant.default_language)
+                yield _sse({"type": "status", "stage": "translating_answer", "elapsed": round(_elapsed(), 1)})
+                # translate_text signature: translate_text(text, target_lang, source_lang)
+                # target is detected_language, source is default_language (en)
+                translate_a_future = loop.run_in_executor(
+                    None, assistant.translate_text, response_text.strip(), detected_language, assistant.default_language
+                )
+                while True:
+                    try:
+                        # Shield so heartbeat timeouts don't cancel the underlying executor work
+                        final_response = await asyncio.wait_for(asyncio.shield(translate_a_future), timeout=2.0)
+                        break
+                    except asyncio.TimeoutError:
+                        yield _sse({"type": "status", "stage": "translating_answer", "elapsed": round(_elapsed(), 1)})
             
             # Send completion signal with confidence and verification
-            yield f"data: {json.dumps({'type': 'done', 'full_response': final_response, 'confidence': confidence_info, 'verification': verification_info})}\n\n"
+            yield _sse(
+                {
+                    "type": "done",
+                    "full_response": final_response,
+                    "confidence": confidence_info,
+                    "verification": verification_info,
+                }
+            )
             
             # Record query metric
             try:
@@ -1839,8 +2050,8 @@ async def ask_question_stream(payload: QuestionRequest):
                 logger.warning(f"Failed to save to history: {e}")
                 
         except Exception as e:
-            logger.error(f"Error in streaming: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': f'❌ Error: {str(e)}'})}\n\n"
+            logger.error(f"Error in streaming: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'content': f'❌ Error: {str(e)}'}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(
         generate(),
@@ -2465,11 +2676,91 @@ async def get_metrics_history(metric_type: Optional[str] = None, hours: int = 24
 def get_performance_stats(hours: int = 24):
     """Get performance statistics for the specified time period."""
     try:
-        stats = HealthMonitor.get_performance_stats(hours=hours)
-        return stats
+        stats_raw = HealthMonitor.get_performance_stats(hours=hours)
+        if not isinstance(stats_raw, dict):
+            stats_raw = {}
+
+        # Provide defaults for missing fields (must match `PerformanceStats` / nested models)
+        default_stats = {
+            "period_hours": int(hours),
+            "timestamp": datetime.now().isoformat(),
+            "queries": {
+                "total": 0,
+                "last_hour": 0,
+                "last_6_hours": 0,
+                "throughput_per_hour": 0.0,
+                "response_time": {
+                    "min": 0.0,
+                    "avg": 0.0,
+                    "max": 0.0,
+                    "p50": 0.0,
+                    "p95": 0.0,
+                    "p99": 0.0,
+                },
+                "avg_sources_per_query": 0.0,
+            },
+            "errors": {"total": 0, "rate_percent": 0.0, "by_type": {}},
+            "document_processing": {
+                "total_processed": 0,
+                "successful": 0,
+                "failed": 0,
+                "success_rate_percent": 100.0,
+                "avg_processing_time_sec": 0.0,
+                "avg_chunks_per_doc": 0.0,
+                "total_size_bytes": 0,
+                "total_size_mb": 0.0,
+            },
+        }
+
+        # Shallow + nested merges
+        merged = default_stats.copy()
+        merged.update(stats_raw)
+
+        merged["queries"] = {**default_stats["queries"], **(stats_raw.get("queries") or {})}
+        merged["queries"]["response_time"] = {
+            **default_stats["queries"]["response_time"],
+            **((merged["queries"].get("response_time") or {})),
+        }
+        merged["errors"] = {**default_stats["errors"], **(stats_raw.get("errors") or {})}
+        merged["document_processing"] = {
+            **default_stats["document_processing"],
+            **(stats_raw.get("document_processing") or {}),
+        }
+
+        # Ensure by_type is dict (Pydantic expects Dict[str,int])
+        if not isinstance(merged["errors"].get("by_type"), dict):
+            merged["errors"]["by_type"] = {}
+
+        # Validate shape via Pydantic and wrap in response model shape
+        stats_model = PerformanceStats(**merged)
+        return {"stats": stats_model}
     except Exception as e:
-        logger.error(f"Error getting performance stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting performance stats: {e}", exc_info=True)
+        # Return default stats instead of raising error
+        default_stats = {
+            "period_hours": int(hours),
+            "timestamp": datetime.now().isoformat(),
+            "queries": {
+                "total": 0,
+                "last_hour": 0,
+                "last_6_hours": 0,
+                "throughput_per_hour": 0.0,
+                "response_time": {"min": 0.0, "avg": 0.0, "max": 0.0, "p50": 0.0, "p95": 0.0, "p99": 0.0},
+                "avg_sources_per_query": 0.0,
+            },
+            "errors": {"total": 0, "rate_percent": 0.0, "by_type": {}},
+            "document_processing": {
+                "total_processed": 0,
+                "successful": 0,
+                "failed": 0,
+                "success_rate_percent": 100.0,
+                "avg_processing_time_sec": 0.0,
+                "avg_chunks_per_doc": 0.0,
+                "total_size_bytes": 0,
+                "total_size_mb": 0.0,
+            },
+        }
+        return {"stats": PerformanceStats(**default_stats)}
 
 # Cache Management Endpoints
 @app.get("/cache/stats")
@@ -2537,31 +2828,77 @@ def get_query_analytics(hours: int = 24, current_user: UserInfo = Depends(get_cu
     try:
         analytics_data = AnalyticsTracker.get_query_analytics(hours=hours)
         
-        # Convert to response models
-        most_asked = [
-            QueryAnalyticsEntry(**entry) for entry in analytics_data.get("most_asked_queries", [])
-        ]
+        # Convert to response models with error handling
+        most_asked = []
+        try:
+            for entry in analytics_data.get("most_asked_queries", []):
+                try:
+                    most_asked.append(QueryAnalyticsEntry(**entry))
+                except Exception as e:
+                    logger.warning(f"Error parsing query analytics entry: {e}, entry: {entry}")
+                    continue
+        except Exception as e:
+            logger.warning(f"Error parsing most asked queries: {e}")
         
-        doc_usage = [
-            DocumentUsageEntry(**entry) for entry in analytics_data.get("document_usage", [])
-        ]
+        doc_usage = []
+        try:
+            for entry in analytics_data.get("document_usage", []):
+                try:
+                    doc_usage.append(DocumentUsageEntry(**entry))
+                except Exception as e:
+                    logger.warning(f"Error parsing document usage entry: {e}")
+                    continue
+        except Exception as e:
+            logger.warning(f"Error parsing document usage: {e}")
         
-        intent_perf = {
-            intent: IntentPerformance(**data)
-            for intent, data in analytics_data.get("intent_performance", {}).items()
-        }
+        intent_perf = {}
+        try:
+            for intent, data in analytics_data.get("intent_performance", {}).items():
+                try:
+                    intent_perf[intent] = IntentPerformance(**data)
+                except Exception as e:
+                    logger.warning(f"Error parsing intent performance for {intent}: {e}")
+                    continue
+        except Exception as e:
+            logger.warning(f"Error parsing intent performance: {e}")
         
         confidence_stats = None
-        if analytics_data.get("confidence_stats"):
-            confidence_stats = ConfidenceStats(**analytics_data["confidence_stats"])
+        try:
+            if analytics_data.get("confidence_stats"):
+                confidence_stats = ConfidenceStats(**analytics_data["confidence_stats"])
+        except Exception as e:
+            logger.warning(f"Error parsing confidence stats: {e}")
         
-        cache_perf = CachePerformance(**analytics_data.get("cache_performance", {}))
+        cache_perf = CachePerformance(hits=0, misses=0, hit_rate=0.0)
+        try:
+            cache_data = analytics_data.get("cache_performance", {})
+            cache_perf = CachePerformance(**cache_data)
+        except Exception as e:
+            logger.warning(f"Error parsing cache performance: {e}, using defaults")
         
-        verification_stats = VerificationStats(**analytics_data.get("verification_stats", {}))
+        verification_stats = VerificationStats(
+            total_verified=0,
+            supported_count=0,
+            partial_count=0,
+            unsupported_count=0,
+            not_verified_count=0
+        )
+        try:
+            verif_data = analytics_data.get("verification_stats", {})
+            verification_stats = VerificationStats(**verif_data)
+        except Exception as e:
+            logger.warning(f"Error parsing verification stats: {e}, using defaults")
         
-        query_trends = [
-            QueryTrendEntry(**entry) for entry in analytics_data.get("query_trends", [])
-        ]
+        query_trends = []
+        try:
+            for entry in analytics_data.get("query_trends", []):
+                try:
+                    query_trends.append(QueryTrendEntry(**entry))
+                except Exception as e:
+                    logger.warning(f"Error parsing query trend entry: {e}")
+                    continue
+        except Exception as e:
+            logger.warning(f"Error parsing query trends: {e}")
         
         return QueryAnalyticsResponse(
             period_hours=analytics_data.get("period_hours", hours),
@@ -2576,8 +2913,8 @@ def get_query_analytics(hours: int = 24, current_user: UserInfo = Depends(get_cu
             verification_stats=verification_stats
         )
     except Exception as e:
-        logger.error(f"Error getting query analytics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error getting query analytics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error loading analytics: {str(e)}")
 
 @app.get("/analytics/knowledge-gaps", response_model=KnowledgeGapsResponse)
 def get_knowledge_gaps(hours: int = 24, current_user: UserInfo = Depends(get_current_user)):
@@ -2610,5 +2947,522 @@ def get_user_insights(hours: int = 24, current_user: UserInfo = Depends(get_curr
         )
     except Exception as e:
         logger.error(f"Error getting user insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Export & Backup Endpoints
+import zipfile
+import tempfile
+from pathlib import Path
+from fastapi.responses import FileResponse
+
+EXPORT_DIR = os.path.join(PROJECT_ROOT, "exports")
+BACKUP_DIR = os.path.join(PROJECT_ROOT, "backups")
+
+# Ensure directories exist
+os.makedirs(EXPORT_DIR, exist_ok=True)
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+
+@app.post("/export", response_model=ExportResponse)
+def export_data(
+    request: ExportRequest,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Export data from the system."""
+    try:
+        # Check permissions (only admins can export user data)
+        if request.export_type == "users" and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can export user data")
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_data = {}
+        
+        # Export documents
+        if request.export_type in ["documents", "all"]:
+            documents = processor.list_documents()
+            export_data["documents"] = documents
+            
+            if request.include_chunks:
+                # Get chunks for each document
+                chunks_data = {}
+                for doc in documents:
+                    filename = doc.get("filename", "")
+                    try:
+                        results = processor.collection.get(where={"source": filename})
+                        chunks_data[filename] = {
+                            "chunk_count": len(results.get("ids", [])),
+                            "chunks": [
+                                {
+                                    "id": id_,
+                                    "document": doc_text,
+                                    "metadata": meta
+                                }
+                                for id_, doc_text, meta in zip(
+                                    results.get("ids", []),
+                                    results.get("documents", []),
+                                    results.get("metadatas", [])
+                                )
+                            ]
+                        }
+                    except Exception as e:
+                        logger.warning(f"Error getting chunks for {filename}: {e}")
+                        chunks_data[filename] = {"chunk_count": 0, "chunks": []}
+                export_data["document_chunks"] = chunks_data
+        
+        # Export conversations
+        if request.export_type in ["conversations", "all"]:
+            try:
+                conversations = ConversationManager.list_conversations()
+                # Filter by date if provided
+                if request.date_from or request.date_to:
+                    filtered_convos = []
+                    for conv in conversations:
+                        conv_date = conv.get("created_at", "")
+                        if request.date_from and conv_date < request.date_from:
+                            continue
+                        if request.date_to and conv_date > request.date_to:
+                            continue
+                        filtered_convos.append(conv)
+                    export_data["conversations"] = filtered_convos
+                else:
+                    export_data["conversations"] = conversations
+            except Exception as e:
+                logger.warning(f"Error exporting conversations: {e}")
+                export_data["conversations"] = []
+        
+        # Export analytics
+        if request.export_type in ["analytics", "all"]:
+            try:
+                hours = 24 * 30  # Last 30 days
+                if request.date_from or request.date_to:
+                    # Calculate hours based on date range
+                    if request.date_from and request.date_to:
+                        from_date = datetime.fromisoformat(request.date_from.replace("Z", "+00:00"))
+                        to_date = datetime.fromisoformat(request.date_to.replace("Z", "+00:00"))
+                        hours = int((to_date - from_date).total_seconds() / 3600)
+                
+                analytics = AnalyticsTracker.get_query_analytics(hours=hours)
+                export_data["analytics"] = analytics
+            except Exception as e:
+                logger.warning(f"Error exporting analytics: {e}")
+                export_data["analytics"] = {}
+        
+        # Export users (admin only)
+        if request.export_type in ["users", "all"] and current_user.role == "admin":
+            try:
+                users = UserManager.list_users()
+                # Remove sensitive data
+                safe_users = []
+                for user in users:
+                    safe_user = {
+                        "id": user.get("id"),
+                        "username": user.get("username"),
+                        "email": user.get("email"),
+                        "role": user.get("role"),
+                        "created_at": user.get("created_at"),
+                        "last_login": user.get("last_login"),
+                        "is_active": user.get("is_active", True)
+                    }
+                    safe_users.append(safe_user)
+                export_data["users"] = safe_users
+            except Exception as e:
+                logger.warning(f"Error exporting users: {e}")
+                export_data["users"] = []
+        
+        # Export search history
+        if request.export_type in ["all"]:
+            try:
+                history = SearchHistory.get_history(limit=10000)
+                export_data["search_history"] = history
+            except Exception as e:
+                logger.warning(f"Error exporting search history: {e}")
+                export_data["search_history"] = []
+        
+        # Create export file
+        filename = f"export_{request.export_type}_{timestamp}"
+        
+        if request.format == "json":
+            file_path = os.path.join(EXPORT_DIR, f"{filename}.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False, default=str)
+        elif request.format == "csv":
+            # For CSV, we'll create a zip with multiple CSV files
+            file_path = os.path.join(EXPORT_DIR, f"{filename}.zip")
+            with zipfile.ZipFile(file_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for key, data in export_data.items():
+                    if isinstance(data, list) and len(data) > 0:
+                        # Convert to CSV
+                        import csv as csv_module
+                        csv_data = []
+                        if isinstance(data[0], dict):
+                            # Get all keys from first item
+                            fieldnames = list(data[0].keys())
+                            csv_buffer = io.StringIO()
+                            writer = csv_module.DictWriter(csv_buffer, fieldnames=fieldnames)
+                            writer.writeheader()
+                            for row in data:
+                                # Convert dict values to strings
+                                safe_row = {k: str(v) for k, v in row.items()}
+                                writer.writerow(safe_row)
+                            csv_data = csv_buffer.getvalue()
+                            zipf.writestr(f"{key}.csv", csv_data)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {request.format}")
+        
+        file_size = os.path.getsize(file_path)
+        
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="data_exported",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="success",
+            details={"export_type": request.export_type, "format": request.format, "file_size": file_size}
+        )
+        
+        return {
+            "message": f"Export created successfully",
+            "file_path": file_path,
+            "file_size": file_size,
+            "download_url": f"/export/download/{os.path.basename(file_path)}",
+            "expires_at": (datetime.now() + timedelta(days=7)).isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/export/download/{filename}")
+def download_export(
+    filename: str,
+    current_user: UserInfo = Depends(get_current_user)
+):
+    """Download an exported file."""
+    try:
+        # Security: prevent path traversal
+        safe_filename = os.path.basename(filename)
+        file_path = os.path.join(EXPORT_DIR, safe_filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Export file not found")
+        
+        # Check if file is in exports directory (security check)
+        if not os.path.abspath(file_path).startswith(os.path.abspath(EXPORT_DIR)):
+            raise HTTPException(status_code=403, detail="Invalid file path")
+        
+        return FileResponse(
+            file_path,
+            media_type="application/octet-stream",
+            filename=safe_filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading export: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/backup/create", response_model=BackupResponse)
+def create_backup(
+    request: BackupRequest,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Create a system backup."""
+    try:
+        # Only admins can create backups
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can create backups")
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_id = f"backup_{timestamp}"
+        backup_path = os.path.join(BACKUP_DIR, f"{backup_id}.zip")
+        
+        total_size = 0
+        
+        with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            # Backup ChromaDB
+            if request.include_chromadb:
+                chromadb_path = os.path.join(PROJECT_ROOT, ".chromadb")
+                if os.path.exists(chromadb_path):
+                    for root, dirs, files in os.walk(chromadb_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, PROJECT_ROOT)
+                            zipf.write(file_path, arcname)
+                            total_size += os.path.getsize(file_path)
+            
+            # Backup data files
+            if request.include_data:
+                data_path = os.path.join(PROJECT_ROOT, "data")
+                if os.path.exists(data_path):
+                    for root, dirs, files in os.walk(data_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, PROJECT_ROOT)
+                            zipf.write(file_path, arcname)
+                            total_size += os.path.getsize(file_path)
+            
+            # Backup files
+            if request.include_files:
+                for dir_name in ["ingested_files", "source_files"]:
+                    dir_path = os.path.join(PROJECT_ROOT, dir_name)
+                    if os.path.exists(dir_path):
+                        for root, dirs, files in os.walk(dir_path):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path, PROJECT_ROOT)
+                                zipf.write(file_path, arcname)
+                                total_size += os.path.getsize(file_path)
+            
+            # Add backup metadata
+            metadata = {
+                "backup_id": backup_id,
+                "created_at": datetime.now().isoformat(),
+                "created_by": current_user.username,
+                "description": request.description,
+                "includes": {
+                    "chromadb": request.include_chromadb,
+                    "data": request.include_data,
+                    "files": request.include_files
+                }
+            }
+            zipf.writestr("backup_metadata.json", json.dumps(metadata, indent=2))
+        
+        backup_size = os.path.getsize(backup_path)
+        
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="backup_created",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="success",
+            details={"backup_id": backup_id, "backup_size": backup_size}
+        )
+        
+        return {
+            "message": "Backup created successfully",
+            "backup_id": backup_id,
+            "backup_path": backup_path,
+            "backup_size": backup_size,
+            "created_at": datetime.now().isoformat(),
+            "includes": {
+                "chromadb": request.include_chromadb,
+                "data": request.include_data,
+                "files": request.include_files
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/backup/list", response_model=BackupListResponse)
+def list_backups(current_user: UserInfo = Depends(get_current_user)):
+    """List all available backups."""
+    try:
+        # Only admins can list backups
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can list backups")
+        
+        backups = []
+        total_size = 0
+        
+        if os.path.exists(BACKUP_DIR):
+            for filename in os.listdir(BACKUP_DIR):
+                if filename.endswith(".zip"):
+                    backup_path = os.path.join(BACKUP_DIR, filename)
+                    backup_size = os.path.getsize(backup_path)
+                    total_size += backup_size
+                    
+                    # Try to read metadata
+                    description = None
+                    created_at = datetime.fromtimestamp(os.path.getctime(backup_path)).isoformat()
+                    includes = {"chromadb": True, "data": True, "files": True}
+                    
+                    try:
+                        with zipfile.ZipFile(backup_path, "r") as zipf:
+                            if "backup_metadata.json" in zipf.namelist():
+                                metadata_str = zipf.read("backup_metadata.json").decode("utf-8")
+                                metadata = json.loads(metadata_str)
+                                description = metadata.get("description")
+                                created_at = metadata.get("created_at", created_at)
+                                includes = metadata.get("includes", includes)
+                    except Exception as e:
+                        logger.warning(f"Error reading backup metadata: {e}")
+                    
+                    backup_id = filename.replace(".zip", "")
+                    backups.append({
+                        "backup_id": backup_id,
+                        "backup_path": backup_path,
+                        "backup_size": backup_size,
+                        "created_at": created_at,
+                        "description": description,
+                        "includes": includes
+                    })
+        
+        # Sort by creation date (newest first)
+        backups.sort(key=lambda x: x["created_at"], reverse=True)
+        
+        return {
+            "backups": [BackupInfo(**backup) for backup in backups],
+            "total_backups": len(backups),
+            "total_size": total_size
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/backup/download/{backup_id}")
+def download_backup(
+    backup_id: str,
+    current_user: UserInfo = Depends(get_current_user)
+):
+    """Download a backup file."""
+    try:
+        # Only admins can download backups
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can download backups")
+        
+        # Security: prevent path traversal
+        safe_backup_id = os.path.basename(backup_id)
+        backup_path = os.path.join(BACKUP_DIR, f"{safe_backup_id}.zip")
+        
+        if not os.path.exists(backup_path):
+            raise HTTPException(status_code=404, detail="Backup not found")
+        
+        # Check if file is in backups directory (security check)
+        if not os.path.abspath(backup_path).startswith(os.path.abspath(BACKUP_DIR)):
+            raise HTTPException(status_code=403, detail="Invalid backup path")
+        
+        return FileResponse(
+            backup_path,
+            media_type="application/zip",
+            filename=f"{safe_backup_id}.zip"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/backup/restore")
+def restore_backup(
+    request: RestoreRequest,
+    current_user: UserInfo = Depends(get_current_user),
+    http_request: FastAPIRequest = None
+):
+    """Restore from a backup."""
+    try:
+        # Only admins can restore backups
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Only admins can restore backups")
+        
+        # Security: prevent path traversal
+        safe_backup_id = os.path.basename(request.backup_id)
+        backup_path = os.path.join(BACKUP_DIR, f"{safe_backup_id}.zip")
+        
+        if not os.path.exists(backup_path):
+            raise HTTPException(status_code=404, detail="Backup not found")
+        
+        # Check if file is in backups directory (security check)
+        if not os.path.abspath(backup_path).startswith(os.path.abspath(BACKUP_DIR)):
+            raise HTTPException(status_code=403, detail="Invalid backup path")
+        
+        # Read backup metadata
+        with zipfile.ZipFile(backup_path, "r") as zipf:
+            if "backup_metadata.json" in zipf.namelist():
+                metadata_str = zipf.read("backup_metadata.json").decode("utf-8")
+                metadata = json.loads(metadata_str)
+            else:
+                metadata = {}
+        
+        # Restore files
+        restored_items = []
+        
+        with zipfile.ZipFile(backup_path, "r") as zipf:
+            for file_info in zipf.filelist:
+                # Skip metadata file
+                if file_info.filename == "backup_metadata.json":
+                    continue
+                
+                # Determine what to restore based on path
+                if file_info.filename.startswith(".chromadb/") and request.restore_chromadb:
+                    # Restore ChromaDB
+                    dest_path = os.path.join(PROJECT_ROOT, file_info.filename)
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    with zipf.open(file_info) as source, open(dest_path, "wb") as target:
+                        target.write(source.read())
+                    restored_items.append(file_info.filename)
+                
+                elif file_info.filename.startswith("data/") and request.restore_data:
+                    # Restore data files
+                    dest_path = os.path.join(PROJECT_ROOT, file_info.filename)
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    with zipf.open(file_info) as source, open(dest_path, "wb") as target:
+                        target.write(source.read())
+                    restored_items.append(file_info.filename)
+                
+                elif (file_info.filename.startswith("ingested_files/") or 
+                      file_info.filename.startswith("source_files/")) and request.restore_files:
+                    # Restore files
+                    dest_path = os.path.join(PROJECT_ROOT, file_info.filename)
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    with zipf.open(file_info) as source, open(dest_path, "wb") as target:
+                        target.write(source.read())
+                    restored_items.append(file_info.filename)
+        
+        # Log audit event
+        ip_address = None
+        if http_request:
+            ip_address = (
+                http_request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                http_request.headers.get("X-Real-IP", "") or
+                (http_request.client.host if http_request.client else None)
+            )
+        log_audit_event(
+            event_type="backup_restored",
+            user_id=current_user.id,
+            username=current_user.username,
+            ip_address=ip_address,
+            status="success",
+            details={"backup_id": request.backup_id, "restored_items": len(restored_items)}
+        )
+        
+        return {
+            "message": f"Backup restored successfully. {len(restored_items)} items restored.",
+            "backup_id": request.backup_id,
+            "restored_items": len(restored_items),
+            "restored_files": restored_items[:10]  # First 10 for preview
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring backup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

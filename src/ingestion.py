@@ -9,6 +9,7 @@ from docx import Document as DocxDocument
 import csv
 import datetime
 import re
+import numpy as np
 
 
 # Get project root directory (parent of src)
@@ -20,9 +21,10 @@ INGESTED_DIR = os.path.join(PROJECT_ROOT, "ingested_files")
 
 
 class DocumentProcessor:
-    def __init__(self, persist_directory=None, embedding_model="all-mpnet-base-v2"):
+    def __init__(self, persist_directory=None, embedding_model="all-mpnet-base-v2", 
+                 chunking_strategy="adaptive", chunk_size=800, overlap=150, min_chunk_size=100):
         """
-        Initialize DocumentProcessor with configurable embedding model.
+        Initialize DocumentProcessor with configurable embedding model and chunking strategy.
         
         Args:
             persist_directory: Directory for ChromaDB persistence
@@ -30,35 +32,96 @@ class DocumentProcessor:
                 - "all-MiniLM-L6-v2" (fast, smaller, default old)
                 - "all-mpnet-base-v2" (better accuracy, recommended)
                 - "BAAI/bge-large-en-v1.5" (state-of-the-art, slower)
+            chunking_strategy: Chunking strategy to use. Options:
+                - "adaptive" (default, tries multiple strategies)
+                - "semantic" (uses embeddings to find topic boundaries)
+                - "recursive" (recursive chunking with overlap)
+                - "sliding_window" (sliding window with overlap)
+                - "hierarchical" (multi-level hierarchical chunking)
+                - "paragraph" (paragraph-based only)
+                - "sentence" (sentence-based only)
+            chunk_size: Target chunk size in characters
+            overlap: Overlap size in characters
+            min_chunk_size: Minimum chunk size to keep
         """
         if persist_directory is None:
             persist_directory = os.path.join(PROJECT_ROOT, ".chromadb")
         self.client = chromadb.PersistentClient(path=persist_directory)
         self.embedding_model = embedding_model
+        self.chunking_strategy = chunking_strategy
+        self.chunk_size = chunk_size
+        self.overlap = overlap
+        self.min_chunk_size = min_chunk_size
         
-        # Create embedding function with specified model
-        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=embedding_model
-        )
+        # Lazy loading: Don't load embedding model until first use
+        self._embedding_function = None
+        self._embedding_model_name = embedding_model
+        
+        # For semantic chunking, lazy load the model
+        self._semantic_model = None
+        self._semantic_model_loaded = False
+        
+        # Batch processing cache
+        self._batch_embedding_cache = {}
+        self._batch_cache_size = 100
 
-        try:
-            # Try to get existing collection
-            existing_collection = self.client.get_collection(name="knowledge_base")
-            
-            # Check if embedding model matches (by checking collection metadata or function)
-            # Note: ChromaDB doesn't store model name directly, so we'll check on first use
-            self.collection = existing_collection
-            print(f"📂 Loaded existing 'knowledge_base' collection.")
-            print(f"🔤 Using embedding model: {embedding_model}")
-            print("⚠️  Note: If you changed the embedding model, you may need to re-index documents.")
-        except:
-            # Create new collection with the embedding function
-            self.collection = self.client.get_or_create_collection(
-                name="knowledge_base",
-                embedding_function=self.embedding_function
+        # Lazy collection loading - will be initialized on first use
+        self._collection = None
+        self._collection_initialized = False
+    
+    @property
+    def embedding_function(self):
+        """Lazy load embedding function on first access."""
+        if self._embedding_function is None:
+            print(f"🔤 Loading embedding model: {self._embedding_model_name}...")
+            self._embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name=self._embedding_model_name
             )
-            print("🆕 Created new 'knowledge_base' collection.")
-            print(f"🔤 Using embedding model: {embedding_model}")
+            print(f"✅ Embedding model loaded: {self._embedding_model_name}")
+        return self._embedding_function
+    
+    @property
+    def collection(self):
+        """Lazy load collection on first access."""
+        if not self._collection_initialized:
+            try:
+                # Try to get existing collection
+                existing_collection = self.client.get_collection(name="knowledge_base")
+                self._collection = existing_collection
+                print(f"📂 Loaded existing 'knowledge_base' collection.")
+                print(f"🔤 Using embedding model: {self._embedding_model_name}")
+                print("⚠️  Note: If you changed the embedding model, you may need to re-index documents.")
+            except:
+                # Create new collection with the embedding function (lazy loaded)
+                self._collection = self.client.get_or_create_collection(
+                    name="knowledge_base",
+                    embedding_function=self.embedding_function
+                )
+                print("🆕 Created new 'knowledge_base' collection.")
+                print(f"🔤 Using embedding model: {self._embedding_model_name}")
+            self._collection_initialized = True
+        return self._collection
+    
+    @collection.setter
+    def collection(self, value):
+        """Allow setting collection directly (for reindexing)."""
+        self._collection = value
+        self._collection_initialized = True
+    
+    def _get_semantic_model(self):
+        """Lazy load semantic model for chunking."""
+        if not self._semantic_model_loaded:
+            try:
+                from sentence_transformers import SentenceTransformer
+                print(f"🔤 Loading semantic model for chunking: {self._embedding_model_name}...")
+                self._semantic_model = SentenceTransformer(self._embedding_model_name)
+                self._semantic_model_loaded = True
+                print(f"✅ Semantic model loaded")
+            except ImportError:
+                self._semantic_model = None
+                self._semantic_model_loaded = True
+                print("⚠️ sentence-transformers not available for semantic chunking, falling back to adaptive")
+        return self._semantic_model
 
     def extract_text(self, file_path):
         """Extract text from a file with comprehensive error handling."""
@@ -191,23 +254,52 @@ class DocumentProcessor:
                 except:
                     pass
 
-    def chunk_text(self, text, chunk_size=800, overlap=150, min_chunk_size=100):
+    def chunk_text(self, text, chunk_size=None, overlap=None, min_chunk_size=None):
         """
-        Advanced semantic chunking with multiple strategies:
-        1. Paragraph-aware chunking (preferred)
-        2. Sentence boundary detection
-        3. Adaptive chunk sizes based on content structure
-        4. Smart overlap to preserve context
+        Advanced chunking with multiple strategies.
         
         Args:
             text: The text to chunk
-            chunk_size: Target chunk size in characters
-            overlap: Overlap size in characters
-            min_chunk_size: Minimum chunk size to keep
+            chunk_size: Target chunk size in characters (uses instance default if None)
+            overlap: Overlap size in characters (uses instance default if None)
+            min_chunk_size: Minimum chunk size to keep (uses instance default if None)
         """
+        # Use instance defaults if not provided
+        chunk_size = chunk_size or self.chunk_size
+        overlap = overlap or self.overlap
+        min_chunk_size = min_chunk_size or self.min_chunk_size
+        
         if not text or len(text.strip()) < min_chunk_size:
             return [text.strip()] if text.strip() else []
         
+        # Route to appropriate strategy
+        strategy = self.chunking_strategy.lower()
+        
+        if strategy == "semantic":
+            return self._chunk_semantic(text, chunk_size, overlap, min_chunk_size)
+        elif strategy == "recursive":
+            return self._chunk_recursive(text, chunk_size, overlap, min_chunk_size)
+        elif strategy == "sliding_window":
+            return self._chunk_sliding_window(text, chunk_size, overlap, min_chunk_size)
+        elif strategy == "hierarchical":
+            return self._chunk_hierarchical(text, chunk_size, overlap, min_chunk_size)
+        elif strategy == "paragraph":
+            paragraphs = self._split_into_paragraphs(text)
+            if len(paragraphs) > 1:
+                chunks = self._chunk_by_paragraphs(paragraphs, chunk_size, overlap, min_chunk_size)
+                return chunks if chunks else [text.strip()]
+            return [text.strip()]
+        elif strategy == "sentence":
+            sentences = self._split_into_sentences(text)
+            if len(sentences) > 1:
+                chunks = self._chunk_by_sentences(sentences, chunk_size, overlap, min_chunk_size)
+                return chunks if chunks else [text.strip()]
+            return [text.strip()]
+        else:  # "adaptive" or default
+            return self._chunk_adaptive(text, chunk_size, overlap, min_chunk_size)
+    
+    def _chunk_adaptive(self, text, chunk_size, overlap, min_chunk_size):
+        """Adaptive chunking: tries multiple strategies in order."""
         # Strategy 1: Try paragraph-based chunking first (best for structured documents)
         paragraphs = self._split_into_paragraphs(text)
         if len(paragraphs) > 1:
@@ -224,6 +316,251 @@ class DocumentProcessor:
         
         # Strategy 3: Fallback to smart character-based chunking
         return self._chunk_by_characters(text, chunk_size, overlap, min_chunk_size)
+    
+    def _chunk_semantic(self, text, chunk_size, overlap, min_chunk_size):
+        """
+        Semantic chunking: uses embeddings to find topic boundaries.
+        Splits text where semantic similarity drops significantly.
+        """
+        semantic_model = self._get_semantic_model()
+        if semantic_model is None:
+            # Fallback to adaptive if semantic model not available
+            return self._chunk_adaptive(text, chunk_size, overlap, min_chunk_size)
+        
+        try:
+            # Split into sentences first
+            sentences = self._split_into_sentences(text)
+            if len(sentences) < 3:
+                # Too few sentences, use adaptive
+                return self._chunk_adaptive(text, chunk_size, overlap, min_chunk_size)
+            
+            # Compute embeddings for sentences (batch processing)
+            embeddings = semantic_model.encode(sentences, show_progress_bar=False, batch_size=32)
+            
+            # Find semantic boundaries (where similarity drops)
+            chunks = []
+            current_chunk = []
+            current_length = 0
+            similarity_threshold = 0.7  # Threshold for topic change
+            
+            for i in range(len(sentences)):
+                sent = sentences[i]
+                sent_length = len(sent)
+                
+                # Check if we should start a new chunk
+                should_split = False
+                if i > 0 and current_length + sent_length > chunk_size * 0.8:
+                    # Check semantic similarity with previous sentence
+                    if i < len(embeddings):
+                        similarity = self._cosine_similarity(embeddings[i-1], embeddings[i])
+                        if similarity < similarity_threshold:
+                            should_split = True
+                
+                # Also split if chunk is getting too large
+                if current_length + sent_length > chunk_size and current_chunk:
+                    should_split = True
+                
+                if should_split and current_chunk:
+                    # Save current chunk
+                    chunk_text = ' '.join(current_chunk)
+                    if len(chunk_text) >= min_chunk_size:
+                        chunks.append(chunk_text)
+                    
+                    # Start new chunk with overlap
+                    if overlap > 0 and len(current_chunk) > 0:
+                        # Keep last sentence(s) for overlap
+                        overlap_text = ' '.join(current_chunk[-1:])
+                        if len(overlap_text) <= overlap:
+                            current_chunk = [overlap_text, sent]
+                            current_length = len(overlap_text) + sent_length
+                        else:
+                            current_chunk = [sent]
+                            current_length = sent_length
+                    else:
+                        current_chunk = [sent]
+                        current_length = sent_length
+                else:
+                    current_chunk.append(sent)
+                    current_length += sent_length
+            
+            # Add final chunk
+            if current_chunk:
+                chunk_text = ' '.join(current_chunk)
+                if len(chunk_text) >= min_chunk_size:
+                    chunks.append(chunk_text)
+            
+            return chunks if chunks else [text.strip()]
+        except Exception as e:
+            print(f"⚠️ Semantic chunking failed: {e}, falling back to adaptive")
+            return self._chunk_adaptive(text, chunk_size, overlap, min_chunk_size)
+    
+    def _cosine_similarity(self, vec1, vec2):
+        """Calculate cosine similarity between two vectors."""
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        return dot_product / (norm1 * norm2)
+    
+    def _chunk_recursive(self, text, chunk_size, overlap, min_chunk_size, max_depth=3):
+        """
+        Recursive chunking: recursively splits large chunks until they fit.
+        Better preserves context with intelligent overlap.
+        """
+        if len(text) <= chunk_size:
+            return [text.strip()] if len(text.strip()) >= min_chunk_size else []
+        
+        # Try to split at natural boundaries
+        paragraphs = self._split_into_paragraphs(text)
+        if len(paragraphs) > 1:
+            # Recursively chunk each paragraph
+            all_chunks = []
+            for para in paragraphs:
+                if len(para) > chunk_size and max_depth > 0:
+                    # Recursively chunk this paragraph
+                    sub_chunks = self._chunk_recursive(para, chunk_size, overlap, min_chunk_size, max_depth - 1)
+                    all_chunks.extend(sub_chunks)
+                elif len(para.strip()) >= min_chunk_size:
+                    all_chunks.append(para.strip())
+            
+            # Merge small chunks and add overlap
+            return self._merge_chunks_with_overlap(all_chunks, chunk_size, overlap, min_chunk_size)
+        
+        # If no paragraphs, try sentences
+        sentences = self._split_into_sentences(text)
+        if len(sentences) > 1:
+            all_chunks = []
+            for sent in sentences:
+                if len(sent) > chunk_size and max_depth > 0:
+                    sub_chunks = self._chunk_recursive(sent, chunk_size, overlap, min_chunk_size, max_depth - 1)
+                    all_chunks.extend(sub_chunks)
+                elif len(sent.strip()) >= min_chunk_size:
+                    all_chunks.append(sent.strip())
+            
+            return self._merge_chunks_with_overlap(all_chunks, chunk_size, overlap, min_chunk_size)
+        
+        # Fallback: split at character level
+        return self._chunk_by_characters(text, chunk_size, overlap, min_chunk_size)
+    
+    def _merge_chunks_with_overlap(self, chunks, chunk_size, overlap, min_chunk_size):
+        """Merge chunks with intelligent overlap."""
+        if not chunks:
+            return []
+        
+        merged = []
+        current = []
+        current_length = 0
+        
+        for chunk in chunks:
+            chunk_length = len(chunk)
+            
+            if current_length + chunk_length > chunk_size and current:
+                # Save current chunk
+                merged_text = ' '.join(current)
+                if len(merged_text) >= min_chunk_size:
+                    merged.append(merged_text)
+                
+                # Start new chunk with overlap
+                if overlap > 0 and len(current) > 0:
+                    # Use last part of current chunk for overlap
+                    overlap_text = current[-1]
+                    if len(overlap_text) <= overlap:
+                        current = [overlap_text, chunk]
+                        current_length = len(overlap_text) + chunk_length
+                    else:
+                        # Use last N characters for overlap
+                        overlap_part = overlap_text[-overlap:]
+                        current = [overlap_part, chunk]
+                        current_length = len(overlap_part) + chunk_length
+                else:
+                    current = [chunk]
+                    current_length = chunk_length
+            else:
+                current.append(chunk)
+                current_length += chunk_length
+        
+        # Add final chunk
+        if current:
+            merged_text = ' '.join(current)
+            if len(merged_text) >= min_chunk_size:
+                merged.append(merged_text)
+        
+        return merged
+    
+    def _chunk_sliding_window(self, text, chunk_size, overlap, min_chunk_size):
+        """
+        Sliding window chunking: creates overlapping chunks with a fixed window.
+        Good for ensuring context is preserved across boundaries.
+        """
+        chunks = []
+        text_length = len(text)
+        step_size = chunk_size - overlap  # How much to move forward
+        
+        start = 0
+        while start < text_length:
+            end = min(start + chunk_size, text_length)
+            chunk = text[start:end].strip()
+            
+            if len(chunk) >= min_chunk_size:
+                # Try to end at a sentence boundary
+                if end < text_length:
+                    # Look for sentence ending near the end
+                    search_start = max(start, end - 100)
+                    search_end = min(text_length, end + 50)
+                    window = text[search_start:search_end]
+                    
+                    # Find last sentence ending
+                    sentence_endings = re.finditer(r'[.!?]\s+', window)
+                    last_match = None
+                    for match in sentence_endings:
+                        last_match = match
+                    
+                    if last_match:
+                        # Adjust end to sentence boundary
+                        adjusted_end = search_start + last_match.end()
+                        if adjusted_end > start + min_chunk_size:
+                            chunk = text[start:adjusted_end].strip()
+                            end = adjusted_end
+                
+                chunks.append(chunk)
+            
+            # Move window forward
+            start += step_size
+            if start >= text_length:
+                break
+        
+        return chunks if chunks else [text.strip()]
+    
+    def _chunk_hierarchical(self, text, chunk_size, overlap, min_chunk_size):
+        """
+        Hierarchical chunking: creates chunks at multiple levels.
+        Level 1: Large chunks (2x chunk_size)
+        Level 2: Medium chunks (chunk_size)
+        Level 3: Small chunks (chunk_size / 2)
+        """
+        # First, create large chunks
+        large_chunks = self._chunk_by_paragraphs(
+            self._split_into_paragraphs(text),
+            chunk_size * 2,
+            overlap * 2,
+            min_chunk_size
+        )
+        
+        if not large_chunks:
+            large_chunks = [text]
+        
+        # Then, chunk each large chunk into medium chunks
+        all_chunks = []
+        for large_chunk in large_chunks:
+            if len(large_chunk) <= chunk_size:
+                all_chunks.append(large_chunk)
+            else:
+                # Chunk this large chunk
+                medium_chunks = self._chunk_adaptive(large_chunk, chunk_size, overlap, min_chunk_size)
+                all_chunks.extend(medium_chunks)
+        
+        return all_chunks if all_chunks else [text.strip()]
     
     def _split_into_paragraphs(self, text):
         """Split text into paragraphs, preserving structure."""
@@ -477,7 +814,19 @@ class DocumentProcessor:
             return
 
         try:
-            existing = set(self.collection.get(ids=ids)["ids"])
+            # Batch check existing IDs in chunks for better performance
+            existing = set()
+            batch_size = 1000
+            for i in range(0, len(ids), batch_size):
+                batch_ids = ids[i:i+batch_size]
+                try:
+                    batch_result = self.collection.get(ids=batch_ids)
+                    if batch_result and "ids" in batch_result:
+                        existing.update(batch_result["ids"])
+                except Exception as e:
+                    # Continue with next batch if one fails
+                    print(f"⚠️ Error checking batch {i//batch_size + 1}: {e}")
+                    continue
         except Exception as e:
             # ChromaDB errors are typically generic exceptions
             error_type = type(e).__name__
@@ -511,12 +860,20 @@ class DocumentProcessor:
             return
 
         try:
-            self.collection.add(
-                documents=documents,
-                ids=new_ids,
-                metadatas=metadatas
-            )
-            print(f"✅ Added {len(new_chunks)} new chunks from {doc_name}")
+            # Batch add chunks in smaller batches for better performance
+            batch_size = 100
+            num_batches = (len(documents) + batch_size - 1) // batch_size
+            for i in range(0, len(documents), batch_size):
+                batch_docs = documents[i:i+batch_size]
+                batch_ids = new_ids[i:i+batch_size]
+                batch_metas = metadatas[i:i+batch_size]
+                
+                self.collection.add(
+                    documents=batch_docs,
+                    ids=batch_ids,
+                    metadatas=batch_metas
+                )
+            print(f"✅ Added {len(new_chunks)} new chunks from {doc_name} (in {num_batches} batches)")
             self.move_to_ingested(file_path, file_ext)
         except Exception as e:
             error_type = type(e).__name__

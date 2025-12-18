@@ -5,6 +5,10 @@ import logging
 from datetime import datetime
 import time
 import json
+import textwrap
+import html
+from urllib3.exceptions import ProtocolError
+from requests.exceptions import ChunkedEncodingError
 
 os.environ["PYTORCH_NO_LIBRARY_FALLBACK"] = "1"
 
@@ -1232,6 +1236,10 @@ with st.sidebar:
                 if st.button("📋 Audit Logs", use_container_width=True):
                     st.session_state.show_audit_logs = True
                     st.rerun()
+                
+                if st.button("💾 Export & Backup", use_container_width=True):
+                    st.session_state.show_export_backup = True
+                    st.rerun()
         
         st.markdown("---")
         
@@ -2026,7 +2034,7 @@ if st.session_state.get("show_health", False):
     try:
         # Get performance stats
         with st.spinner("Loading performance metrics..."):
-            perf_resp = requests.get(f"{API_URL}/health/performance?hours={hours}", timeout=10)
+            perf_resp = requests.get(f"{API_URL}/health/performance?hours={hours}", timeout=60)
         
         if perf_resp.status_code == 200:
             data = perf_resp.json()
@@ -2197,7 +2205,7 @@ if st.session_state.get("show_health", False):
             try:
                 with st.spinner("Loading query analytics..."):
                     auth_headers = get_auth_headers()
-                    analytics_resp = requests.get(f"{API_URL}/analytics/queries?hours={hours}", headers=auth_headers, timeout=10)
+                    analytics_resp = requests.get(f"{API_URL}/analytics/queries?hours={hours}", headers=auth_headers, timeout=60)
                 
                 if analytics_resp.status_code == 200:
                     analytics_data = analytics_resp.json()
@@ -2300,7 +2308,7 @@ if st.session_state.get("show_health", False):
                     if st.session_state.authenticated and st.session_state.get("access_token"):
                         auth_headers = {"Authorization": f"Bearer {st.session_state.access_token}"}
                     
-                    analytics_resp = requests.get(f"{API_URL}/analytics/queries?hours={hours}", headers=auth_headers, timeout=10)
+                    analytics_resp = requests.get(f"{API_URL}/analytics/queries?hours={hours}", headers=auth_headers, timeout=60)
                 
                 if analytics_resp.status_code == 200:
                     analytics_data = analytics_resp.json()
@@ -2340,7 +2348,7 @@ if st.session_state.get("show_health", False):
             try:
                 with st.spinner("Analyzing knowledge gaps..."):
                     auth_headers = get_auth_headers()
-                    gaps_resp = requests.get(f"{API_URL}/analytics/knowledge-gaps?hours={hours}", headers=auth_headers, timeout=10)
+                    gaps_resp = requests.get(f"{API_URL}/analytics/knowledge-gaps?hours={hours}", headers=auth_headers, timeout=60)
                 
                 if gaps_resp.status_code == 200:
                     gaps_data = gaps_resp.json()
@@ -2368,7 +2376,7 @@ if st.session_state.get("show_health", False):
             try:
                 with st.spinner("Loading user insights..."):
                     auth_headers = get_auth_headers()
-                    users_resp = requests.get(f"{API_URL}/analytics/users?hours={hours}", headers=auth_headers, timeout=10)
+                    users_resp = requests.get(f"{API_URL}/analytics/users?hours={hours}", headers=auth_headers, timeout=60)
                 
                 if users_resp.status_code == 200:
                     users_data = users_resp.json()
@@ -2934,6 +2942,255 @@ if st.session_state.get("show_sessions", False):
         st.rerun()
     
     st.markdown("---")
+
+# Export & Backup Dashboard (Admin only)
+if st.session_state.get("show_export_backup", False):
+    if st.session_state.current_user and st.session_state.current_user.get("role") == "admin":
+        st.markdown("---")
+        st.markdown("### 💾 Export & Backup Dashboard")
+        
+        headers = get_auth_headers()
+        
+        # Tabs for Export and Backup
+        tab1, tab2 = st.tabs(["📤 Export Data", "💾 Backup & Restore"])
+        
+        with tab1:
+            st.markdown("#### 📤 Export Data")
+            st.info("Export system data in various formats. Exports are available for download for 7 days.")
+            
+            with st.form("export_form"):
+                export_type = st.selectbox(
+                    "Export Type",
+                    ["documents", "conversations", "analytics", "users", "all"],
+                    help="Select what data to export"
+                )
+                
+                format_type = st.selectbox(
+                    "Format",
+                    ["json", "csv"],
+                    help="Export format"
+                )
+                
+                include_chunks = st.checkbox(
+                    "Include Document Chunks",
+                    value=False,
+                    help="Include full chunk data for documents (large files)"
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    date_from = st.date_input("From Date (optional)", value=None)
+                with col2:
+                    date_to = st.date_input("To Date (optional)", value=None)
+                
+                submit_export = st.form_submit_button("📥 Create Export", use_container_width=True)
+                
+                if submit_export:
+                    try:
+                        export_data = {
+                            "export_type": export_type,
+                            "format": format_type,
+                            "include_chunks": include_chunks
+                        }
+                        
+                        if date_from:
+                            export_data["date_from"] = date_from.isoformat()
+                        if date_to:
+                            export_data["date_to"] = date_to.isoformat()
+                        
+                        with st.spinner("Creating export..."):
+                            export_resp = requests.post(
+                                f"{API_URL}/export",
+                                json=export_data,
+                                headers=headers,
+                                timeout=120
+                            )
+                        
+                        if export_resp.status_code == 200:
+                            export_result = export_resp.json()
+                            st.success(f"✅ Export created successfully!")
+                            st.info(f"📦 File size: {export_result.get('file_size', 0) / (1024*1024):.2f} MB")
+                            
+                            # Download button
+                            filename = os.path.basename(export_result.get("file_path", ""))
+                            download_url = f"{API_URL}/export/download/{filename}"
+                            
+                            st.markdown(f"**Download:** [{filename}]({download_url})")
+                            st.caption(f"Expires: {export_result.get('expires_at', 'N/A')}")
+                        else:
+                            error_data = export_resp.json() if export_resp.status_code != 500 else {}
+                            st.error(f"❌ Export failed: {error_data.get('detail', export_resp.text)}")
+                    except requests.exceptions.ConnectionError:
+                        st.error("❌ Cannot connect to API")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+        
+        with tab2:
+            st.markdown("#### 💾 Backup & Restore")
+            
+            # Create Backup Section
+            st.markdown("##### 📦 Create Backup")
+            st.info("Create a full system backup including ChromaDB, data files, and uploaded documents.")
+            
+            with st.form("backup_form"):
+                include_chromadb = st.checkbox("Include ChromaDB", value=True)
+                include_data = st.checkbox("Include Data Files", value=True)
+                include_files = st.checkbox("Include Uploaded Files", value=True)
+                
+                description = st.text_input("Description (optional)", help="Add a description for this backup")
+                
+                submit_backup = st.form_submit_button("💾 Create Backup", use_container_width=True)
+                
+                if submit_backup:
+                    try:
+                        backup_data = {
+                            "include_chromadb": include_chromadb,
+                            "include_data": include_data,
+                            "include_files": include_files,
+                            "description": description if description else None
+                        }
+                        
+                        with st.spinner("Creating backup (this may take a while)..."):
+                            backup_resp = requests.post(
+                                f"{API_URL}/backup/create",
+                                json=backup_data,
+                                headers=headers,
+                                timeout=300
+                            )
+                        
+                        if backup_resp.status_code == 200:
+                            backup_result = backup_resp.json()
+                            st.success(f"✅ Backup created successfully!")
+                            st.info(f"📦 Backup ID: {backup_result.get('backup_id')}")
+                            st.info(f"💾 Size: {backup_result.get('backup_size', 0) / (1024*1024):.2f} MB")
+                            st.info(f"📅 Created: {backup_result.get('created_at', 'N/A')}")
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            error_data = backup_resp.json() if backup_resp.status_code != 500 else {}
+                            st.error(f"❌ Backup failed: {error_data.get('detail', backup_resp.text)}")
+                    except requests.exceptions.ConnectionError:
+                        st.error("❌ Cannot connect to API")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+            
+            st.markdown("---")
+            
+            # List Backups Section
+            st.markdown("##### 📋 Available Backups")
+            
+            try:
+                with st.spinner("Loading backups..."):
+                    backups_resp = requests.get(f"{API_URL}/backup/list", headers=headers, timeout=10)
+                
+                if backups_resp.status_code == 200:
+                    backups_data = backups_resp.json()
+                    backups = backups_data.get("backups", [])
+                    total_size = backups_data.get("total_size", 0)
+                    
+                    st.metric("Total Backups", backups_data.get("total_backups", 0))
+                    st.caption(f"Total size: {total_size / (1024*1024):.2f} MB")
+                    
+                    if backups:
+                        st.markdown("---")
+                        for backup in backups:
+                            with st.container():
+                                col1, col2, col3 = st.columns([3, 2, 1])
+                                
+                                with col1:
+                                    st.markdown(f"**{backup.get('backup_id', 'Unknown')}**")
+                                    if backup.get("description"):
+                                        st.caption(backup.get("description"))
+                                    st.caption(f"Created: {backup.get('created_at', 'N/A')}")
+                                
+                                with col2:
+                                    size_mb = backup.get("backup_size", 0) / (1024*1024)
+                                    st.metric("Size", f"{size_mb:.2f} MB")
+                                    
+                                    includes = backup.get("includes", {})
+                                    includes_text = []
+                                    if includes.get("chromadb"):
+                                        includes_text.append("ChromaDB")
+                                    if includes.get("data"):
+                                        includes_text.append("Data")
+                                    if includes.get("files"):
+                                        includes_text.append("Files")
+                                    st.caption(f"Includes: {', '.join(includes_text)}")
+                                
+                                with col3:
+                                    backup_id = backup.get("backup_id", "")
+                                    
+                                    # Download button
+                                    download_url = f"{API_URL}/backup/download/{backup_id}"
+                                    st.markdown(f"[⬇️ Download]({download_url})")
+                                    
+                                    # Restore button with confirmation
+                                    restore_key = f"restore_{backup_id}"
+                                    if st.session_state.get(f"confirm_{restore_key}", False):
+                                        st.warning("⚠️ Are you sure? This will overwrite existing data!")
+                                        col_yes, col_no = st.columns(2)
+                                        with col_yes:
+                                            if st.button("✅ Yes", key=f"yes_{restore_key}", use_container_width=True):
+                                                try:
+                                                    restore_data = {
+                                                        "backup_id": backup_id,
+                                                        "restore_chromadb": True,
+                                                        "restore_data": True,
+                                                        "restore_files": True
+                                                    }
+                                                    
+                                                    with st.spinner("Restoring backup (this may take a while)..."):
+                                                        restore_resp = requests.post(
+                                                            f"{API_URL}/backup/restore",
+                                                            json=restore_data,
+                                                            headers=headers,
+                                                            timeout=300
+                                                        )
+                                                    
+                                                    if restore_resp.status_code == 200:
+                                                        restore_result = restore_resp.json()
+                                                        st.success(f"✅ {restore_result.get('message', 'Backup restored successfully')}")
+                                                        st.info(f"Restored {restore_result.get('restored_items', 0)} items")
+                                                        st.session_state[f"confirm_{restore_key}"] = False
+                                                        time.sleep(2)
+                                                        st.rerun()
+                                                    else:
+                                                        error_data = restore_resp.json() if restore_resp.status_code != 500 else {}
+                                                        st.error(f"❌ Restore failed: {error_data.get('detail', restore_resp.text)}")
+                                                        st.session_state[f"confirm_{restore_key}"] = False
+                                                except Exception as e:
+                                                    st.error(f"❌ Error: {str(e)}")
+                                                    st.session_state[f"confirm_{restore_key}"] = False
+                                        with col_no:
+                                            if st.button("❌ No", key=f"no_{restore_key}", use_container_width=True):
+                                                st.session_state[f"confirm_{restore_key}"] = False
+                                                st.rerun()
+                                    else:
+                                        if st.button("🔄 Restore", key=restore_key, use_container_width=True):
+                                            st.session_state[f"confirm_{restore_key}"] = True
+                                            st.rerun()
+                                
+                                st.markdown("---")
+                    else:
+                        st.info("📭 No backups found. Create your first backup above.")
+                else:
+                    st.error(f"❌ Failed to load backups: {backups_resp.status_code}")
+            except requests.exceptions.ConnectionError:
+                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+            except Exception as e:
+                st.error(f"❌ Error loading backups: {str(e)}")
+        
+        # Close button
+        if st.button("❌ Close", use_container_width=True, key="close_export_backup"):
+            st.session_state.show_export_backup = False
+            st.rerun()
+        
+        st.markdown("---")
+    else:
+        st.error("❌ Access denied. Admin privileges required.")
+        if st.button("❌ Close", use_container_width=True):
+            st.session_state.show_export_backup = False
+            st.rerun()
 
 # User Profile Management Section
 if st.session_state.get("show_profile", False):
@@ -3502,35 +3759,78 @@ if query:
                 answer_placeholder = st.empty()
                 answer_text = ""
                 sources = []
+                status_text = ""
                 
                 # Stream the response (use appropriate endpoint)
-                with requests.post(endpoint, json=payload, stream=True, timeout=60) as response:
-                    if response.status_code == 200:
-                        for line in response.iter_lines():
-                            if line:
-                                line_str = line.decode('utf-8')
-                                if line_str.startswith('data: '):
-                                    try:
-                                        data = json.loads(line_str[6:])  # Remove 'data: ' prefix
-                                        event_type = data.get('type')
-                                        
-                                        if event_type == 'sources':
-                                            sources = data.get('sources', [])
-                                        elif event_type == 'chunk':
-                                            chunk = data.get('content', '')
-                                            answer_text += chunk
-                                            # Update placeholder with current text
-                                            answer_placeholder.markdown(f"**📚 Assistant**\n\n{answer_text}")
-                                        elif event_type == 'done':
-                                            full_response = data.get('full_response', answer_text)
-                                            answer_text = full_response
-                                            answer_placeholder.empty()  # Clear placeholder
-                                        elif event_type == 'error':
-                                            error_msg = data.get('content', 'Unknown error')
-                                            answer_text = error_msg
-                                            answer_placeholder.empty()
-                                    except json.JSONDecodeError:
-                                        continue
+                # Use a longer read timeout for streaming; connect timeout stays short
+                try:
+                    with requests.post(endpoint, json=payload, stream=True, timeout=(5, 300)) as response:
+                        if response.status_code == 200:
+                            for line in response.iter_lines(decode_unicode=True):
+                                if line:
+                                    line_str = line
+                                    if isinstance(line_str, bytes):
+                                        line_str = line_str.decode("utf-8", errors="ignore")
+                                    if line_str.startswith("data: "):
+                                        try:
+                                            data = json.loads(line_str[6:])  # Remove 'data: ' prefix
+                                            event_type = data.get("type")
+                                            
+                                            if event_type == "status":
+                                                # Render lightweight progress updates while backend is working
+                                                stage = data.get("stage", "")
+                                                elapsed = data.get("elapsed")
+                                                if elapsed is not None:
+                                                    status_text = f"_{stage.replace('_', ' ').title()}... ({elapsed:.1f}s)_"
+                                                else:
+                                                    status_text = f"_{stage.replace('_', ' ').title()}..._"
+                                                answer_placeholder.markdown(f"**📚 Assistant**\n\n{status_text}")
+                                            elif event_type == "sources":
+                                                sources = data.get("sources", [])
+                                            elif event_type == "chunk":
+                                                chunk = data.get("content", "")
+                                                answer_text += chunk
+                                                # Update placeholder with current text
+                                                answer_placeholder.markdown(f"**📚 Assistant**\n\n{answer_text}")
+                                            elif event_type == "done":
+                                                full_response = data.get("full_response", answer_text)
+                                                answer_text = full_response
+                                                answer_placeholder.empty()  # Clear placeholder
+                                            elif event_type == "error":
+                                                error_msg = data.get("content", "Unknown error")
+                                                answer_text = error_msg
+                                                answer_placeholder.empty()
+                                        except json.JSONDecodeError:
+                                            continue
+                        else:
+                            # Fall back to non-streaming on server error
+                            try:
+                                fallback = requests.post(f"{API_URL}/ask", json=payload, timeout=180)
+                                if fallback.status_code == 200:
+                                    rd = fallback.json()
+                                    answer_text = rd.get("response", "No answer received")
+                                    sources = rd.get("sources", [])
+                                else:
+                                    answer_text = f"⚠️ Error {fallback.status_code}: {fallback.text}"
+                            except Exception:
+                                answer_text = f"⚠️ Error {response.status_code}: {response.text}"
+                except (ProtocolError, ChunkedEncodingError) as e:
+                    # Streaming connection dropped (often uvicorn reload or server restart). Retry once via non-streaming.
+                    answer_placeholder.empty()
+                    log_error_to_console(f"Streaming connection dropped: {str(e)}", "Warning", e)
+                    try:
+                        fallback = requests.post(f"{API_URL}/ask", json=payload, timeout=180)
+                        if fallback.status_code == 200:
+                            rd = fallback.json()
+                            answer_text = rd.get("response", "No answer received")
+                            sources = rd.get("sources", [])
+                        else:
+                            answer_text = f"⚠️ Stream dropped, and fallback failed ({fallback.status_code}). Please retry."
+                    except Exception:
+                        if answer_text.strip():
+                            answer_text = answer_text.strip() + "\n\n⚠️ Connection dropped before completion. Please retry."
+                        else:
+                            answer_text = "⚠️ Connection dropped before completion. Please retry."
                 
                 elapsed_time = time.time() - start_time
                 answer_timestamp = datetime.now().strftime("%H:%M")
@@ -3541,11 +3841,20 @@ if query:
                 st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
                 log_error_to_console(error_msg, "ConnectionError")
             except requests.exceptions.Timeout:
-                error_msg = "Request timed out. Please try again."
+                error_msg = "Request timed out. The query may be taking longer than expected. Please try again or simplify your query."
+                try:
+                    answer_placeholder.empty()
+                except Exception:
+                    pass
                 st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
                 log_error_to_console(error_msg, "Timeout")
+                st.info("💡 **Tip:** Complex queries or large knowledge bases may take longer. Try breaking down your question into smaller parts.")
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
+                try:
+                    answer_placeholder.empty()
+                except Exception:
+                    pass
                 st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
                 log_error_to_console(error_msg, "Exception", e)
         else:
@@ -3577,7 +3886,8 @@ if query:
                             payload["language"] = st.session_state.user_preferences["language"]
                         endpoint = f"{API_URL}/ask"
                     
-                    response = requests.post(endpoint, json=payload, timeout=60)
+                    # Non-streaming calls can legitimately take longer (first model load, large context, etc.)
+                    response = requests.post(endpoint, json=payload, timeout=180)
                     elapsed_time = time.time() - start_time
                     
                     if response.status_code == 200:
@@ -3595,9 +3905,10 @@ if query:
                     st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
                     log_error_to_console(error_msg, "ConnectionError")
                 except requests.exceptions.Timeout:
-                    error_msg = "Request timed out. Please try again."
+                    error_msg = "Request timed out. The query may be taking longer than expected. Please try again or simplify your query."
                     st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
                     log_error_to_console(error_msg, "Timeout")
+                    st.info("💡 **Tip:** Complex queries or large knowledge bases may take longer. Try breaking down your question into smaller parts.")
                 except Exception as e:
                     error_msg = f"Unexpected error: {str(e)}"
                     st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
@@ -3624,14 +3935,17 @@ else:
         if role == "user":
             col_msg, col_save = st.columns([5, 1])
             with col_msg:
+                safe_message = html.escape(str(message)).replace("\n", "<br/>")
                 st.markdown(
-                    f"""
-                    <div class="message-user">
-                        <strong>You</strong>
-                        <div style="margin-top: 0.5rem;">{message}</div>
-                        <div class="message-time">{msg_time}</div>
-                    </div>
-                    """,
+                    textwrap.dedent(
+                        f"""
+                        <div class="message-user">
+                            <strong>You</strong>
+                            <div style="margin-top: 0.5rem;">{safe_message}</div>
+                            <div class="message-time">{html.escape(str(msg_time))}</div>
+                        </div>
+                        """
+                    ).strip(),
                     unsafe_allow_html=True
                 )
             with col_save:
@@ -3723,15 +4037,18 @@ else:
             # Display message with feedback buttons and copy button
             col_msg, col_actions = st.columns([5, 1])
             with col_msg:
+                safe_message = html.escape(str(message)).replace("\n", "<br/>")
                 st.markdown(
-                    f"""
-                    <div class="message-bot" id="answer_{idx}">
-                        <strong>📚 Assistant</strong>
-                        <div style="margin-top: 0.5rem;" id="answer_text_{idx}">{message}</div>
-                        {sources_html}
-                        <div class="message-time">{msg_time}</div>
-                    </div>
-                    """,
+                    textwrap.dedent(
+                        f"""
+                        <div class="message-bot" id="answer_{idx}">
+                            <strong>📚 Assistant</strong>
+                            <div style="margin-top: 0.5rem;" id="answer_text_{idx}">{safe_message}</div>
+                            {sources_html}
+                            <div class="message-time">{html.escape(str(msg_time))}</div>
+                        </div>
+                        """
+                    ).strip(),
                     unsafe_allow_html=True
                 )
             

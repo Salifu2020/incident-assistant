@@ -38,3 +38,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Default command (can be overridden)
 CMD ["python", "run_api.py"]
 
+

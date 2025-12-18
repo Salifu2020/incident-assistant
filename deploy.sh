@@ -78,3 +78,4 @@ echo "  - Stop services: docker-compose down"
 echo "  - Restart services: docker-compose restart"
 echo "  - Update deployment: git pull && ./deploy.sh"
 
+

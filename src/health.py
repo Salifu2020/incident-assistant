@@ -293,10 +293,19 @@ class HealthMonitor:
         
         # Filter by time
         cutoff = datetime.now() - timedelta(hours=hours)
-        filtered = [
-            m for m in all_metrics
-            if datetime.fromisoformat(m.get("timestamp", "")) >= cutoff
-        ]
+        filtered = []
+        for m in all_metrics:
+            try:
+                timestamp_str = m.get("timestamp", "")
+                if timestamp_str:
+                    if timestamp_str.endswith('Z'):
+                        timestamp_str = timestamp_str[:-1] + '+00:00'
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    if timestamp >= cutoff:
+                        filtered.append(m)
+            except (ValueError, TypeError):
+                # Skip metrics with invalid timestamps
+                continue
         
         # Filter by type if specified
         if metric_type:

@@ -13,3 +13,4 @@ for d in docs:
     print(f"  - {d.get('filename')}: {d.get('chunk_count')} chunks")
 print("\n🎉 All documents have been re-indexed with 'all-mpnet-base-v2'!")
 
+

@@ -251,10 +251,64 @@ class KnowledgeAssistant:
         self.default_language = "en"  # Default language (English)
         self.supported_languages = ["en", "es", "fr", "de", "it", "pt", "zh", "ja", "ko", "ar", "ru", "hi"]
         self._translation_cache = {}  # Cache for translations
+
+        # Style control: phrases we never want at beginning/end of answers
+        self._answer_style_prefixes = [
+            "as mentioned in your context",
+            "as mentioned in the context",
+            "as mentioned in the provided context",
+            "as noted in your context",
+            "as noted in the context",
+            "as stated in your context",
+            "as stated in the context",
+            "according to the context",
+            "based on the context",
+            "from the context",
+            "according to the provided",
+            "based on the provided",
+            "as per the context",
+            "per the context",
+            "as per the provided context",
+        ]
         
         self._load_learning_data()
         
         self.reset_history()
+
+    def _clean_answer_style(self, answer: str) -> str:
+        """
+        Remove context-referencing boilerplate from the beginning/end of the answer.
+        User requirement: do not include these phrases at the beginning or end.
+        """
+        if not answer:
+            return answer
+
+        text = answer.strip()
+
+        # Fast path: simple prefix list
+        lower = text.lower().strip()
+        for p in self._answer_style_prefixes:
+            if lower.startswith(p):
+                text = text[len(p):].lstrip(" \t:;,-.\n\r")
+                break
+
+        # Regex for more variants (case/punctuation/spacing)
+        leading_re = re.compile(
+            r"^\s*(as\s+(mentioned|noted|stated)\s+in\s+(your|the|this)\s+context|"
+            r"according\s+to\s+(the|this)\s+context|based\s+on\s+(the|this)\s+context|from\s+(the|this)\s+context)"
+            r"\s*[:;,\-–—\.]*\s*",
+            re.IGNORECASE,
+        )
+        text = leading_re.sub("", text).lstrip()
+
+        trailing_re = re.compile(
+            r"\s*[,;:\-–—\.]*\s*(as\s+(mentioned|noted|stated)\s+in\s+(your|the|this)\s+context|"
+            r"as\s+(mentioned|noted|stated)\s+above|as\s+described\s+above)\s*\.?\s*$",
+            re.IGNORECASE,
+        )
+        text = trailing_re.sub("", text).rstrip()
+
+        return text.strip()
 
     def reset_history(self):
         self.chat_history = [
@@ -287,9 +341,19 @@ class KnowledgeAssistant:
             advanced_filters: Optional AdvancedSearchFilters object for advanced filtering
         """
         try:
-            # Quick check if collection exists and has data
+            # Quick check if collection exists and has data (with caching)
             try:
-                collection_count = self.processor.collection.count()
+                # Cache collection count for 5 seconds to avoid repeated queries
+                if not hasattr(self, '_collection_count_cache'):
+                    self._collection_count_cache = {'count': None, 'timestamp': 0}
+                
+                current_time = time.time()
+                if (self._collection_count_cache['count'] is None or 
+                    current_time - self._collection_count_cache['timestamp'] > 5):
+                    self._collection_count_cache['count'] = self.processor.collection.count()
+                    self._collection_count_cache['timestamp'] = current_time
+                
+                collection_count = self._collection_count_cache['count']
                 if collection_count == 0:
                     return "", []
             except Exception:
@@ -313,31 +377,58 @@ class KnowledgeAssistant:
             all_metadatas = []
             
             if len(expanded_queries) > 1:
-                # Retrieve with each query variation (semantic search)
+                # Batch retrieve with all query variations at once (optimized)
                 results_per_query = max(2, n_results // len(expanded_queries))
                 
-                for expanded_query in expanded_queries:
-                    try:
-                        query_params = {
-                            "query_texts": [expanded_query],
-                            "n_results": results_per_query,
-                            "include": ['documents', 'distances', 'metadatas']
-                        }
-                        
-                        # Apply filters if provided
-                        where_conditions = self._build_where_conditions(document_filters, advanced_filters)
-                        if where_conditions:
-                            query_params["where"] = where_conditions
-                        
-                        result = self.processor.collection.query(**query_params)
-                        
-                        if result.get('documents') and result['documents'][0]:
-                            all_docs.extend(result['documents'][0])
-                            all_distances.extend(result.get('distances', [[]])[0])
-                            all_metadatas.extend(result.get('metadatas', [[]])[0])
-                    except Exception as e:
-                        print(f"⚠️ Error retrieving with expanded query '{expanded_query}': {e}")
-                        continue
+                # Build where conditions once
+                where_conditions = self._build_where_conditions(document_filters, advanced_filters)
+                
+                # Batch query: query all variations in one call for better performance
+                try:
+                    query_params = {
+                        "query_texts": expanded_queries,  # Batch all queries
+                        "n_results": results_per_query,
+                        "include": ['documents', 'distances', 'metadatas']
+                    }
+                    
+                    if where_conditions:
+                        query_params["where"] = where_conditions
+                    
+                    # Single batch query instead of multiple individual queries
+                    batch_result = self.processor.collection.query(**query_params)
+                    
+                    # Process batch results
+                    if batch_result.get('documents'):
+                        for query_idx, docs in enumerate(batch_result['documents']):
+                            if docs:
+                                all_docs.extend(docs)
+                                if batch_result.get('distances') and batch_result['distances'][query_idx]:
+                                    all_distances.extend(batch_result['distances'][query_idx])
+                                if batch_result.get('metadatas') and batch_result['metadatas'][query_idx]:
+                                    all_metadatas.extend(batch_result['metadatas'][query_idx])
+                except Exception as e:
+                    print(f"⚠️ Batch query failed: {e}, falling back to individual queries")
+                    # Fallback to individual queries
+                    for expanded_query in expanded_queries:
+                        try:
+                            query_params = {
+                                "query_texts": [expanded_query],
+                                "n_results": results_per_query,
+                                "include": ['documents', 'distances', 'metadatas']
+                            }
+                            
+                            if where_conditions:
+                                query_params["where"] = where_conditions
+                            
+                            result = self.processor.collection.query(**query_params)
+                            
+                            if result.get('documents') and result['documents'][0]:
+                                all_docs.extend(result['documents'][0])
+                                all_distances.extend(result.get('distances', [[]])[0])
+                                all_metadatas.extend(result.get('metadatas', [[]])[0])
+                        except Exception as e2:
+                            print(f"⚠️ Error retrieving with expanded query '{expanded_query}': {e2}")
+                            continue
                 
                 # If hybrid search is enabled, also do keyword search and merge
                 if self.enable_hybrid_search and all_docs:
@@ -1185,16 +1276,23 @@ class KnowledgeAssistant:
             elif intent_type == "verification":
                 intent_guidance = "\n\nNote: This is a verification question. Provide a clear yes/no answer with supporting evidence."
         
+        style_rules = (
+            "\n\nStyle rules:\n"
+            "- Provide ONLY the answer.\n"
+            "- Do NOT say phrases like 'as mentioned in the context', 'as mentioned in your context', 'based on the context', or similar.\n"
+            "- Do NOT mention that you used the context.\n"
+        )
+
         if is_followup:
             user_message = (
                 f"Context from knowledge base:\n{context}\n\n"
                 f"Current question: {query}\n\n"
                 f"Note: This is a follow-up question. Use the conversation history above to understand "
                 f"what the user is referring to. Answer the question using both the provided context "
-                f"and the conversation history.{intent_guidance}\n\nAnswer:"
+                f"and the conversation history.{intent_guidance}{style_rules}\n\nAnswer:"
             )
         else:
-            user_message = f"Context:\n{context}\n\nQuestion: {query}{intent_guidance}\n\nAnswer:"
+            user_message = f"Context:\n{context}\n\nQuestion: {query}{intent_guidance}{style_rules}\n\nAnswer:"
         
         # Use conversation history (up to last 4 exchanges for follow-ups, 2 for new questions)
         max_history = 8 if is_followup else 4
@@ -1243,19 +1341,8 @@ class KnowledgeAssistant:
             )
             answer = response["message"]["content"].strip()
 
-            # Clean up common prefixes
-            prefixes = [
-                "according to the context",
-                "based on the context",
-                "from the context",
-                "according to the provided",
-                "based on the provided",
-            ]
-            answer_lower = answer.lower()
-            for prefix in prefixes:
-                if answer_lower.startswith(prefix):
-                    answer = answer[len(prefix):].lstrip(":,. ")
-                    break
+            # Clean up style boilerplate (user does not want it)
+            answer = self._clean_answer_style(answer)
 
             # Update history (keep it minimal)
             if len(self.chat_history) > 6:  # Keep only last 3 exchanges
@@ -1272,16 +1359,23 @@ class KnowledgeAssistant:
     def generate_response_stream(self, query, context, is_followup=False):
         """Generate response as a stream of chunks (generator)."""
         # Build prompt with follow-up awareness
+        style_rules = (
+            "\n\nStyle rules:\n"
+            "- Provide ONLY the answer.\n"
+            "- Do NOT say phrases like 'as mentioned in the context', 'as mentioned in your context', 'based on the context', or similar.\n"
+            "- Do NOT mention that you used the context.\n"
+        )
+
         if is_followup:
             user_message = (
                 f"Context from knowledge base:\n{context}\n\n"
                 f"Current question: {query}\n\n"
                 f"Note: This is a follow-up question. Use the conversation history above to understand "
                 f"what the user is referring to. Answer the question using both the provided context "
-                f"and the conversation history.\n\nAnswer:"
+                f"and the conversation history.{style_rules}\n\nAnswer:"
             )
         else:
-            user_message = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+            user_message = f"Context:\n{context}\n\nQuestion: {query}{style_rules}\n\nAnswer:"
         
         # Use conversation history (up to last 4 exchanges for follow-ups, 2 for new questions)
         max_history = 8 if is_followup else 4
@@ -1290,6 +1384,9 @@ class KnowledgeAssistant:
 
         try:
             response_text = ""
+            # Buffer initial output so we can strip leading boilerplate before user sees it in streaming
+            prefix_buffer = ""
+            started = False
             stream = ollama.chat(
                 model=self.llm_model,
                 messages=messages,
@@ -1304,22 +1401,24 @@ class KnowledgeAssistant:
                 if 'message' in chunk and 'content' in chunk['message']:
                     content = chunk['message']['content']
                     response_text += content
+
+                    if not started:
+                        prefix_buffer += content
+                        # Once we have enough text to decide, strip leading boilerplate once
+                        if len(prefix_buffer) >= 80 or prefix_buffer.strip().endswith((".", ":", "\n")):
+                            cleaned = self._clean_answer_style(prefix_buffer)
+                            # If cleaning removed everything (rare), keep buffering a bit more
+                            if cleaned.strip():
+                                started = True
+                                yield cleaned
+                                prefix_buffer = ""
+                        continue
+
                     yield content
             
             # Clean up common prefixes after streaming completes
             answer = response_text.strip()
-            prefixes = [
-                "according to the context",
-                "based on the context",
-                "from the context",
-                "according to the provided",
-                "based on the provided",
-            ]
-            answer_lower = answer.lower()
-            for prefix in prefixes:
-                if answer_lower.startswith(prefix):
-                    answer = answer[len(prefix):].lstrip(":,. ")
-                    break
+            answer = self._clean_answer_style(answer)
 
             # Update history (keep it minimal)
             if len(self.chat_history) > 6:  # Keep only last 3 exchanges
