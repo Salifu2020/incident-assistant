@@ -15,6 +15,31 @@ os.environ["PYTORCH_NO_LIBRARY_FALLBACK"] = "1"
 # API URL - can be configured via environment variable
 API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
+def get_api_connection_error_message() -> str:
+    """Get a helpful error message when API connection fails."""
+    api_url = os.environ.get("API_URL", "http://127.0.0.1:8000")
+    
+    if api_url.startswith("http://127.0.0.1") or api_url.startswith("http://localhost"):
+        return (
+            "❌ Cannot connect to API.\n\n"
+            "**The API URL is set to localhost, which won't work on Streamlit Cloud.**\n\n"
+            "**To fix this:**\n"
+            "1. Deploy your FastAPI backend to Railway, Render, Fly.io, or another platform\n"
+            "2. In Streamlit Cloud, go to: Settings → Secrets\n"
+            "3. Add: `API_URL = \"https://your-backend-url.com\"`\n"
+            "4. Redeploy your app\n\n"
+            "See `STREAMLIT_CLOUD_DEPLOYMENT.md` for detailed instructions."
+        )
+    else:
+        return (
+            f"❌ Cannot connect to API at `{api_url}`.\n\n"
+            "**Please check:**\n"
+            "1. Is the backend server running?\n"
+            "2. Is the API URL correct in Streamlit Cloud secrets?\n"
+            "3. Can you access the backend directly? Try: `curl {api_url}/health`\n\n"
+            "See `STREAMLIT_CLOUD_DEPLOYMENT.md` for troubleshooting."
+        )
+
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -688,6 +713,19 @@ if not st.session_state.authenticated:
 
 # Login/Register UI
 if not st.session_state.authenticated:
+    # Show warning if API_URL is still localhost (common deployment issue)
+    if API_URL.startswith("http://127.0.0.1") or API_URL.startswith("http://localhost"):
+        st.warning(
+            "⚠️ **API Configuration Issue Detected**\n\n"
+            "The API URL is set to localhost, which won't work on Streamlit Cloud.\n\n"
+            "**To fix:**\n"
+            "1. Deploy your FastAPI backend (Railway, Render, Fly.io, etc.)\n"
+            "2. In Streamlit Cloud: Settings → Secrets → Add `API_URL = \"https://your-backend-url.com\"`\n"
+            "3. Redeploy\n\n"
+            "📖 See `STREAMLIT_CLOUD_DEPLOYMENT.md` for detailed instructions."
+        )
+        st.markdown("---")
+    
     # Check for reset token in query parameters (for email links)
     query_params = st.query_params
     reset_token_from_url = query_params.get("reset_token", None)
@@ -782,7 +820,7 @@ if not st.session_state.authenticated:
                                     error_detail = response.json().get('detail', 'Unknown error')
                                     st.error(f"❌ Password reset failed: {error_detail}")
                             except requests.exceptions.ConnectionError:
-                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                                st.error(get_api_connection_error_message())
                             except Exception as e:
                                 st.error(f"❌ Error: {str(e)}")
             else:
@@ -824,7 +862,7 @@ if not st.session_state.authenticated:
                                     error_detail = response.json().get('detail', 'Unknown error')
                                     st.error(f"❌ Request failed: {error_detail}")
                             except requests.exceptions.ConnectionError:
-                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                                st.error(get_api_connection_error_message())
                             except Exception as e:
                                 st.error(f"❌ Error: {str(e)}")
             
@@ -881,7 +919,7 @@ if not st.session_state.authenticated:
                                 if "attempt" in error_detail.lower() and "remaining" in error_detail.lower():
                                     st.warning("⚠️ Too many failed attempts will lock your account.")
                         except requests.exceptions.ConnectionError:
-                            st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                            st.error(get_api_connection_error_message())
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
                 else:
@@ -924,7 +962,7 @@ if not st.session_state.authenticated:
                                 error_detail = response.json().get('detail', 'Invalid 2FA code')
                                 st.error(f"❌ {error_detail}")
                         except requests.exceptions.ConnectionError:
-                            st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                            st.error(get_api_connection_error_message())
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
                     else:
@@ -1102,7 +1140,7 @@ if not st.session_state.authenticated:
                             else:
                                 st.error(f"❌ Registration failed: {response.json().get('detail', 'Unknown error')}")
                         except requests.exceptions.ConnectionError:
-                            st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                            st.error(get_api_connection_error_message())
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
                 else:
@@ -1305,7 +1343,7 @@ with st.sidebar:
                     st.error("❌ Error")
             except requests.exceptions.ConnectionError:
                 st.session_state.api_status = "offline"
-                st.error("❌ Offline - Cannot connect to API")
+                st.error(get_api_connection_error_message())
             except Exception as e:
                 st.session_state.api_status = "offline"
                 st.error(f"❌ Error: {str(e)}")
@@ -1368,7 +1406,7 @@ with st.sidebar:
                 else:
                     st.error(f"❌ Upload failed: {upload_resp.status_code}")
             except requests.exceptions.ConnectionError:
-                st.error("❌ Cannot connect to API")
+                st.error(get_api_connection_error_message())
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
     
@@ -1438,7 +1476,7 @@ with st.sidebar:
                     except:
                         st.error(f"Error: {upload_resp.text}")
             except requests.exceptions.ConnectionError:
-                st.error("❌ Cannot connect to API")
+                st.error(get_api_connection_error_message())
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
@@ -1473,8 +1511,7 @@ if st.session_state.get("show_documents", False):
             try:
                 docs_resp = requests.get(f"{API_URL}/documents", timeout=30)
             except requests.exceptions.ConnectionError:
-                st.error("❌ Cannot connect to API. Make sure the API server is running.")
-                st.info("💡 **Tip:** Start the API server with: `python run_api.py`")
+                st.error(get_api_connection_error_message())
                 docs_resp = None
             except requests.exceptions.Timeout:
                 st.error("⏱️ Request timed out. Please try again.")
@@ -3304,7 +3341,7 @@ if st.session_state.get("show_profile", False):
                                 else:
                                     st.info("ℹ️ No changes to save")
                             except requests.exceptions.ConnectionError:
-                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                                st.error(get_api_connection_error_message())
                             except Exception as e:
                                 st.error(f"❌ Error: {str(e)}")
                 
@@ -3364,7 +3401,7 @@ if st.session_state.get("show_profile", False):
                                 else:
                                     st.error(f"❌ Failed to save preferences: {prefs_resp.json().get('detail', 'Unknown error')}")
                             except requests.exceptions.ConnectionError:
-                                st.error("❌ Cannot connect to API. Please ensure the server is running.")
+                                st.error(get_api_connection_error_message())
                             except Exception as e:
                                 st.error(f"❌ Error: {str(e)}")
                 
