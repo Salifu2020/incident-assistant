@@ -22,7 +22,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Prevent model downloads during build - models will download at runtime
 ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
-ENV SENTENCE_TRANSFORMERS_HOME=/tmp  # Temporary location, won't be in final image
+# Temporary location for models during build, won't be in final image
+ENV SENTENCE_TRANSFORMERS_HOME=/tmp
 # Install dependencies and clean up any accidentally downloaded models
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
