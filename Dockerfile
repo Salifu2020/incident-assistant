@@ -23,9 +23,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
 ENV SENTENCE_TRANSFORMERS_HOME=/tmp  # Temporary location, won't be in final image
+# Install dependencies and clean up any accidentally downloaded models
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    # Clean up any accidentally downloaded models
     rm -rf /root/.cache/huggingface /root/.cache/torch /tmp/.cache 2>/dev/null || true
 
 # Stage 2: Runtime image (much smaller)
