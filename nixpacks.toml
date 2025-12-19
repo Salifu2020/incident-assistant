@@ -1,0 +1,19 @@
+[phases.setup]
+nixPkgs = ["python311", "curl"]
+
+[phases.install]
+cmds = [
+  "pip install --upgrade pip",
+  "pip install --no-cache-dir -r requirements.txt"
+]
+
+[start]
+cmd = "python run_api.py"
+
+[variables]
+PYTHONUNBUFFERED = "1"
+PYTHONPATH = "/app"
+TRANSFORMERS_CACHE = "/app/.cache/transformers"
+SENTENCE_TRANSFORMERS_HOME = "/app/.cache/sentence-transformers"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+
