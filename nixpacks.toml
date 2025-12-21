@@ -1,7 +1,7 @@
 providers = ["python"]
 
 [phases.setup]
-nixPkgs = ["curl"]
+nixPkgs = ["python311", "curl"]
 
 [start]
 cmd = "python run_api.py"
