@@ -69,13 +69,33 @@ log_dir = os.path.join(PROJECT_ROOT, "logs")
 os.makedirs(log_dir, exist_ok=True)
 log_file_path = os.path.join(log_dir, "api.log")
 
-file_handler = RotatingFileHandler(log_file_path, maxBytes=1_000_000, backupCount=3)
+file_handler = RotatingFileHandler(log_file_path, maxBytes=1_000_000, backupCount=3, encoding='utf-8')
 file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+
+# Create a safe StreamHandler that handles Unicode encoding errors on Windows
+class SafeStreamHandler(logging.StreamHandler):
+    """StreamHandler that safely handles Unicode encoding errors."""
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            # Try to write with UTF-8 encoding, fallback to ascii with error handling
+            try:
+                stream.write(msg + self.terminator)
+            except UnicodeEncodeError:
+                # If encoding fails, encode to ASCII with replacement
+                stream.write(msg.encode('ascii', 'replace').decode('ascii') + self.terminator)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+stream_handler = SafeStreamHandler()
+stream_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), file_handler],
+    handlers=[stream_handler, file_handler],
 )
 
 logger = logging.getLogger(__name__)

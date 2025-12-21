@@ -995,7 +995,7 @@ if not st.session_state.authenticated:
                     upper: /[A-Z]/.test(password),
                     lower: /[a-z]/.test(password),
                     number: /[0-9]/.test(password),
-                    special: /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password)
+                    special: /[!@#$%^&*()_+\\-=\[\]{}|;:,.<>?]/.test(password)
                 };
                 
                 // Update UI
