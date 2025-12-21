@@ -18,6 +18,10 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 # LLM model selection (Ollama)
 # Options: phi3:mini (recommended, ~2.3GB), llama3.2:3b (~2GB), gemma2:2b (~1.5GB), qwen2.5:3b (~2GB), mistral (~4.1GB)
 LLM_MODEL = "phi3:mini"
+# Ollama service URL - Set this in Railway dashboard (Settings → Variables)
+# For internal networking (same project): http://ollama:11434
+# For public URL: https://ollama-production-xxxxx.up.railway.app
+# OLLAMA_HOST is set via Railway environment variables, not here
 # Memory optimizations for Railway deployment
 PYTHONHASHSEED = "0"
 # Reduce ChromaDB memory usage
