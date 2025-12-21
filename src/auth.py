@@ -1175,21 +1175,21 @@ class UserManager:
         users = users_data.get("users", [])
         
         if len(users) == 0:
-            # Create default admin user
-            default_admin = {
-                "id": "admin-default",
-                "username": "admin",
-                "email": "admin@example.com",
-                "hashed_password": hash_password("admin123"),  # Change this in production!
-                "role": "admin",
-                "created_at": datetime.now().isoformat(),
-                "last_login": None,
-                "active": True
-            }
-            users.append(default_admin)
-            users_data["users"] = users
-            save_users(users_data)
-            return True
+            try:
+                # Use create_user which includes password validation
+                # Default password: REDACTED (meets all requirements, 10 chars, well within 72-byte limit)
+                default_password = "REDACTED"
+                UserManager.create_user(
+                    username="admin",
+                    email="admin@example.com",
+                    password=default_password,
+                    role="admin"
+                )
+                return True
+            except ValueError as e:
+                # If validation fails, log the error but don't crash
+                logger.error(f"Failed to create default admin user: {e}")
+                return False
         return False
     
     @staticmethod

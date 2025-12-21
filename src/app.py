@@ -1136,7 +1136,7 @@ if not st.session_state.authenticated:
                             )
                             if response.status_code == 200:
                                 st.success("✅ Registration successful! Please login.")
-                                st.info("💡 Default admin credentials: username: admin, password: admin123")
+                                st.info("💡 Default admin credentials: username: admin, password: REDACTED")
                             else:
                                 st.error(f"❌ Registration failed: {response.json().get('detail', 'Unknown error')}")
                         except requests.exceptions.ConnectionError:
@@ -1146,7 +1146,7 @@ if not st.session_state.authenticated:
                 else:
                     st.warning("⚠️ Please fill in all fields")
     
-    st.info("💡 **Default Admin Credentials:** username: `admin`, password: `admin123`")
+    st.info("💡 **Default Admin Credentials:** username: `admin`, password: `REDACTED`")
     st.stop()
 
 # Main app (only shown if authenticated)

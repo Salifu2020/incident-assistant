@@ -168,7 +168,7 @@ def startup_event():
     # Initialize default admin user if no users exist
     try:
         if UserManager.initialize_default_admin():
-            logger.info("✅ Default admin user created (username: admin, password: admin123)")
+            logger.info("✅ Default admin user created (username: admin, password: REDACTED)")
     except Exception as e:
         logger.warning(f"Could not initialize default admin: {e}")
 
