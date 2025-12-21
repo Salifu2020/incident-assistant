@@ -15,6 +15,9 @@ HF_HUB_OFFLINE = "0"
 TRANSFORMERS_CACHE = "/app/.cache/transformers"
 SENTENCE_TRANSFORMERS_HOME = "/app/.cache/sentence-transformers"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+# LLM model selection (Ollama)
+# Options: phi-3-mini (recommended, ~2.3GB), llama3.2:3b (~2GB), gemma2:2b (~1.5GB), qwen2.5:3b (~2GB), mistral (~4.1GB)
+LLM_MODEL = "phi-3-mini"
 # Memory optimizations for Railway deployment
 PYTHONHASHSEED = "0"
 # Reduce ChromaDB memory usage

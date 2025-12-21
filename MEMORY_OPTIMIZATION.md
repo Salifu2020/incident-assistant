@@ -48,19 +48,40 @@ Railway deployment crashed with "out of memory" error. The application was consu
 **After:**
 - `max_context_chars=2000` - **20% reduction**
 
-### 4. Environment Variable Optimizations (`nixpacks.toml`)
+### 4. LLM Model Optimization
+
+**Before:**
+- Using `mistral` model (~4.1GB RAM when loaded by Ollama)
+
+**After:**
+- Using `phi-3-mini` model (~2.3GB RAM) - **44% memory reduction**
+- Configurable via `LLM_MODEL` environment variable
+- Better performance on RAG tasks despite smaller size
+
+**Available Models (via `LLM_MODEL` environment variable):**
+- `phi-3-mini` (3.8B params, ~2.3GB RAM) - **Recommended default**: Excellent quality-to-size ratio, fast inference, optimized for RAG
+- `llama3.2:3b` (3B params, ~2GB RAM) - Very efficient, good performance
+- `gemma2:2b` (2B params, ~1.5GB RAM) - Smallest option, decent quality
+- `qwen2.5:3b` (3B params, ~2GB RAM) - Good multilingual support
+- `mistral` (7B params, ~4.1GB RAM) - Larger, more memory-intensive
+
+**Note:** Make sure your Ollama instance has the selected model pulled. Run `ollama pull phi-3-mini` (or your chosen model) on your Ollama server.
+
+### 5. Environment Variable Optimizations (`nixpacks.toml`)
 
 Added memory-related environment variables:
 - `PYTHONHASHSEED=0` - Reduces memory fragmentation
 - `CHROMA_CACHE_SIZE=100` - Limits ChromaDB cache size
 - `MALLOC_TRIM_THRESHOLD_=65536` - Helps Python release memory back to OS
+- `LLM_MODEL=phi-3-mini` - Configurable LLM model selection
 
 ## Expected Memory Reduction
 
 - **Query Cache**: ~90% reduction (from 1000 to 100 entries)
 - **LLM Calls**: ~60% reduction (disabled 5 memory-intensive features)
 - **Context Memory**: ~20% reduction (from 2500 to 2000 chars)
-- **Total Estimated Reduction**: **50-70% less memory usage**
+- **LLM Model**: ~44% reduction (from mistral 4.1GB to phi-3-mini 2.3GB)
+- **Total Estimated Reduction**: **60-75% less memory usage**
 
 ## Railway Memory Limits
 
@@ -71,7 +92,8 @@ If still hitting limits on free tier, consider:
 1. Upgrading Railway plan
 2. Further reducing `cache_max_size` to 50
 3. Reducing `max_context_chars` to 1500
-4. Using external Ollama service (separate from Railway deployment)
+4. Using a smaller LLM model (e.g., `gemma2:2b` for ~1.5GB RAM)
+5. Using external Ollama service (separate from Railway deployment)
 
 ## Monitoring
 
