@@ -54,18 +54,18 @@ Railway deployment crashed with "out of memory" error. The application was consu
 - Using `mistral` model (~4.1GB RAM when loaded by Ollama)
 
 **After:**
-- Using `phi-3-mini` model (~2.3GB RAM) - **44% memory reduction**
+- Using `phi3:mini` model (~2.3GB RAM) - **44% memory reduction**
 - Configurable via `LLM_MODEL` environment variable
 - Better performance on RAG tasks despite smaller size
 
 **Available Models (via `LLM_MODEL` environment variable):**
-- `phi-3-mini` (3.8B params, ~2.3GB RAM) - **Recommended default**: Excellent quality-to-size ratio, fast inference, optimized for RAG
+- `phi3:mini` (3.8B params, ~2.3GB RAM) - **Recommended default**: Excellent quality-to-size ratio, fast inference, optimized for RAG
 - `llama3.2:3b` (3B params, ~2GB RAM) - Very efficient, good performance
 - `gemma2:2b` (2B params, ~1.5GB RAM) - Smallest option, decent quality
 - `qwen2.5:3b` (3B params, ~2GB RAM) - Good multilingual support
 - `mistral` (7B params, ~4.1GB RAM) - Larger, more memory-intensive
 
-**Note:** Make sure your Ollama instance has the selected model pulled. Run `ollama pull phi-3-mini` (or your chosen model) on your Ollama server.
+**Note:** Make sure your Ollama instance has the selected model pulled. Run `ollama pull phi3:mini` (or your chosen model) on your Ollama server.
 
 ### 5. Environment Variable Optimizations (`nixpacks.toml`)
 

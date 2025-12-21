@@ -13,13 +13,13 @@ processor = DocumentProcessor(embedding_model=default_model)
 
 # Initialize LLM model (configurable via LLM_MODEL environment variable)
 # Memory-efficient model options:
-# - "phi-3-mini" (3.8B params, ~2.3GB RAM) - Recommended: excellent quality-to-size ratio, fast inference, good for RAG
+# - "phi3:mini" (3.8B params, ~2.3GB RAM) - Recommended: excellent quality-to-size ratio, fast inference, good for RAG
 # - "llama3.2:3b" (3B params, ~2GB RAM) - Very efficient, good performance, fast responses
 # - "gemma2:2b" (2B params, ~1.5GB RAM) - Smallest option, decent quality, fastest inference
 # - "qwen2.5:3b" (3B params, ~2GB RAM) - Good multilingual support, efficient
 # - "mistral" (7B params, ~4.1GB RAM) - Larger, more memory-intensive (previous default)
-# Default to phi-3-mini for optimal memory usage and performance
-llm_model = os.environ.get("LLM_MODEL", "phi-3-mini")
+# Default to phi3:mini for optimal memory usage and performance
+llm_model = os.environ.get("LLM_MODEL", "phi3:mini")
 
 # Optimized assistant with memory-conscious settings for Railway deployment
 # Memory optimizations:
