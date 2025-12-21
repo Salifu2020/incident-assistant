@@ -1428,9 +1428,9 @@ def update_chunking_config(
             status="success",
             details={
                 "strategy": request.strategy,
-                "chunk_size": processor.chunk_size,
-                "overlap": processor.overlap,
-                "min_chunk_size": processor.min_chunk_size
+                "chunk_size": proc.chunk_size,
+                "overlap": proc.overlap,
+                "min_chunk_size": proc.min_chunk_size
             }
         )
         
@@ -2491,7 +2491,8 @@ def batch_delete_documents(
         result = {"filename": filename, "status": "failed", "message": "", "chunks_deleted": 0}
         
         try:
-            deleted_count, error = processor.delete_document(filename)
+            proc = get_processor()
+            deleted_count, error = proc.delete_document(filename)
             
             if error:
                 result["message"] = error
@@ -2564,10 +2565,11 @@ def reprocess_document_in_background(filename: str, source_path: str, ext: str):
             logger.warning(f"Could not delete existing chunks for {filename}: {error}")
         
         # Process the document again
-        processor.process_document(source_path)
+        proc = get_processor()
+        proc.process_document(source_path)
         
         # Verify chunks were added
-        final_count = processor.collection.count()
+        final_count = proc.collection.count()
         chunks_added = final_count - initial_count
         
         processing_time = time.time() - start_time
@@ -2612,7 +2614,8 @@ def bulk_reprocess_documents(
     else:
         # Reprocess all documents
         try:
-            documents = processor.list_documents()
+            proc = get_processor()
+            documents = proc.list_documents()
             filenames_to_process = [doc["filename"] for doc in documents]
         except Exception as e:
             logger.error(f"Error listing documents: {e}")
@@ -3042,7 +3045,8 @@ def export_data(
         
         # Export documents
         if request.export_type in ["documents", "all"]:
-            documents = processor.list_documents()
+            proc = get_processor()
+            documents = proc.list_documents()
             export_data["documents"] = documents
             
             if request.include_chunks:
