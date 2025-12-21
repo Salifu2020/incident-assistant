@@ -54,6 +54,7 @@ LOCKOUT_DURATION_MINUTES = 30  # Auto-unlock after 30 minutes
 
 # Password policy configuration
 PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_BYTES = 72  # Bcrypt limitation: passwords cannot exceed 72 bytes
 PASSWORD_REQUIRE_UPPERCASE = True
 PASSWORD_REQUIRE_LOWERCASE = True
 PASSWORD_REQUIRE_NUMBER = True
@@ -258,6 +259,10 @@ def generate_user_friendly_token() -> str:
 
 def hash_password(password: str) -> str:
     """Hash a password."""
+    # Bcrypt limitation: passwords cannot exceed 72 bytes
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > PASSWORD_MAX_BYTES:
+        raise ValueError(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes. Please use a shorter password.")
     return pwd_context.hash(password)
 
 
@@ -276,6 +281,11 @@ def validate_password(password: str) -> Tuple[bool, List[str]]:
     # Minimum length
     if len(password) < PASSWORD_MIN_LENGTH:
         errors.append(f"Password must be at least {PASSWORD_MIN_LENGTH} characters long")
+    
+    # Maximum bytes (bcrypt limitation)
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > PASSWORD_MAX_BYTES:
+        errors.append(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes (approximately {PASSWORD_MAX_BYTES} ASCII characters). Please use a shorter password.")
     
     # Complexity requirements
     if PASSWORD_REQUIRE_UPPERCASE and not any(c.isupper() for c in password):
