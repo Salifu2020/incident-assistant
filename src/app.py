@@ -1387,7 +1387,12 @@ with st.sidebar:
                 mime_type = mime_types.get(file_ext, "application/octet-stream")
                 
                 files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
-                upload_resp = requests.post(f"{API_URL}/upload", files=files, timeout=30)
+                upload_resp = requests.post(
+                    f"{API_URL}/upload", 
+                    files=files, 
+                    headers=get_auth_headers(),
+                    timeout=30
+                )
                 
                 if upload_resp.status_code == 200:
                     st.success(f"✅ {uploaded_file.name}")
