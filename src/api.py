@@ -1547,7 +1547,7 @@ def get_suggestions(q: str = "", limit: int = 10, include_documents: bool = True
     """Get query suggestions based on partial input, history, saved queries, and document content."""
     try:
         # Ensure assistant is set for document-based suggestions
-        QuerySuggestions.set_assistant(assistant)
+        QuerySuggestions.set_assistant(get_assistant())
         
         suggestions_data = QuerySuggestions.get_suggestions(q, limit=limit, include_documents=include_documents)
         suggestions = [QuerySuggestion(**s) for s in suggestions_data]
@@ -2173,9 +2173,15 @@ async def upload_file(
         # Invalidate cache when new document is uploaded (will be processed in background)
         # Note: We invalidate by filename pattern, but since processing is async,
         # we'll invalidate all cache to be safe
-        if assistant.enable_query_caching and assistant.query_cache:
-            cleared = assistant.query_cache.clear()
-            logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to document upload: {filename}")
+        # Note: Only check cache if assistant has been initialized (lazy loading)
+        try:
+            assistant = get_assistant()
+            if assistant.enable_query_caching and assistant.query_cache:
+                cleared = assistant.query_cache.clear()
+                logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to document upload: {filename}")
+        except Exception:
+            # Assistant not initialized yet, skip cache invalidation
+            pass
         
         # Log audit event
         ip_address = None
@@ -2421,9 +2427,16 @@ async def bulk_upload_files(
             failed += 1
     
     # Invalidate cache if any files were successfully uploaded
-    if successful > 0 and assistant.enable_query_caching and assistant.query_cache:
-        cleared = assistant.query_cache.clear()
-        logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to bulk document upload")
+    # Note: Only check cache if assistant has been initialized (lazy loading)
+    if successful > 0:
+        try:
+            assistant = get_assistant()
+            if assistant.enable_query_caching and assistant.query_cache:
+                cleared = assistant.query_cache.clear()
+                logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to bulk document upload")
+        except Exception:
+            # Assistant not initialized yet, skip cache invalidation
+            pass
     
     # Log audit event
     ip_address = None
@@ -2490,9 +2503,16 @@ def batch_delete_documents(
             failed += 1
     
     # Invalidate cache if any documents were successfully deleted
-    if successful > 0 and assistant.enable_query_caching and assistant.query_cache:
-        cleared = assistant.query_cache.clear()
-        logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to batch document deletion")
+    # Note: Only check cache if assistant has been initialized (lazy loading)
+    if successful > 0:
+        try:
+            assistant = get_assistant()
+            if assistant.enable_query_caching and assistant.query_cache:
+                cleared = assistant.query_cache.clear()
+                logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to batch document deletion")
+        except Exception:
+            # Assistant not initialized yet, skip cache invalidation
+            pass
     
     # Log audit event
     ip_address = None
@@ -2644,9 +2664,16 @@ def bulk_reprocess_documents(
             failed += 1
     
     # Invalidate cache if any documents were successfully queued for reprocessing
-    if successful > 0 and assistant.enable_query_caching and assistant.query_cache:
-        cleared = assistant.query_cache.clear()
-        logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to bulk reprocessing")
+    # Note: Only check cache if assistant has been initialized (lazy loading)
+    if successful > 0:
+        try:
+            assistant = get_assistant()
+            if assistant.enable_query_caching and assistant.query_cache:
+                cleared = assistant.query_cache.clear()
+                logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to bulk reprocessing")
+        except Exception:
+            # Assistant not initialized yet, skip cache invalidation
+            pass
     
     # Log audit event
     ip_address = None
@@ -2790,6 +2817,7 @@ def get_performance_stats(hours: int = 24):
 def get_cache_stats():
     """Get query cache statistics."""
     try:
+        assistant = get_assistant()
         if not assistant.enable_query_caching or not assistant.query_cache:
             return {
                 "enabled": False,
@@ -2809,6 +2837,7 @@ def get_cache_stats():
 def clear_cache():
     """Clear all cached queries."""
     try:
+        assistant = get_assistant()
         if not assistant.enable_query_caching or not assistant.query_cache:
             raise HTTPException(status_code=400, detail="Query caching is not enabled")
         
