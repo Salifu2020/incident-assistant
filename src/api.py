@@ -2857,6 +2857,7 @@ def clear_cache():
 def invalidate_cache(pattern: str = None):
     """Invalidate cache entries matching a pattern (e.g., document name)."""
     try:
+        assistant = get_assistant()
         if not assistant.enable_query_caching or not assistant.query_cache:
             raise HTTPException(status_code=400, detail="Query caching is not enabled")
         
