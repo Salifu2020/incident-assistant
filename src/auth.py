@@ -54,7 +54,8 @@ LOCKOUT_DURATION_MINUTES = 30  # Auto-unlock after 30 minutes
 
 # Password policy configuration
 PASSWORD_MIN_LENGTH = 8
-PASSWORD_MAX_BYTES = 72  # Bcrypt limitation: passwords cannot exceed 72 bytes
+# Note: Bcrypt has a 72-byte limit, but we handle longer passwords by SHA256 hashing first
+PASSWORD_MAX_BYTES = 72  # Used for determining if we need to pre-hash with SHA256
 PASSWORD_REQUIRE_UPPERCASE = True
 PASSWORD_REQUIRE_LOWERCASE = True
 PASSWORD_REQUIRE_NUMBER = True
@@ -258,26 +259,46 @@ def generate_user_friendly_token() -> str:
 
 
 def hash_password(password: str) -> str:
-    """Hash a password."""
-    # Bcrypt limitation: passwords cannot exceed 72 bytes
-    # Validate and truncate if necessary (though validation should have caught this)
+    """Hash a password.
+    
+    Bcrypt has a 72-byte limit. To support longer passwords, we first hash
+    the password with SHA256 to get a fixed 32-byte hash, then bcrypt that.
+    This allows passwords of any length while still using bcrypt's benefits.
+    """
     password_bytes = password.encode('utf-8')
+    
+    # If password exceeds bcrypt's 72-byte limit, hash it with SHA256 first
     if len(password_bytes) > PASSWORD_MAX_BYTES:
-        # This should not happen if validate_password was called, but handle it gracefully
-        raise ValueError(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes (approximately {PASSWORD_MAX_BYTES} ASCII characters). Please use a shorter password.")
-    try:
-        return pwd_context.hash(password)
-    except Exception as e:
-        # If bcrypt raises an error about password length, provide a clearer message
-        error_str = str(e)
-        if "72 bytes" in error_str or "password cannot be longer" in error_str.lower():
-            raise ValueError(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes (approximately {PASSWORD_MAX_BYTES} ASCII characters). Please use a shorter password.")
-        raise
+        # Hash with SHA256 to get a fixed 32-byte value, then bcrypt that
+        sha256_hash = hashlib.sha256(password_bytes).digest()
+        # Use the raw bytes (32 bytes) - bcrypt can handle this
+        password_for_bcrypt = sha256_hash.decode('latin-1', errors='ignore')
+    else:
+        password_for_bcrypt = password
+    
+    return pwd_context.hash(password_for_bcrypt)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against a hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against a hash.
+    
+    Handles both old-style (direct bcrypt) and new-style (SHA256 pre-hashed) passwords
+    for backward compatibility.
+    """
+    password_bytes = plain_password.encode('utf-8')
+    
+    # Try direct verification first (for passwords <= 72 bytes and old hashes)
+    if pwd_context.verify(plain_password, hashed_password):
+        return True
+    
+    # If password exceeds 72 bytes, try with SHA256 pre-hashing
+    if len(password_bytes) > PASSWORD_MAX_BYTES:
+        # Hash with SHA256 to get a fixed 32-byte value, then verify
+        sha256_hash = hashlib.sha256(password_bytes).digest()
+        password_for_bcrypt = sha256_hash.decode('latin-1', errors='ignore')
+        return pwd_context.verify(password_for_bcrypt, hashed_password)
+    
+    return False
 
 
 def validate_password(password: str) -> Tuple[bool, List[str]]:
@@ -291,10 +312,7 @@ def validate_password(password: str) -> Tuple[bool, List[str]]:
     if len(password) < PASSWORD_MIN_LENGTH:
         errors.append(f"Password must be at least {PASSWORD_MIN_LENGTH} characters long")
     
-    # Maximum bytes (bcrypt limitation)
-    password_bytes = password.encode('utf-8')
-    if len(password_bytes) > PASSWORD_MAX_BYTES:
-        errors.append(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes (approximately {PASSWORD_MAX_BYTES} ASCII characters). Please use a shorter password.")
+    # No maximum length check needed - we handle long passwords by hashing with SHA256 first
     
     # Complexity requirements
     if PASSWORD_REQUIRE_UPPERCASE and not any(c.isupper() for c in password):

@@ -980,7 +980,7 @@ if not st.session_state.authenticated:
         <div id="password-requirements-reg" style="margin-bottom: 1rem; padding: 0.75rem; background: #1e293b; border-radius: 8px; border: 1px solid #334155;">
             <div style="font-weight: 600; margin-bottom: 0.75rem; color: #e2e8f0;">📋 Password Requirements:</div>
             <div id="req-list-reg" style="font-size: 0.875rem;">
-                <div id="req-length-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ Minimum length: 8 characters (max: 72 bytes)</div>
+                <div id="req-length-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ Minimum length: 8 characters</div>
                 <div id="req-upper-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one uppercase letter (A-Z)</div>
                 <div id="req-lower-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one lowercase letter (a-z)</div>
                 <div id="req-number-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one number (0-9)</div>
