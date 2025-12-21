@@ -1,8 +1,7 @@
 [phases.setup]
 nixPkgs = ["python311", "curl"]
 
-[providers]
-python = "3.11"
+providers = ["python"]
 
 [phases.install]
 cmds = [
