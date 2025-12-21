@@ -261,32 +261,34 @@ def generate_user_friendly_token() -> str:
 def hash_password(password: str) -> str:
     """Hash a password.
     
-    Bcrypt has a 72-byte limit. To support longer passwords, we first hash
-    the password with SHA256 to get a fixed 32-byte hash, then bcrypt that.
-    This allows passwords of any length while still using bcrypt's benefits.
+    Bcrypt has a 72-byte limit. For passwords longer than 72 bytes, we hash
+    them with SHA256 first to get a fixed-length value, then bcrypt that.
+    This allows passwords of any length while maintaining security.
     """
     password_bytes = password.encode('utf-8')
+    original_length = len(password_bytes)
     
-    # If password exceeds bcrypt's 72-byte limit, hash it with SHA256 first
-    if len(password_bytes) > PASSWORD_MAX_BYTES:
+    # If password exceeds bcrypt's 72-byte limit, pre-hash with SHA256
+    if original_length > PASSWORD_MAX_BYTES:
         # Hash with SHA256 to get a fixed 32-byte value
         sha256_hash = hashlib.sha256(password_bytes).digest()
-        # Use base64 encoding to get a shorter, ASCII-safe string (44 chars for 32 bytes)
+        # Convert to a string representation that bcrypt can handle
+        # Use base64 encoding (44 ASCII chars = 44 bytes when UTF-8 encoded)
         password_for_bcrypt = base64.b64encode(sha256_hash).decode('ascii')
-        logger.debug(f"Pre-hashing password with SHA256: {len(password_bytes)} bytes -> {len(password_for_bcrypt)} chars")
+        logger.info(f"Pre-hashing long password: {original_length} bytes -> {len(password_for_bcrypt)} chars (base64)")
     else:
         password_for_bcrypt = password
     
-    try:
-        return pwd_context.hash(password_for_bcrypt)
-    except Exception as e:
-        # If bcrypt still fails, catch and provide better error
-        error_str = str(e)
-        if "72 bytes" in error_str or "password cannot be longer" in error_str.lower():
-            # This shouldn't happen with our pre-hashing, but handle it gracefully
-            logger.error(f"Bcrypt error despite pre-hashing: {error_str}, password length: {len(password_bytes)} bytes, pre-hashed length: {len(password_for_bcrypt.encode('utf-8'))} bytes")
-            raise ValueError("Password hashing failed. Please try a different password.")
-        raise
+    # Double-check the final length (should be safe, but verify)
+    final_bytes = password_for_bcrypt.encode('utf-8')
+    if len(final_bytes) > PASSWORD_MAX_BYTES:
+        # This should never happen with our pre-hashing, but handle it
+        logger.error(f"Password still exceeds limit after pre-hashing: {len(final_bytes)} bytes")
+        # Fallback: truncate (not ideal, but better than failing)
+        password_for_bcrypt = password_for_bcrypt[:PASSWORD_MAX_BYTES]
+        logger.warning(f"Truncated password to {PASSWORD_MAX_BYTES} bytes")
+    
+    return pwd_context.hash(password_for_bcrypt)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
