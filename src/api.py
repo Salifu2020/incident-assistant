@@ -2556,11 +2556,14 @@ def reprocess_document_in_background(filename: str, source_path: str, ext: str):
         import time
         start_time = time.time()
         
+        # Get processor instance
+        proc = get_processor()
+        
         # Get initial chunk count
-        initial_count = processor.collection.count()
+        initial_count = proc.collection.count()
         
         # Delete existing chunks for this document first
-        deleted_count, error = processor.delete_document(filename)
+        deleted_count, error = proc.delete_document(filename)
         if error and "not found" not in error.lower():
             logger.warning(f"Could not delete existing chunks for {filename}: {error}")
         
