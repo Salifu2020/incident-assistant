@@ -21,28 +21,42 @@ processor = DocumentProcessor(embedding_model=default_model)
 # Default to phi3:mini for optimal memory usage and performance
 llm_model = os.environ.get("LLM_MODEL", "phi3:mini")
 
-# Optimized assistant with memory-conscious settings for Railway deployment
-# Memory optimizations:
-# - Reduced cache sizes to prevent memory exhaustion
-# - Disabled some LLM-heavy features to reduce Ollama calls
-# - Lowered context size to reduce memory per request
-# - Using memory-efficient LLM model (phi-3-mini by default)
-assistant = KnowledgeAssistant(
-    processor, 
-    model_name=llm_model,
-    max_context_chars=2000,  # Reduced from 2500 to save memory
-    enable_streaming=True,   # Enable streaming for faster perceived response
-    enable_query_expansion=True,  # Enable query expansion for smarter retrieval
-    enable_hybrid_search=True,  # Enable hybrid search (semantic + keyword) for better accuracy
-    enable_reranking=False,  # Disabled: Multiple LLM calls per request consume too much memory
-    enable_intent_classification=False,  # Disabled: Additional LLM call per query
-    enable_multi_step_reasoning=False,  # Disabled: Multiple LLM calls for complex queries
-    enable_learning_from_feedback=True,  # Keep: Minimal memory impact
-    enable_context_summarization=False,  # Disabled: Additional LLM call consumes memory
-    summarization_threshold=1.2,
-    enable_confidence_scoring=True,  # Keep: Heuristic-based, no extra LLM calls
-    enable_answer_verification=False,  # Disabled: Additional LLM call per answer
-    enable_query_caching=True,  # Keep: Reduces redundant queries
-    cache_ttl=1800,  # Reduced from 3600: Cache for 30 minutes (less memory pressure)
-    cache_max_size=100  # Reduced from 1000: Maximum 100 cached queries (90% reduction)
-)
+# LAZY LOADING: Assistant is created on first access to avoid loading LLM at startup
+# This allows document uploads to work immediately without consuming LLM memory
+# Document upload/processing only uses processor (embedding model), not assistant (LLM)
+_assistant_instance = None
+
+def get_assistant():
+    """Get or create the KnowledgeAssistant instance (lazy loading).
+    
+    This function ensures the LLM model is only loaded when actually needed (during queries),
+    not at application startup. This significantly reduces startup memory usage.
+    """
+    global _assistant_instance
+    if _assistant_instance is None:
+        # Optimized assistant with memory-conscious settings for Railway deployment
+        # Memory optimizations:
+        # - Reduced cache sizes to prevent memory exhaustion
+        # - Disabled some LLM-heavy features to reduce Ollama calls
+        # - Lowered context size to reduce memory per request
+        # - Using memory-efficient LLM model (phi3:mini by default)
+        _assistant_instance = KnowledgeAssistant(
+            processor, 
+            model_name=llm_model,
+            max_context_chars=2000,  # Reduced from 2500 to save memory
+            enable_streaming=True,   # Enable streaming for faster perceived response
+            enable_query_expansion=True,  # Enable query expansion for smarter retrieval
+            enable_hybrid_search=True,  # Enable hybrid search (semantic + keyword) for better accuracy
+            enable_reranking=False,  # Disabled: Multiple LLM calls per request consume too much memory
+            enable_intent_classification=False,  # Disabled: Additional LLM call per query
+            enable_multi_step_reasoning=False,  # Disabled: Multiple LLM calls for complex queries
+            enable_learning_from_feedback=True,  # Keep: Minimal memory impact
+            enable_context_summarization=False,  # Disabled: Additional LLM call consumes memory
+            summarization_threshold=1.2,
+            enable_confidence_scoring=True,  # Keep: Heuristic-based, no extra LLM calls
+            enable_answer_verification=False,  # Disabled: Additional LLM call per answer
+            enable_query_caching=True,  # Keep: Reduces redundant queries
+            cache_ttl=1800,  # Reduced from 3600: Cache for 30 minutes (less memory pressure)
+            cache_max_size=100  # Reduced from 1000: Maximum 100 cached queries (90% reduction)
+        )
+    return _assistant_instance

@@ -16,7 +16,7 @@ from logging.handlers import RotatingFileHandler
 from datetime import timedelta, datetime
 from pathlib import Path
 
-from .dependencies import processor, assistant
+from .dependencies import processor, get_assistant
 from .models import (
     QuestionRequest, QuestionResponse, UploadResponse,
     DocumentListResponse, DocumentInfo, DeleteDocumentResponse,
@@ -1254,6 +1254,7 @@ def delete_document(
         logger.info(f"Deleted {deleted_count} chunks for document '{filename}'")
         
         # Invalidate cache entries related to this document
+        assistant = get_assistant()
         if assistant.enable_query_caching and assistant.query_cache:
             cleared = assistant.query_cache.invalidate(filename)
             logger.info(f"🗑️ Cache invalidated (cleared {cleared} entries) due to document deletion: {filename}")
@@ -1585,7 +1586,7 @@ def submit_feedback(payload: FeedbackRequest):
                 # Create a sources list from sources_count (we don't have full source info here)
                 sources = [{"source": "Unknown", "relevance": 0.5}] * payload.sources_count if payload.sources_count > 0 else []
                 
-                assistant.learn_from_feedback(
+                get_assistant().learn_from_feedback(
                     query=payload.query,
                     answer=payload.response,
                     rating=payload.rating,
@@ -1672,6 +1673,7 @@ async def ask_question(payload: QuestionRequest):
         # Process query asynchronously
         import asyncio
         loop = asyncio.get_event_loop()
+        assistant = get_assistant()
         result = await loop.run_in_executor(
             None, 
             assistant.ask_question, 
@@ -1833,6 +1835,7 @@ async def ask_question_stream(payload: QuestionRequest):
                 is_followup = len(conversation_context) > 0
             
             # Multi-language support: detect and translate query if needed
+            assistant = get_assistant()
             query_for_retrieval = payload.query
             detected_language = assistant.default_language
             if assistant.enable_multilanguage:
