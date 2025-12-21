@@ -1178,12 +1178,13 @@ async def upload_avatar(
 def get_status():
     """Get status of the knowledge base."""
     try:
-        collection_count = processor.collection.count()
+        proc = get_processor()
+        collection_count = proc.collection.count()
         
         # Get list of unique documents
         try:
             # Sample some chunks to get document names
-            sample = processor.collection.get(limit=min(100, collection_count))
+            sample = proc.collection.get(limit=min(100, collection_count))
             sources = set()
             if sample and 'metadatas' in sample:
                 for meta in sample['metadatas']:
@@ -1212,8 +1213,9 @@ def get_status():
 def list_documents():
     """List all documents in the knowledge base with details."""
     try:
-        documents = processor.list_documents()
-        total_chunks = processor.collection.count()
+        proc = get_processor()
+        documents = proc.list_documents()
+        total_chunks = proc.collection.count()
         
         return {
             "documents": documents,
@@ -1228,7 +1230,8 @@ def list_documents():
 def get_document_info(filename: str):
     """Get detailed information about a specific document."""
     try:
-        doc_info = processor.get_document_info(filename)
+        proc = get_processor()
+        doc_info = proc.get_document_info(filename)
         if not doc_info:
             raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
         return doc_info
@@ -1309,12 +1312,14 @@ def reindex_documents(
         if new_embedding_model:
             model_to_use = new_embedding_model
         else:
-            model_to_use = processor.embedding_model if hasattr(processor, 'embedding_model') else "all-mpnet-base-v2"
+            proc = get_processor()
+            model_to_use = proc.embedding_model if hasattr(proc, 'embedding_model') else "all-mpnet-base-v2"
         
         logger.info(f"Starting re-indexing with model: {model_to_use}")
         
         # Perform re-indexing
-        success, message = processor.reindex_with_new_model(model_to_use)
+        proc = get_processor()
+        success, message = proc.reindex_with_new_model(model_to_use)
         
         if not success:
             raise HTTPException(status_code=500, detail=message)
@@ -1398,13 +1403,14 @@ def update_chunking_config(
             )
         
         # Update processor configuration
-        processor.chunking_strategy = request.strategy
+        proc = get_processor()
+        proc.chunking_strategy = request.strategy
         if request.chunk_size is not None:
-            processor.chunk_size = request.chunk_size
+            proc.chunk_size = request.chunk_size
         if request.overlap is not None:
-            processor.overlap = request.overlap
+            proc.overlap = request.overlap
         if request.min_chunk_size is not None:
-            processor.min_chunk_size = request.min_chunk_size
+            proc.min_chunk_size = request.min_chunk_size
         
         # Log audit event
         ip_address = None
@@ -2241,15 +2247,18 @@ def process_and_move_file(source_path: str, ext: str):
         import time
         start_time = time.time()
         
+        # Get processor instance (lazy loading)
+        proc = get_processor()
+        
         # Get initial chunk count
-        initial_count = processor.collection.count()
+        initial_count = proc.collection.count()
         logger.info(f"📊 Knowledge base before processing: {initial_count} chunks")
         
         # Run the ingestion processor (this may move the file itself)
-        processor.process_document(source_path)
+        proc.process_document(source_path)
         
         # Verify chunks were added
-        final_count = processor.collection.count()
+        final_count = proc.collection.count()
         chunks_added = final_count - initial_count
         
         # Calculate processing time
