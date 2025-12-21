@@ -10,23 +10,27 @@ from .querying import KnowledgeAssistant
 import os
 default_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 processor = DocumentProcessor(embedding_model=default_model)
-# Optimized assistant with faster settings
+# Optimized assistant with memory-conscious settings for Railway deployment
+# Memory optimizations:
+# - Reduced cache sizes to prevent memory exhaustion
+# - Disabled some LLM-heavy features to reduce Ollama calls
+# - Lowered context size to reduce memory per request
 assistant = KnowledgeAssistant(
     processor, 
     model_name="mistral",
-    max_context_chars=2500,  # Reduced for faster processing
+    max_context_chars=2000,  # Reduced from 2500 to save memory
     enable_streaming=True,   # Enable streaming for faster perceived response
     enable_query_expansion=True,  # Enable query expansion for smarter retrieval
     enable_hybrid_search=True,  # Enable hybrid search (semantic + keyword) for better accuracy
-    enable_reranking=True,  # Enable re-ranking of retrieved chunks for improved relevance
-    enable_intent_classification=True,  # Enable query intent classification for better responses
-    enable_multi_step_reasoning=True,  # Enable multi-step reasoning for complex queries
-    enable_learning_from_feedback=True,  # Enable learning from user feedback to improve over time
-    enable_context_summarization=True,  # Enable context summarization for long documents
-    summarization_threshold=1.2,  # Summarize if context exceeds max_context_chars * 1.2
-    enable_confidence_scoring=True,  # Enable answer confidence scoring for transparency
-    enable_answer_verification=True,  # Enable answer verification to prevent hallucinations
-    enable_query_caching=True,  # Enable smart query caching for improved performance
-    cache_ttl=3600,  # Cache for 1 hour
-    cache_max_size=1000  # Maximum 1000 cached queries
+    enable_reranking=False,  # Disabled: Multiple LLM calls per request consume too much memory
+    enable_intent_classification=False,  # Disabled: Additional LLM call per query
+    enable_multi_step_reasoning=False,  # Disabled: Multiple LLM calls for complex queries
+    enable_learning_from_feedback=True,  # Keep: Minimal memory impact
+    enable_context_summarization=False,  # Disabled: Additional LLM call consumes memory
+    summarization_threshold=1.2,
+    enable_confidence_scoring=True,  # Keep: Heuristic-based, no extra LLM calls
+    enable_answer_verification=False,  # Disabled: Additional LLM call per answer
+    enable_query_caching=True,  # Keep: Reduces redundant queries
+    cache_ttl=1800,  # Reduced from 3600: Cache for 30 minutes (less memory pressure)
+    cache_max_size=100  # Reduced from 1000: Maximum 100 cached queries (90% reduction)
 )
