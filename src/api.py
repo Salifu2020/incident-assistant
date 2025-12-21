@@ -178,7 +178,7 @@ def root():
 
 # Authentication endpoints
 @app.post("/auth/register", response_model=UserInfo)
-async def register(user_data: UserRegister):
+async def register(user_data: UserRegister, request: FastAPIRequest = None):
     """Register a new user."""
     try:
         # Validate role
