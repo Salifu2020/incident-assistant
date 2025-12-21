@@ -269,11 +269,11 @@ def hash_password(password: str) -> str:
     
     # If password exceeds bcrypt's 72-byte limit, hash it with SHA256 first
     if len(password_bytes) > PASSWORD_MAX_BYTES:
-        # Hash with SHA256 to get a fixed 32-byte value, then bcrypt that
+        # Hash with SHA256 to get a fixed 32-byte value
         sha256_hash = hashlib.sha256(password_bytes).digest()
-        # Convert to hex string (64 chars) then back to ensure we have a valid string
-        # Bcrypt works with strings, so we use hex encoding which is always safe
-        password_for_bcrypt = sha256_hash.hex()
+        # Use base64 encoding to get a shorter, ASCII-safe string (44 chars for 32 bytes)
+        password_for_bcrypt = base64.b64encode(sha256_hash).decode('ascii')
+        logger.debug(f"Pre-hashing password with SHA256: {len(password_bytes)} bytes -> {len(password_for_bcrypt)} chars")
     else:
         password_for_bcrypt = password
     
@@ -284,7 +284,7 @@ def hash_password(password: str) -> str:
         error_str = str(e)
         if "72 bytes" in error_str or "password cannot be longer" in error_str.lower():
             # This shouldn't happen with our pre-hashing, but handle it gracefully
-            logger.error(f"Bcrypt error despite pre-hashing: {error_str}, password length: {len(password_bytes)} bytes")
+            logger.error(f"Bcrypt error despite pre-hashing: {error_str}, password length: {len(password_bytes)} bytes, pre-hashed length: {len(password_for_bcrypt.encode('utf-8'))} bytes")
             raise ValueError("Password hashing failed. Please try a different password.")
         raise
 
@@ -308,7 +308,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     if len(password_bytes) > PASSWORD_MAX_BYTES:
         # Hash with SHA256 to get a fixed 32-byte value, then verify
         sha256_hash = hashlib.sha256(password_bytes).digest()
-        password_for_bcrypt = sha256_hash.hex()
+        password_for_bcrypt = base64.b64encode(sha256_hash).decode('ascii')
         try:
             return pwd_context.verify(password_for_bcrypt, hashed_password)
         except Exception:
