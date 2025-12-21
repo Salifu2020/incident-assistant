@@ -1,13 +1,4 @@
-[phases.setup]
-nixPkgs = ["python311", "curl"]
-
 providers = ["python"]
-
-[phases.install]
-cmds = [
-  "pip install --upgrade pip",
-  "pip install --no-cache-dir -r requirements.txt"
-]
 
 [start]
 cmd = "python run_api.py"
