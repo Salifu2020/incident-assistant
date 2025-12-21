@@ -260,10 +260,19 @@ def generate_user_friendly_token() -> str:
 def hash_password(password: str) -> str:
     """Hash a password."""
     # Bcrypt limitation: passwords cannot exceed 72 bytes
+    # Validate and truncate if necessary (though validation should have caught this)
     password_bytes = password.encode('utf-8')
     if len(password_bytes) > PASSWORD_MAX_BYTES:
-        raise ValueError(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes. Please use a shorter password.")
-    return pwd_context.hash(password)
+        # This should not happen if validate_password was called, but handle it gracefully
+        raise ValueError(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes (approximately {PASSWORD_MAX_BYTES} ASCII characters). Please use a shorter password.")
+    try:
+        return pwd_context.hash(password)
+    except Exception as e:
+        # If bcrypt raises an error about password length, provide a clearer message
+        error_str = str(e)
+        if "72 bytes" in error_str or "password cannot be longer" in error_str.lower():
+            raise ValueError(f"Password cannot exceed {PASSWORD_MAX_BYTES} bytes (approximately {PASSWORD_MAX_BYTES} ASCII characters). Please use a shorter password.")
+        raise
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
