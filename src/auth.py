@@ -271,12 +271,22 @@ def hash_password(password: str) -> str:
     if len(password_bytes) > PASSWORD_MAX_BYTES:
         # Hash with SHA256 to get a fixed 32-byte value, then bcrypt that
         sha256_hash = hashlib.sha256(password_bytes).digest()
-        # Use the raw bytes (32 bytes) - bcrypt can handle this
-        password_for_bcrypt = sha256_hash.decode('latin-1', errors='ignore')
+        # Convert to hex string (64 chars) then back to ensure we have a valid string
+        # Bcrypt works with strings, so we use hex encoding which is always safe
+        password_for_bcrypt = sha256_hash.hex()
     else:
         password_for_bcrypt = password
     
-    return pwd_context.hash(password_for_bcrypt)
+    try:
+        return pwd_context.hash(password_for_bcrypt)
+    except Exception as e:
+        # If bcrypt still fails, catch and provide better error
+        error_str = str(e)
+        if "72 bytes" in error_str or "password cannot be longer" in error_str.lower():
+            # This shouldn't happen with our pre-hashing, but handle it gracefully
+            logger.error(f"Bcrypt error despite pre-hashing: {error_str}, password length: {len(password_bytes)} bytes")
+            raise ValueError("Password hashing failed. Please try a different password.")
+        raise
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -288,15 +298,21 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     password_bytes = plain_password.encode('utf-8')
     
     # Try direct verification first (for passwords <= 72 bytes and old hashes)
-    if pwd_context.verify(plain_password, hashed_password):
-        return True
+    try:
+        if pwd_context.verify(plain_password, hashed_password):
+            return True
+    except Exception:
+        pass  # Continue to try with SHA256 pre-hashing
     
     # If password exceeds 72 bytes, try with SHA256 pre-hashing
     if len(password_bytes) > PASSWORD_MAX_BYTES:
         # Hash with SHA256 to get a fixed 32-byte value, then verify
         sha256_hash = hashlib.sha256(password_bytes).digest()
-        password_for_bcrypt = sha256_hash.decode('latin-1', errors='ignore')
-        return pwd_context.verify(password_for_bcrypt, hashed_password)
+        password_for_bcrypt = sha256_hash.hex()
+        try:
+            return pwd_context.verify(password_for_bcrypt, hashed_password)
+        except Exception:
+            return False
     
     return False
 
