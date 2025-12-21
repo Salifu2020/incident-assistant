@@ -290,13 +290,30 @@ def hash_password(password: str) -> str:
         logger.error(f"ERROR: Password still exceeds limit after pre-hashing: {len(final_bytes)} bytes (original: {original_length} bytes)")
         raise ValueError(f"Password processing error: final length {len(final_bytes)} bytes exceeds {PASSWORD_MAX_BYTES} byte limit")
     
-    logger.info(f"Calling bcrypt.hash() with password length: {len(final_bytes)} bytes")
+    logger.info(f"Calling pwd_context.hash() with password: '{password_for_bcrypt[:20]}...' (length: {len(final_bytes)} bytes)")
     try:
-        result = pwd_context.hash(password_for_bcrypt)
-        logger.info("bcrypt.hash() succeeded")
+        # Ensure we're passing a string (not bytes) to passlib
+        if isinstance(password_for_bcrypt, bytes):
+            password_for_bcrypt = password_for_bcrypt.decode('utf-8', errors='replace')
+        
+        # Try using bcrypt directly as a workaround if passlib has issues
+        import bcrypt
+        # Convert to bytes for bcrypt (bcrypt 4.x expects bytes)
+        password_bytes = password_for_bcrypt.encode('utf-8')
+        if len(password_bytes) > 72:
+            logger.error(f"Password bytes length {len(password_bytes)} exceeds 72!")
+            raise ValueError(f"Password exceeds 72 bytes: {len(password_bytes)}")
+        
+        # Use bcrypt directly instead of passlib to avoid any passlib issues
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(password_bytes, salt)
+        result = hashed.decode('utf-8')
+        logger.info("bcrypt.hashpw() succeeded (using bcrypt directly)")
         return result
     except Exception as e:
-        logger.error(f"bcrypt.hash() FAILED with error: {e}, password length: {len(final_bytes)} bytes")
+        error_msg = str(e)
+        logger.error(f"Password hashing FAILED: {error_msg}")
+        logger.error(f"Password details: str_length={len(password_for_bcrypt)}, bytes_length={len(final_bytes)} bytes")
         raise
 
 
@@ -310,7 +327,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     
     # Try direct verification first (for passwords <= 72 bytes and old hashes)
     try:
-        if pwd_context.verify(plain_password, hashed_password):
+        import bcrypt
+        hashed_bytes = hashed_password.encode('utf-8')
+        if bcrypt.checkpw(password_bytes, hashed_bytes):
             return True
     except Exception:
         pass  # Continue to try with SHA256 pre-hashing
@@ -321,7 +340,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         sha256_hash = hashlib.sha256(password_bytes).digest()
         password_for_bcrypt = base64.b64encode(sha256_hash).decode('ascii')
         try:
-            return pwd_context.verify(password_for_bcrypt, hashed_password)
+            import bcrypt
+            hashed_bytes = hashed_password.encode('utf-8')
+            password_bcrypt_bytes = password_for_bcrypt.encode('utf-8')
+            return bcrypt.checkpw(password_bcrypt_bytes, hashed_bytes)
         except Exception:
             return False
     
