@@ -2,14 +2,34 @@
 from .ingestion import DocumentProcessor
 from .querying import KnowledgeAssistant
 
-# Initialize processor with embedding model
+# LAZY LOADING: Processor is created on first access to avoid loading ChromaDB/embedding model at startup
+# This allows the API to start with minimal memory usage
 # Options: "all-MiniLM-L6-v2" (fast, ~80MB, recommended for deployment), 
 #          "all-mpnet-base-v2" (better accuracy, ~420MB),
 #          "BAAI/bge-large-en-v1.5" (state-of-the-art, ~1.3GB, slower)
 # Use environment variable to override, default to lighter model for smaller Docker images
 import os
 default_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-processor = DocumentProcessor(embedding_model=default_model)
+_processor_instance = None
+
+def get_processor():
+    """Get or create the DocumentProcessor instance (lazy loading).
+    
+    This function ensures ChromaDB and embedding models are only loaded when actually needed,
+    not at application startup. This significantly reduces startup memory usage.
+    """
+    global _processor_instance
+    if _processor_instance is None:
+        _processor_instance = DocumentProcessor(embedding_model=default_model)
+    return _processor_instance
+
+# For backward compatibility, create a proxy
+class ProcessorProxy:
+    """Proxy object that lazily loads the processor."""
+    def __getattr__(self, name):
+        return getattr(get_processor(), name)
+
+processor = ProcessorProxy()
 
 # Initialize LLM model (configurable via LLM_MODEL environment variable)
 # Memory-efficient model options:
@@ -41,7 +61,7 @@ def get_assistant():
         # - Lowered context size to reduce memory per request
         # - Using memory-efficient LLM model (phi3:mini by default)
         _assistant_instance = KnowledgeAssistant(
-            processor, 
+            get_processor(), 
             model_name=llm_model,
             max_context_chars=2000,  # Reduced from 2500 to save memory
             enable_streaming=True,   # Enable streaming for faster perceived response

@@ -16,7 +16,7 @@ from logging.handlers import RotatingFileHandler
 from datetime import timedelta, datetime
 from pathlib import Path
 
-from .dependencies import processor, get_assistant
+from .dependencies import get_processor, get_assistant
 from .models import (
     QuestionRequest, QuestionResponse, UploadResponse,
     DocumentListResponse, DocumentInfo, DeleteDocumentResponse,
