@@ -2,6 +2,16 @@
 
 This guide will help you migrate your Incident Assistant API from Railway to Render.
 
+## Architecture Overview
+
+**Important**: We're only migrating the API service to Render. The Ollama service stays on Railway (at least initially).
+
+- **Render**: Your FastAPI backend (API service)
+- **Railway**: Your Ollama service (LLM service) - stays here for now
+- **Streamlit Cloud**: Your frontend (already deployed)
+
+The Render API will connect to Railway Ollama via the public URL.
+
 ## Prerequisites
 
 - [x] GitHub repository connected (already done)
@@ -64,7 +74,8 @@ Click **"Add Environment Variable"** for each:
 2. **OLLAMA_HOST**
    - Key: `OLLAMA_HOST`
    - Value: Your Ollama public URL from Railway (`fearless-prosperity` project)
-     - Should be: `https://ollama-production-xxxxx.up.railway.app` (the URL you generated earlier)
+     - Should be: `https://ollama-production-xxxxx.up.railway.app` (the URL you generated in Railway)
+   - **Note**: This is a Railway URL, not Render - this is correct! Render API will connect to Railway Ollama.
    - Click **"Add"**
 
 3. **EMBEDDING_MODEL**
