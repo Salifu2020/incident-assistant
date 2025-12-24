@@ -60,6 +60,21 @@ from .auth import (
     SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS,
     AVATARS_DIR
 )
+# Try to use database-backed auth, fall back to JSON if database not available
+try:
+    from .database import init_db, is_db_available
+    from .db_auth import DBUserManager
+    _use_db = True
+except ImportError:
+    _use_db = False
+    logger.warning("Database modules not available, using JSON file storage")
+
+# Helper function to get the appropriate user manager
+def get_user_manager():
+    """Get user manager (database if available, otherwise JSON)."""
+    if _use_db and is_db_available():
+        return DBUserManager
+    return UserManager
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -144,7 +159,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user = UserManager.get_user_by_id(user_id)
+    user_manager = get_user_manager()
+    user = user_manager.get_user_by_id(user_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -165,12 +181,31 @@ async def get_current_admin_user(current_user: UserInfo = Depends(get_current_us
 @app.on_event("startup")
 def startup_event():
     logger.info("🚀 FastAPI app is starting...")
-    # Initialize default admin user if no users exist
-    try:
-        if UserManager.initialize_default_admin():
-            logger.info("✅ Default admin user created (username: admin, password: REDACTED)")
-    except Exception as e:
-        logger.warning(f"Could not initialize default admin: {e}")
+    
+    # Initialize database if available
+    if _use_db:
+        try:
+            init_db()
+            if is_db_available():
+                logger.info("📊 Using PostgreSQL database for user storage")
+                # Initialize default admin user in database
+                try:
+                    if DBUserManager.initialize_default_admin():
+                        logger.info("✅ Default admin user created in database (username: admin, password: REDACTED)")
+                except Exception as e:
+                    logger.warning(f"Could not initialize default admin in database: {e}")
+            else:
+                logger.warning("⚠️ Database not available, falling back to JSON file storage")
+        except Exception as e:
+            logger.warning(f"Database initialization failed: {e}, using JSON file storage")
+    
+    # Fallback: Initialize default admin user in JSON if database not available
+    if not _use_db or not is_db_available():
+        try:
+            if UserManager.initialize_default_admin():
+                logger.info("✅ Default admin user created in JSON storage (username: admin, password: REDACTED)")
+        except Exception as e:
+            logger.warning(f"Could not initialize default admin: {e}")
 
 @app.get("/")
 def root():
@@ -185,7 +220,8 @@ async def register(user_data: UserRegister, request: FastAPIRequest = None):
         if user_data.role not in ["user", "admin"]:
             raise HTTPException(status_code=400, detail="Invalid role. Must be 'user' or 'admin'")
         
-        user = UserManager.create_user(
+        user_manager = get_user_manager()
+        user = user_manager.create_user(
             username=user_data.username,
             email=user_data.email,
             password=user_data.password,
@@ -220,7 +256,8 @@ async def register(user_data: UserRegister, request: FastAPIRequest = None):
 @app.post("/auth/login", response_model=Token)
 async def login(credentials: UserLogin, request: FastAPIRequest = None):
     """Login and get access token."""
-    result = UserManager.authenticate_user(credentials.username, credentials.password)
+    user_manager = get_user_manager()
+    result = user_manager.authenticate_user(credentials.username, credentials.password)
     
     if not result:
         raise HTTPException(
@@ -473,7 +510,8 @@ async def confirm_password_reset(
     user_id = token_info.get("user_id") if token_info else None
     username = None
     if user_id:
-        user = UserManager.get_user_by_id(user_id)
+        user_manager = get_user_manager()
+        user = user_manager.get_user_by_id(user_id)
         username = user.get("username") if user else None
     
     # Log audit event
@@ -499,7 +537,8 @@ async def confirm_password_reset(
 @app.get("/auth/users", response_model=UserListResponse)
 async def list_users(current_user: UserInfo = Depends(get_current_admin_user)):
     """List all users (admin only)."""
-    users = UserManager.list_users()
+    user_manager = get_user_manager()
+    users = user_manager.list_users()
     return {"users": [UserInfo(**user) for user in users], "total": len(users)}
 
 @app.put("/auth/users/{user_id}/role")
@@ -519,7 +558,8 @@ async def update_user_role(
         raise HTTPException(status_code=404, detail="User not found")
     
     old_role = target_user.get("role")
-    success = UserManager.update_user_role(user_id, role_data.role)
+    user_manager = get_user_manager()
+    success = user_manager.update_user_role(user_id, role_data.role)
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -557,7 +597,8 @@ async def deactivate_user(
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    success = UserManager.deactivate_user(user_id)
+    user_manager = get_user_manager()
+    success = user_manager.deactivate_user(user_id)
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -591,7 +632,8 @@ async def activate_user(
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    success = UserManager.activate_user(user_id)
+    user_manager = get_user_manager()
+    success = user_manager.activate_user(user_id)
     if not success:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -625,7 +667,8 @@ async def unlock_user_account(
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found or not locked")
     
-    success = UserManager.unlock_account(user_id)
+    user_manager = get_user_manager()
+    success = user_manager.unlock_account(user_id)
     if not success:
         raise HTTPException(status_code=404, detail="User not found or not locked")
     
@@ -729,7 +772,8 @@ async def verify_2fa_login(
     Verify 2FA code during login.
     This endpoint is called after initial password authentication.
     """
-    user = UserManager.get_user_by_username(username)
+    user_manager = get_user_manager()
+    user = user_manager.get_user_by_username(username)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -973,7 +1017,8 @@ async def refresh_token(request: RefreshTokenRequest):
         )
     
     # Get user info
-    user = UserManager.get_user_by_id(user_id)
+    user_manager = get_user_manager()
+    user = user_manager.get_user_by_id(user_id)
     if not user or not user.get("active", True):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -3120,7 +3165,8 @@ def export_data(
         # Export users (admin only)
         if request.export_type in ["users", "all"] and current_user.role == "admin":
             try:
-                users = UserManager.list_users()
+                user_manager = get_user_manager()
+                users = user_manager.list_users()
                 # Remove sensitive data
                 safe_users = []
                 for user in users:

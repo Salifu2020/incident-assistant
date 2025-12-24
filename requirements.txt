@@ -20,3 +20,6 @@ jinja2
 pyotp
 qrcode[pil]
 numpy
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+alembic>=1.12.0
