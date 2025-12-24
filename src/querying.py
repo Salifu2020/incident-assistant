@@ -279,11 +279,22 @@ class KnowledgeAssistant:
         """
         Remove context-referencing boilerplate from the beginning/end of the answer.
         User requirement: do not include these phrases at the beginning or end.
+        Also removes any HTML tags that the LLM might generate.
         """
         if not answer:
             return answer
 
         text = answer.strip()
+        
+        # Strip HTML tags (LLM should not return HTML, but sometimes does)
+        import re
+        text = re.sub(r'<[^>]+>', '', text)  # Remove all HTML tags
+        text = re.sub(r'&nbsp;', ' ', text)  # Replace HTML entities
+        text = re.sub(r'&amp;', '&', text)
+        text = re.sub(r'&lt;', '<', text)
+        text = re.sub(r'&gt;', '>', text)
+        text = re.sub(r'&quot;', '"', text)
+        text = text.strip()
 
         # Fast path: simple prefix list
         lower = text.lower().strip()
