@@ -1103,17 +1103,33 @@ class KnowledgeAssistant:
                 "Keep them concise (under 20 words each)."
             )
             
-            response = ollama.chat(
-                model=self.llm_model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that rewrites questions to improve search results."},
-                    {"role": "user", "content": expansion_prompt}
-                ],
-                options={
-                    "temperature": 0.7,  # Slightly higher for creativity
-                    "num_predict": 150,  # Short responses
-                }
-            )
+            # Add timeout to prevent hanging (15 seconds max for query expansion)
+            # Use concurrent.futures for timeout control
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+            
+            def call_ollama():
+                return ollama.chat(
+                    model=self.llm_model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that rewrites questions to improve search results."},
+                        {"role": "user", "content": expansion_prompt}
+                    ],
+                    options={
+                        "temperature": 0.7,  # Slightly higher for creativity
+                        "num_predict": 150,  # Short responses
+                    }
+                )
+            
+            try:
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(call_ollama)
+                    response = future.result(timeout=15.0)  # 15 second timeout
+            except FuturesTimeoutError:
+                print(f"⚠️ Query expansion timed out after 15s (falling back to original query)")
+                return [query]  # Fallback to original query on timeout
+            except Exception as e:
+                print(f"⚠️ Query expansion failed (falling back to original query): {type(e).__name__}: {e}")
+                return [query]  # Fallback to original query on any error
             
             expanded_text = response.get("message", {}).get("content", "").strip()
             

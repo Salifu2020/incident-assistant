@@ -65,7 +65,7 @@ def get_assistant():
             model_name=llm_model,
             max_context_chars=2000,  # Reduced from 2500 to save memory
             enable_streaming=True,   # Enable streaming for faster perceived response
-            enable_query_expansion=True,  # Enable query expansion for smarter retrieval
+            enable_query_expansion=False,  # Disabled: Can cause slow context retrieval if Ollama is slow/timeout
             enable_hybrid_search=True,  # Enable hybrid search (semantic + keyword) for better accuracy
             enable_reranking=False,  # Disabled: Multiple LLM calls per request consume too much memory
             enable_intent_classification=False,  # Disabled: Additional LLM call per query
