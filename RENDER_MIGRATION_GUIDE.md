@@ -55,10 +55,11 @@ In the same configuration screen, scroll down to **"Environment Variables"** sec
 
 Click **"Add Environment Variable"** for each:
 
-1. **SECRET_KEY**
-   - Key: `SECRET_KEY`
-   - Value: `your-secret-key-here` (use the same one from Railway, or generate a new one)
+1. **JWT_SECRET_KEY** (or SECRET_KEY)
+   - Key: `JWT_SECRET_KEY` (recommended - this is what the code looks for)
+   - Value: `your-secret-key-here` (use the same one from Railway, or generate a new one using `python generate_secret_key.py`)
    - Click **"Add"**
+   - **Note**: If Railway uses `SECRET_KEY`, you can use that same value, but `JWT_SECRET_KEY` is what the code expects.
 
 2. **OLLAMA_HOST**
    - Key: `OLLAMA_HOST`
