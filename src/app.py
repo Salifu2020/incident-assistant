@@ -1501,10 +1501,10 @@ with st.sidebar:
                             st.error(f"Error: {error_data.get('detail', upload_resp.text)}")
                         except:
                             st.error(f"Error: {upload_resp.text}")
-            except requests.exceptions.ConnectionError:
-                st.error(get_api_connection_error_message())
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                except requests.exceptions.ConnectionError:
+                    st.error(get_api_connection_error_message())
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
 
 # Sidebar toggle helper banner
 st.markdown(
