@@ -1374,58 +1374,14 @@ with st.sidebar:
     )
     
     if uploaded_file:
-        with st.spinner("Uploading..."):
-            try:
-                file_ext = uploaded_file.name.split('.')[-1].lower()
-                mime_types = {
-                    "pdf": "application/pdf",
-                    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "txt": "text/plain",
-                    "csv": "text/csv",
-                    "html": "text/html"
-                }
-                mime_type = mime_types.get(file_ext, "application/octet-stream")
-                
-                files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
-                upload_resp = requests.post(
-                    f"{API_URL}/upload", 
-                    files=files, 
-                    headers=get_auth_headers(),
-                    timeout=30
-                )
-                
-                if upload_resp.status_code == 200:
-                    st.success(f"✅ {uploaded_file.name}")
-                    logger.info(f"Uploaded: {uploaded_file.name}")
-                    # Refresh KB status after a delay
-                    time.sleep(2)
-                    try:
-                        status_resp = requests.get(f"{API_URL}/status", timeout=2)
-                        if status_resp.status_code == 200:
-                            st.session_state.kb_status = status_resp.json()
-                            st.rerun()
-                    except requests.exceptions.ConnectionError:
-                        logger.warning("Cannot connect to API to refresh status")
-                    except Exception as e:
-                        logger.warning(f"Error refreshing status: {e}")
-                else:
-                    st.error(f"❌ Upload failed: {upload_resp.status_code}")
-            except requests.exceptions.ConnectionError:
-                st.error(get_api_connection_error_message())
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-    
-    # Handle bulk upload
-    try:
-        has_uploaded_files = uploaded_files is not None and len(uploaded_files) > 0
-    except (NameError, TypeError):
-        has_uploaded_files = False
-    
-    if has_uploaded_files:
-        with st.spinner(f"Uploading {len(uploaded_files)} file(s)..."):
-            try:
-                files_data = []
-                for uploaded_file in uploaded_files:
+        # Use session state to prevent re-uploading the same file
+        upload_key = f"uploaded_{uploaded_file.name}_{uploaded_file.size}"
+        if upload_key not in st.session_state:
+            st.session_state[upload_key] = False
+        
+        if not st.session_state[upload_key]:
+            with st.spinner("Uploading..."):
+                try:
                     file_ext = uploaded_file.name.split('.')[-1].lower()
                     mime_types = {
                         "pdf": "application/pdf",
@@ -1435,51 +1391,116 @@ with st.sidebar:
                         "html": "text/html"
                     }
                     mime_type = mime_types.get(file_ext, "application/octet-stream")
-                    files_data.append(("files", (uploaded_file.name, uploaded_file, mime_type)))
-                
-                upload_resp = requests.post(
-                    f"{API_URL}/upload/bulk",
-                    files=files_data,
-                    headers=get_auth_headers(),
-                    timeout=120
-                )
-                
-                if upload_resp.status_code == 200:
-                    data = upload_resp.json()
-                    successful = data.get("successful", 0)
-                    failed = data.get("failed", 0)
-                    results = data.get("results", [])
                     
-                    if successful > 0:
-                        st.success(f"✅ Successfully uploaded {successful} file(s)")
-                    if failed > 0:
-                        st.warning(f"⚠️ {failed} file(s) failed to upload")
+                    files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
+                    upload_resp = requests.post(
+                        f"{API_URL}/upload", 
+                        files=files, 
+                        headers=get_auth_headers(),
+                        timeout=30
+                    )
                     
-                    # Show detailed results
-                    if results:
-                        with st.expander("📋 Upload Details", expanded=False):
-                            for result in results:
-                                status_icon = "✅" if result.get("status") == "success" else "❌"
-                                st.write(f"{status_icon} **{result.get('filename')}**: {result.get('message', '')}")
+                    if upload_resp.status_code == 200:
+                        st.session_state[upload_key] = True  # Mark as uploaded
+                        st.success(f"✅ {uploaded_file.name} uploaded successfully!")
+                        logger.info(f"Uploaded: {uploaded_file.name}")
+                        # Refresh KB status without rerun (to avoid infinite loop)
+                        time.sleep(1)
+                        try:
+                            status_resp = requests.get(f"{API_URL}/status", timeout=2)
+                            if status_resp.status_code == 200:
+                                st.session_state.kb_status = status_resp.json()
+                        except requests.exceptions.ConnectionError:
+                            logger.warning("Cannot connect to API to refresh status")
+                        except Exception as e:
+                            logger.warning(f"Error refreshing status: {e}")
+                    else:
+                        st.error(f"❌ Upload failed: {upload_resp.status_code}")
+                        try:
+                            error_data = upload_resp.json()
+                            st.error(f"Error: {error_data.get('detail', upload_resp.text)}")
+                        except:
+                            st.error(f"Error: {upload_resp.text}")
+                except requests.exceptions.ConnectionError:
+                    st.error(get_api_connection_error_message())
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+        else:
+            # File was already uploaded, show success message
+            st.success(f"✅ {uploaded_file.name} (already uploaded)")
+    
+    # Handle bulk upload
+    try:
+        has_uploaded_files = uploaded_files is not None and len(uploaded_files) > 0
+    except (NameError, TypeError):
+        has_uploaded_files = False
+    
+    if has_uploaded_files:
+        # Use session state to prevent re-uploading the same files
+        files_key = "_".join([f"{f.name}_{f.size}" for f in uploaded_files])
+        bulk_upload_key = f"bulk_uploaded_{files_key}"
+        if bulk_upload_key not in st.session_state:
+            st.session_state[bulk_upload_key] = False
+        
+        if not st.session_state[bulk_upload_key]:
+            with st.spinner(f"Uploading {len(uploaded_files)} file(s)..."):
+                try:
+                    files_data = []
+                    for uploaded_file in uploaded_files:
+                        file_ext = uploaded_file.name.split('.')[-1].lower()
+                        mime_types = {
+                            "pdf": "application/pdf",
+                            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            "txt": "text/plain",
+                            "csv": "text/csv",
+                            "html": "text/html"
+                        }
+                        mime_type = mime_types.get(file_ext, "application/octet-stream")
+                        files_data.append(("files", (uploaded_file.name, uploaded_file, mime_type)))
                     
-                    st.info("💡 **Tip:** Processing happens in the background. Wait 5-10 seconds, then click '🔄 Check API Status' to see updated chunk count.")
+                    upload_resp = requests.post(
+                        f"{API_URL}/upload/bulk",
+                        files=files_data,
+                        headers=get_auth_headers(),
+                        timeout=120
+                    )
                     
-                    # Refresh KB status after a delay
-                    time.sleep(2)
-                    try:
-                        status_resp = requests.get(f"{API_URL}/status", timeout=2)
-                        if status_resp.status_code == 200:
-                            st.session_state.kb_status = status_resp.json()
-                            st.rerun()
-                    except:
-                        pass
-                else:
-                    st.error(f"❌ Bulk upload failed: {upload_resp.status_code}")
-                    try:
-                        error_data = upload_resp.json()
-                        st.error(f"Error: {error_data.get('detail', upload_resp.text)}")
-                    except:
-                        st.error(f"Error: {upload_resp.text}")
+                    if upload_resp.status_code == 200:
+                        st.session_state[bulk_upload_key] = True  # Mark as uploaded
+                        data = upload_resp.json()
+                        successful = data.get("successful", 0)
+                        failed = data.get("failed", 0)
+                        results = data.get("results", [])
+                        
+                        if successful > 0:
+                            st.success(f"✅ Successfully uploaded {successful} file(s)")
+                        if failed > 0:
+                            st.warning(f"⚠️ {failed} file(s) failed to upload")
+                        
+                        # Show detailed results
+                        if results:
+                            with st.expander("📋 Upload Details", expanded=False):
+                                for result in results:
+                                    status_icon = "✅" if result.get("status") == "success" else "❌"
+                                    st.write(f"{status_icon} **{result.get('filename')}**: {result.get('message', '')}")
+                        
+                        st.info("💡 **Tip:** Processing happens in the background. Wait 5-10 seconds, then click '🔄 Check API Status' to see updated chunk count.")
+                        
+                        # Refresh KB status without rerun (to avoid infinite loop)
+                        time.sleep(1)
+                        try:
+                            status_resp = requests.get(f"{API_URL}/status", timeout=2)
+                            if status_resp.status_code == 200:
+                                st.session_state.kb_status = status_resp.json()
+                        except:
+                            pass
+                    else:
+                        st.error(f"❌ Bulk upload failed: {upload_resp.status_code}")
+                        try:
+                            error_data = upload_resp.json()
+                            st.error(f"Error: {error_data.get('detail', upload_resp.text)}")
+                        except:
+                            st.error(f"Error: {upload_resp.text}")
             except requests.exceptions.ConnectionError:
                 st.error(get_api_connection_error_message())
             except Exception as e:
