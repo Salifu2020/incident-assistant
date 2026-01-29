@@ -1,4 +1,4 @@
-# Install CPU-only PyTorch first (much smaller than CUDA version - saves ~5GB)
+﻿# Install CPU-only PyTorch first (much smaller than CUDA version - saves ~5GB)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
 
@@ -8,7 +8,6 @@ python-multipart
 chromadb
 pymupdf
 sentence-transformers
-ollama
 streamlit
 python-docx
 python-jose[cryptography]
@@ -23,3 +22,11 @@ numpy
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 alembic>=1.12.0
+
+# LLM Providers (install one or more based on your setup)
+groq>=0.4.0              # Recommended: Fast, free tier available
+ollama                   # Optional: Self-hosted Ollama (fallback)
+# openai>=1.0.0          # Optional: OpenAI GPT models
+
+# Vector Store (pgvector uses same psycopg2-binary as above)
+# pgvector extension is enabled in Supabase/Postgres, no extra package needed

@@ -60,6 +60,10 @@ from .auth import (
     SECRET_KEY, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS,
     AVATARS_DIR
 )
+
+# Initialize basic logger early for use in exception handlers
+_logger = logging.getLogger(__name__)
+
 # Try to use database-backed auth, fall back to JSON if database not available
 try:
     from .database import init_db, is_db_available
@@ -67,7 +71,7 @@ try:
     _use_db = True
 except ImportError:
     _use_db = False
-    logger.warning("Database modules not available, using JSON file storage")
+    _logger.warning("Database modules not available, using JSON file storage")
 
 # Helper function to get the appropriate user manager
 def get_user_manager():
@@ -113,7 +117,8 @@ logging.basicConfig(
     handlers=[stream_handler, file_handler],
 )
 
-logger = logging.getLogger(__name__)
+# Update logger reference after logging is configured
+logger = _logger
 
 # Import email service (optional - will work without it) - Must be after logger definition
 try:

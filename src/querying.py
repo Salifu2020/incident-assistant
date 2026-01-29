@@ -1,5 +1,5 @@
 from .ingestion import DocumentProcessor
-import ollama
+from .llm_providers import get_llm_provider, LLMProvider
 import re
 import os
 import json
@@ -8,6 +8,13 @@ import time
 from collections import Counter
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+
+# Keep ollama import for backward compatibility (will be used if LLM provider fallback is needed)
+try:
+    import ollama
+    _ollama_available = True
+except ImportError:
+    _ollama_available = False
 
 
 class QueryCache:
@@ -230,6 +237,14 @@ class KnowledgeAssistant:
         self.enable_answer_verification = enable_answer_verification  # Enable answer verification to prevent hallucinations
         self.enable_query_caching = enable_query_caching  # Enable smart query caching
         
+        # Initialize LLM provider (Groq > OpenAI > Ollama)
+        try:
+            self._llm_provider = get_llm_provider(model=model_name)
+            print(f"✅ LLM provider initialized: {type(self._llm_provider).__name__}")
+        except Exception as e:
+            print(f"⚠️ LLM provider initialization failed: {e}")
+            self._llm_provider = None
+        
         # Initialize query cache
         if self.enable_query_caching:
             self.query_cache = QueryCache(default_ttl=cache_ttl, max_size=cache_max_size)
@@ -274,6 +289,82 @@ class KnowledgeAssistant:
         self._load_learning_data()
         
         self.reset_history()
+
+    def _llm_chat(self, messages: list, stream: bool = False, 
+                  temperature: float = 0.3, max_tokens: int = 500) -> str:
+        """
+        Unified LLM chat method that uses the configured provider.
+        Falls back to direct Ollama if provider is not available.
+        """
+        # Try the configured LLM provider first
+        if self._llm_provider is not None:
+            try:
+                return self._llm_provider.chat(
+                    messages=messages,
+                    stream=stream,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+            except Exception as e:
+                print(f"⚠️ LLM provider error: {e}, falling back to Ollama")
+        
+        # Fallback to direct Ollama
+        if _ollama_available:
+            if stream:
+                response_text = ""
+                stream_resp = ollama.chat(
+                    model=self.llm_model,
+                    messages=messages,
+                    stream=True,
+                    options={"temperature": temperature, "num_predict": max_tokens}
+                )
+                for chunk in stream_resp:
+                    if 'message' in chunk and 'content' in chunk['message']:
+                        response_text += chunk['message']['content']
+                return response_text.strip()
+            else:
+                response = ollama.chat(
+                    model=self.llm_model,
+                    messages=messages,
+                    stream=False,
+                    options={"temperature": temperature, "num_predict": max_tokens}
+                )
+                return response["message"]["content"].strip()
+        
+        raise RuntimeError("No LLM provider available. Set GROQ_API_KEY, OPENAI_API_KEY, or ensure Ollama is running.")
+
+    def _llm_chat_stream(self, messages: list, 
+                         temperature: float = 0.3, max_tokens: int = 500):
+        """
+        Stream LLM response. Yields chunks of text.
+        """
+        # Try the configured LLM provider first
+        if self._llm_provider is not None:
+            try:
+                for chunk in self._llm_provider.chat_stream(
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                ):
+                    yield chunk
+                return
+            except Exception as e:
+                print(f"⚠️ LLM provider stream error: {e}, falling back to Ollama")
+        
+        # Fallback to direct Ollama
+        if _ollama_available:
+            stream = ollama.chat(
+                model=self.llm_model,
+                messages=messages,
+                stream=True,
+                options={"temperature": temperature, "num_predict": max_tokens}
+            )
+            for chunk in stream:
+                if 'message' in chunk and 'content' in chunk['message']:
+                    yield chunk['message']['content']
+            return
+        
+        raise RuntimeError("No LLM provider available for streaming.")
 
     def _clean_answer_style(self, answer: str) -> str:
         """
@@ -1027,19 +1118,14 @@ class KnowledgeAssistant:
                             "Respond with ONLY a decimal number between 0.0 and 1.0, nothing else."
                         )
                         try:
-                            response = ollama.chat(
-                                model=self.llm_model,
+                            llm_score_text = self._llm_chat(
                                 messages=[
                                     {"role": "system", "content": "You are a relevance scorer. Respond with only a number between 0.0 and 1.0."},
                                     {"role": "user", "content": relevance_prompt}
                                 ],
-                                options={
-                                    "temperature": 0.1,  # Low temperature for consistent scoring
-                                    "num_predict": 10,  # Very short response
-                                }
+                                temperature=0.1,
+                                max_tokens=10
                             )
-                            
-                            llm_score_text = response.get("message", {}).get("content", "").strip()
                             # Extract number from response
                             llm_score_match = re.search(r'0?\.\d+|1\.0|0', llm_score_text)
                             if llm_score_match:
@@ -1118,31 +1204,26 @@ class KnowledgeAssistant:
             # Use concurrent.futures for timeout control
             from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
             
-            def call_ollama():
-                return ollama.chat(
-                    model=self.llm_model,
+            def call_llm():
+                return self._llm_chat(
                     messages=[
                         {"role": "system", "content": "You are a helpful assistant that rewrites questions to improve search results."},
                         {"role": "user", "content": expansion_prompt}
                     ],
-                    options={
-                        "temperature": 0.7,  # Slightly higher for creativity
-                        "num_predict": 150,  # Short responses
-                    }
+                    temperature=0.7,
+                    max_tokens=150
                 )
             
             try:
                 with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(call_ollama)
-                    response = future.result(timeout=15.0)  # 15 second timeout
+                    future = executor.submit(call_llm)
+                    expanded_text = future.result(timeout=15.0)  # 15 second timeout
             except FuturesTimeoutError:
                 print(f"⚠️ Query expansion timed out after 15s (falling back to original query)")
                 return [query]  # Fallback to original query on timeout
             except Exception as e:
                 print(f"⚠️ Query expansion failed (falling back to original query): {type(e).__name__}: {e}")
                 return [query]  # Fallback to original query on any error
-            
-            expanded_text = response.get("message", {}).get("content", "").strip()
             
             # Parse the expanded queries
             variations = []
@@ -1239,8 +1320,7 @@ class KnowledgeAssistant:
                 )
             
             # Use LLM to summarize
-            response = ollama.chat(
-                model=self.llm_model,
+            summarized = self._llm_chat(
                 messages=[
                     {
                         "role": "system",
@@ -1251,13 +1331,9 @@ class KnowledgeAssistant:
                         "content": summary_prompt
                     }
                 ],
-                options={
-                    "temperature": 0.2,  # Low temperature for factual summarization
-                    "num_predict": target_length + 200,  # Allow some buffer
-                }
+                temperature=0.2,
+                max_tokens=target_length + 200
             )
-            
-            summarized = response.get("message", {}).get("content", "").strip()
             
             # Validate summary
             if not summarized or len(summarized) < 50:
@@ -1327,46 +1403,13 @@ class KnowledgeAssistant:
         messages = recent_history + [{"role": "user", "content": user_message}]
 
         try:
-            if self.enable_streaming:
-                # Try streaming for faster perceived response time
-                try:
-                    response_text = ""
-                    stream = ollama.chat(
-                        model=self.llm_model,
-                        messages=messages,
-                        stream=True,
-                        options={
-                            "temperature": 0.3,  # Lower temperature for more focused answers
-                            "num_predict": 500,  # Limit response length for speed
-                        }
-                    )
-                    for chunk in stream:
-                        if 'message' in chunk and 'content' in chunk['message']:
-                            response_text += chunk['message']['content']
-                    answer = response_text.strip()
-                except Exception:
-                    # Fallback to non-streaming if streaming fails
-                    response = ollama.chat(
-                        model=self.llm_model,
-                        messages=messages,
-                        stream=False,
-                        options={
-                            "temperature": 0.3,
-                            "num_predict": 500,
-                        }
-                    )
-                    answer = response["message"]["content"].strip()
-            else:
-                response = ollama.chat(
-                    model=self.llm_model,
-                    messages=messages,
-                    stream=False,
-                    options={
-                        "temperature": 0.3,
-                        "num_predict": 500,
-                    }
+            # Use unified LLM chat method (supports Groq, OpenAI, Ollama)
+            answer = self._llm_chat(
+                messages=messages,
+                stream=self.enable_streaming,
+                temperature=0.3,
+                max_tokens=500
             )
-            answer = response["message"]["content"].strip()
 
             # Clean up style boilerplate (user does not want it)
             answer = self._clean_answer_style(answer)
@@ -1414,34 +1457,24 @@ class KnowledgeAssistant:
             # Buffer initial output so we can strip leading boilerplate before user sees it in streaming
             prefix_buffer = ""
             started = False
-            stream = ollama.chat(
-                model=self.llm_model,
-                messages=messages,
-                stream=True,
-                options={
-                    "temperature": 0.3,
-                    "num_predict": 500,
-                }
-            )
             
-            for chunk in stream:
-                if 'message' in chunk and 'content' in chunk['message']:
-                    content = chunk['message']['content']
-                    response_text += content
+            # Use unified LLM streaming method (supports Groq, OpenAI, Ollama)
+            for content in self._llm_chat_stream(messages=messages, temperature=0.3, max_tokens=500):
+                response_text += content
 
-                    if not started:
-                        prefix_buffer += content
-                        # Once we have enough text to decide, strip leading boilerplate once
-                        if len(prefix_buffer) >= 80 or prefix_buffer.strip().endswith((".", ":", "\n")):
-                            cleaned = self._clean_answer_style(prefix_buffer)
-                            # If cleaning removed everything (rare), keep buffering a bit more
-                            if cleaned.strip():
-                                started = True
-                                yield cleaned
-                                prefix_buffer = ""
-                        continue
+                if not started:
+                    prefix_buffer += content
+                    # Once we have enough text to decide, strip leading boilerplate once
+                    if len(prefix_buffer) >= 80 or prefix_buffer.strip().endswith((".", ":", "\n")):
+                        cleaned = self._clean_answer_style(prefix_buffer)
+                        # If cleaning removed everything (rare), keep buffering a bit more
+                        if cleaned.strip():
+                            started = True
+                            yield cleaned
+                            prefix_buffer = ""
+                    continue
 
-                    yield content
+                yield content
             
             # Clean up common prefixes after streaming completes
             answer = response_text.strip()
@@ -1512,19 +1545,14 @@ class KnowledgeAssistant:
                     "Respond with ONLY 'yes' or 'no'."
                 )
                 
-                response = ollama.chat(
-                    model=self.llm_model,
+                answer = self._llm_chat(
                     messages=[
                         {"role": "system", "content": "You are a query complexity analyzer. Respond with only 'yes' or 'no'."},
                         {"role": "user", "content": complexity_prompt}
                     ],
-                    options={
-                        "temperature": 0.1,
-                        "num_predict": 5,
-                    }
-                )
-                
-                answer = response.get("message", {}).get("content", "").strip().lower()
+                    temperature=0.1,
+                    max_tokens=5
+                ).lower()
                 return "yes" in answer
             except Exception as e:
                 print(f"⚠️ Complexity check failed: {e}, defaulting to simple query")
@@ -1555,19 +1583,14 @@ class KnowledgeAssistant:
                 "Each sub-question should be a complete question ending with '?'."
             )
             
-            response = ollama.chat(
-                model=self.llm_model,
+            decomposed_text = self._llm_chat(
                 messages=[
                     {"role": "system", "content": "You are a query decomposition assistant. Break complex questions into clear sub-questions."},
                     {"role": "user", "content": decomposition_prompt}
                 ],
-                options={
-                    "temperature": 0.3,
-                    "num_predict": 200,
-                }
+                temperature=0.3,
+                max_tokens=200
             )
-            
-            decomposed_text = response.get("message", {}).get("content", "").strip()
             
             # Parse sub-questions
             sub_questions = []
@@ -1629,19 +1652,14 @@ class KnowledgeAssistant:
                 "Provide the synthesized answer:"
             )
             
-            response = ollama.chat(
-                model=self.llm_model,
+            synthesized = self._llm_chat(
                 messages=[
                     {"role": "system", "content": "You are a synthesis assistant that combines multiple answers into a coherent response."},
                     {"role": "user", "content": synthesis_prompt}
                 ],
-                options={
-                    "temperature": 0.4,
-                    "num_predict": 600,
-                }
+                temperature=0.4,
+                max_tokens=600
             )
-            
-            synthesized = response.get("message", {}).get("content", "").strip()
             
             # Fallback: if synthesis fails, combine answers with structure
             if not synthesized or len(synthesized) < 50:
@@ -2135,19 +2153,14 @@ class KnowledgeAssistant:
                 "Be concise and actionable. Respond with only the suggestion."
             )
             
-            response = ollama.chat(
-                model=self.llm_model,
+            suggestion = self._llm_chat(
                 messages=[
                     {"role": "system", "content": "You are a feedback analyzer that suggests improvements."},
                     {"role": "user", "content": suggestion_prompt}
                 ],
-                options={
-                    "temperature": 0.3,
-                    "num_predict": 150,
-                }
+                temperature=0.3,
+                max_tokens=150
             )
-            
-            suggestion = response.get("message", {}).get("content", "").strip()
             if suggestion:
                 self.learning_data["improvement_suggestions"].append({
                     "query": query,
@@ -2185,8 +2198,7 @@ class KnowledgeAssistant:
                 "Language code:"
             )
             
-            response = ollama.chat(
-                model=self.llm_model,
+            detected = self._llm_chat(
                 messages=[
                     {
                         "role": "system",
@@ -2197,13 +2209,9 @@ class KnowledgeAssistant:
                         "content": detection_prompt
                     }
                 ],
-                options={
-                    "temperature": 0.1,
-                    "num_predict": 5,  # Very short response
-                }
-            )
-            
-            detected = response.get("message", {}).get("content", "").strip().lower()
+                temperature=0.1,
+                max_tokens=5
+            ).lower()
             # Clean up response (remove any extra text)
             detected = detected.split()[0] if detected.split() else self.default_language
             
@@ -2256,8 +2264,7 @@ class KnowledgeAssistant:
                 f"Provide only the translation in {target_lang_name}, without any explanations or additional text."
             )
             
-            response = ollama.chat(
-                model=self.llm_model,
+            translated = self._llm_chat(
                 messages=[
                     {
                         "role": "system",
@@ -2268,13 +2275,9 @@ class KnowledgeAssistant:
                         "content": translation_prompt
                     }
                 ],
-                options={
-                    "temperature": 0.3,  # Lower temperature for more accurate translation
-                    "num_predict": len(text) * 2,  # Allow enough tokens
-                }
+                temperature=0.3,
+                max_tokens=len(text) * 2
             )
-            
-            translated = response.get("message", {}).get("content", "").strip()
             
             # Clean up translation (remove quotes if present)
             if translated.startswith('"') and translated.endswith('"'):
@@ -2598,8 +2601,7 @@ class KnowledgeAssistant:
                 "Then on a new line, provide a brief explanation (1-2 sentences)."
             )
             
-            response = ollama.chat(
-                model=self.llm_model,
+            verification_text = self._llm_chat(
                 messages=[
                     {
                         "role": "system",
@@ -2610,13 +2612,9 @@ class KnowledgeAssistant:
                         "content": verification_prompt
                     }
                 ],
-                options={
-                    "temperature": 0.1,  # Low temperature for consistent verification
-                    "num_predict": 200,  # Short response
-                }
+                temperature=0.1,
+                max_tokens=200
             )
-            
-            verification_text = response.get("message", {}).get("content", "").strip()
             
             # Parse verification result
             verification_upper = verification_text.upper()
@@ -2891,8 +2889,7 @@ class KnowledgeAssistant:
             ).format(limit=limit)
             
             try:
-                response = ollama.chat(
-                    model=self.llm_model,
+                suggestions_text = self._llm_chat(
                     messages=[
                         {
                             "role": "system",
@@ -2903,13 +2900,9 @@ class KnowledgeAssistant:
                             "content": suggestion_prompt
                         }
                     ],
-                    options={
-                        "temperature": 0.7,  # Higher temperature for diversity
-                        "num_predict": limit * 50,  # Allow enough tokens for all questions
-                    }
+                    temperature=0.7,
+                    max_tokens=limit * 50
                 )
-                
-                suggestions_text = response.get("message", {}).get("content", "").strip()
                 
                 # Parse suggestions (one per line)
                 suggestions = []
@@ -2952,18 +2945,13 @@ class KnowledgeAssistant:
                     )
                     
                     try:
-                        additional_response = ollama.chat(
-                            model=self.llm_model,
+                        additional_text = self._llm_chat(
                             messages=[
                                 {"role": "user", "content": additional_prompt}
                             ],
-                            options={
-                                "temperature": 0.7,
-                                "num_predict": (limit - len(suggestions)) * 50,
-                            }
+                            temperature=0.7,
+                            max_tokens=(limit - len(suggestions)) * 50
                         )
-                        
-                        additional_text = additional_response.get("message", {}).get("content", "").strip()
                         for line in additional_text.split('\n'):
                             line = re.sub(r'^[\d\.\-\*\•\)\s]+', '', line.strip())
                             if line and len(line) > 10 and len(line) < 200 and line not in [s["query"] for s in suggestions]:
