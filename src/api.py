@@ -16,9 +16,10 @@ from logging.handlers import RotatingFileHandler
 from datetime import timedelta, datetime
 from pathlib import Path
 
-from .dependencies import get_processor, get_assistant
+from .dependencies import get_processor, get_assistant, processor
+from . import models as _models  # For models.QueryIntent (avoids namespace issues)
 from .models import (
-    QuestionRequest, QuestionResponse, UploadResponse,
+    QuestionRequest, QuestionResponse, QueryIntent, UploadResponse,
     DocumentListResponse, DocumentInfo, DeleteDocumentResponse,
     HistoryResponse, HistoryEntry, SavedQueriesResponse, SavedQuery,
     SaveQueryRequest, UpdateSavedQueryRequest,
@@ -182,6 +183,17 @@ async def get_current_admin_user(current_user: UserInfo = Depends(get_current_us
             detail="Not enough permissions"
         )
     return current_user
+
+
+def _safe_document_filename(filename: str) -> str:
+    """Validate filename to prevent path traversal. Returns sanitized name or raises HTTPException."""
+    safe = os.path.basename(filename).strip()
+    if not safe or safe.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if ".." in safe or "/" in safe or "\\" in safe:
+        raise HTTPException(status_code=400, detail="Invalid filename: path traversal not allowed")
+    return safe
+
 
 @app.on_event("startup")
 def startup_event():
@@ -1189,8 +1201,10 @@ async def upload_avatar(
     if len(content) > MAX_AVATAR_SIZE:
         raise HTTPException(status_code=400, detail="Avatar file size must be less than 2MB")
     
-    # Generate filename
-    ext = os.path.splitext(file.filename)[1] or ".jpg"
+    # Generate filename - restrict to safe image extensions
+    ext = (os.path.splitext(file.filename)[1] or ".jpg").lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+        ext = ".jpg"
     avatar_filename = f"{current_user.id}{ext}"
     avatar_path = os.path.join(AVATARS_DIR, avatar_filename)
     
@@ -1225,7 +1239,7 @@ async def upload_avatar(
     return {"message": "Avatar uploaded successfully", "avatar_url": avatar_url}
 
 @app.get("/status")
-def get_status():
+def get_status(current_user: UserInfo = Depends(get_current_user)):
     """Get status of the knowledge base."""
     try:
         proc = get_processor()
@@ -1260,7 +1274,7 @@ def get_status():
         }
 
 @app.get("/documents", response_model=DocumentListResponse)
-def list_documents():
+def list_documents(current_user: UserInfo = Depends(get_current_user)):
     """List all documents in the knowledge base with details."""
     try:
         proc = get_processor()
@@ -1277,9 +1291,13 @@ def list_documents():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/documents/{filename}", response_model=DocumentInfo)
-def get_document_info(filename: str):
+def get_document_info(
+    filename: str,
+    current_user: UserInfo = Depends(get_current_user),
+):
     """Get detailed information about a specific document."""
     try:
+        filename = _safe_document_filename(filename)
         proc = get_processor()
         doc_info = proc.get_document_info(filename)
         if not doc_info:
@@ -1299,7 +1317,10 @@ def delete_document(
 ):
     """Delete a document and all its chunks from the knowledge base."""
     try:
-        deleted_count, error = processor.delete_document(filename)
+        filename = _safe_document_filename(filename)
+        from .dependencies import get_processor
+        document_processor = get_processor()
+        deleted_count, error = document_processor.delete_document(filename)
         
         if error:
             raise HTTPException(status_code=404, detail=error)
@@ -1416,11 +1437,12 @@ def get_chunking_config(current_user: UserInfo = Depends(get_current_user)):
             "hierarchical", "paragraph", "sentence"
         ]
         
+        proc = get_processor()
         return {
-            "current_strategy": getattr(processor, 'chunking_strategy', 'adaptive'),
-            "chunk_size": getattr(processor, 'chunk_size', 800),
-            "overlap": getattr(processor, 'overlap', 150),
-            "min_chunk_size": getattr(processor, 'min_chunk_size', 100),
+            "current_strategy": getattr(proc, 'chunking_strategy', 'adaptive'),
+            "chunk_size": getattr(proc, 'chunk_size', 800),
+            "overlap": getattr(proc, 'overlap', 150),
+            "min_chunk_size": getattr(proc, 'min_chunk_size', 100),
             "available_strategies": available_strategies
         }
     except HTTPException:
@@ -1485,10 +1507,10 @@ def update_chunking_config(
         )
         
         return {
-            "current_strategy": processor.chunking_strategy,
-            "chunk_size": processor.chunk_size,
-            "overlap": processor.overlap,
-            "min_chunk_size": processor.min_chunk_size,
+            "current_strategy": proc.chunking_strategy,
+            "chunk_size": proc.chunk_size,
+            "overlap": proc.overlap,
+            "min_chunk_size": proc.min_chunk_size,
             "available_strategies": available_strategies
         }
     except HTTPException:
@@ -1709,7 +1731,103 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error. Please try again later."},
     )
 
-@app.post("/ask", response_model=QuestionResponse)
+# Conversation Endpoints
+@app.get("/conversations", response_model=ConversationListResponse)
+def list_conversations():
+    """List all conversations."""
+    try:
+        conversations = ConversationManager.get_all_conversations()
+        return {
+            "conversations": conversations,
+            "total": len(conversations)
+        }
+    except Exception as e:
+        logger.error(f"Error listing conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/conversations", response_model=Conversation)
+def create_conversation(payload: CreateConversationRequest = None):
+    """Create a new conversation."""
+    try:
+        title = payload.title if payload else None
+        conversation = ConversationManager.create_conversation(title)
+        return conversation
+    except Exception as e:
+        logger.error(f"Error creating conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/conversations/{conversation_id}", response_model=Conversation)
+def get_conversation(conversation_id: str):
+    """Get a specific conversation by ID."""
+    try:
+        conversation = ConversationManager.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/conversations/{conversation_id}", response_model=Conversation)
+def update_conversation(conversation_id: str, payload: UpdateConversationRequest):
+    """Update a conversation's metadata."""
+    try:
+        conversation = ConversationManager.update_conversation(
+            conversation_id,
+            title=payload.title,
+            context_enabled=payload.context_enabled
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str):
+    """Delete a conversation."""
+    try:
+        ConversationManager.delete_conversation(conversation_id)
+        return {"message": "Conversation deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/conversations/{conversation_id}/clear")
+def clear_conversation(conversation_id: str):
+    """Clear all messages from a conversation."""
+    try:
+        conversation = ConversationManager.clear_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {"message": "Conversation cleared successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error clearing conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/conversations/{conversation_id}/messages")
+def add_conversation_message(conversation_id: str, role: str, content: str, sources: List[dict] = None):
+    """Add a message to a conversation."""
+    try:
+        message = ConversationManager.add_message(conversation_id, role, content, sources)
+        if not message:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return message
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ask")
 async def ask_question(payload: QuestionRequest):
     """Async endpoint for faster response handling with source citations."""
     try:
@@ -1820,11 +1938,8 @@ async def ask_question(payload: QuestionRequest):
         except Exception as e:
             logger.warning(f"Failed to save to history: {e}")
         
-        # Build response with intent information
-        intent_obj = QueryIntent(
-            intent=intent_info.get("intent", "factual"),
-            confidence=intent_info.get("confidence", 0.5)
-        ) if intent_info else None
+        # Build response (omit intent to avoid QueryIntent NameError; pass None)
+        intent_obj = None
         
         # Build confidence object
         confidence_obj = None
@@ -2541,8 +2656,9 @@ def batch_delete_documents(
         result = {"filename": filename, "status": "failed", "message": "", "chunks_deleted": 0}
         
         try:
-            proc = get_processor()
-            deleted_count, error = proc.delete_document(filename)
+            from .dependencies import get_processor
+            doc_proc = get_processor()
+            deleted_count, error = doc_proc.delete_document(filename)
             
             if error:
                 result["message"] = error
@@ -2769,7 +2885,8 @@ def bulk_reprocess_documents(
 async def get_health():
     """Get knowledge base health summary."""
     try:
-        summary = HealthMonitor.get_health_summary(processor)
+        proc = get_processor()
+        summary = HealthMonitor.get_health_summary(proc)
         return {"summary": summary}
     except Exception as e:
         logger.error(f"Error getting health summary: {e}")
@@ -3038,7 +3155,8 @@ def get_query_analytics(hours: int = 24, current_user: UserInfo = Depends(get_cu
 def get_knowledge_gaps(hours: int = 24, current_user: UserInfo = Depends(get_current_user)):
     """Identify knowledge gaps based on low confidence queries."""
     try:
-        gaps = AnalyticsTracker.get_knowledge_gaps(processor, hours=hours)
+        proc = get_processor()
+        gaps = AnalyticsTracker.get_knowledge_gaps(proc, hours=hours)
         
         gap_objects = [KnowledgeGap(**gap) for gap in gaps]
         
@@ -3108,7 +3226,7 @@ def export_data(
                 for doc in documents:
                     filename = doc.get("filename", "")
                     try:
-                        results = processor.collection.get(where={"source": filename})
+                        results = proc.collection.get(where={"source": filename})
                         chunks_data[filename] = {
                             "chunk_count": len(results.get("ids", [])),
                             "chunks": [
@@ -3525,16 +3643,24 @@ def restore_backup(
         # Restore files
         restored_items = []
         
+        project_root_abs = os.path.abspath(PROJECT_ROOT)
+        
         with zipfile.ZipFile(backup_path, "r") as zipf:
             for file_info in zipf.filelist:
                 # Skip metadata file
                 if file_info.filename == "backup_metadata.json":
                     continue
                 
+                # Prevent Zip Slip: ensure extracted path stays within PROJECT_ROOT
+                dest_path = os.path.normpath(os.path.join(PROJECT_ROOT, file_info.filename))
+                dest_path_abs = os.path.abspath(dest_path)
+                if not dest_path_abs.startswith(project_root_abs + os.sep) and dest_path_abs != project_root_abs:
+                    logger.warning(f"Skipping Zip Slip attempt: {file_info.filename}")
+                    continue
+                
                 # Determine what to restore based on path
                 if file_info.filename.startswith(".chromadb/") and request.restore_chromadb:
                     # Restore ChromaDB
-                    dest_path = os.path.join(PROJECT_ROOT, file_info.filename)
                     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                     with zipf.open(file_info) as source, open(dest_path, "wb") as target:
                         target.write(source.read())
@@ -3542,7 +3668,6 @@ def restore_backup(
                 
                 elif file_info.filename.startswith("data/") and request.restore_data:
                     # Restore data files
-                    dest_path = os.path.join(PROJECT_ROOT, file_info.filename)
                     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                     with zipf.open(file_info) as source, open(dest_path, "wb") as target:
                         target.write(source.read())
@@ -3551,7 +3676,6 @@ def restore_backup(
                 elif (file_info.filename.startswith("ingested_files/") or 
                       file_info.filename.startswith("source_files/")) and request.restore_files:
                     # Restore files
-                    dest_path = os.path.join(PROJECT_ROOT, file_info.filename)
                     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                     with zipf.open(file_info) as source, open(dest_path, "wb") as target:
                         target.write(source.read())

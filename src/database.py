@@ -95,3 +95,5 @@ def is_db_available() -> bool:
     """Check if database is available."""
     return _engine is not None and _SessionLocal is not None
 
+
+

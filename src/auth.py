@@ -268,21 +268,18 @@ def hash_password(password: str) -> str:
     password_bytes = password.encode('utf-8')
     original_length = len(password_bytes)
     
-    logger.info(f"hash_password called: original password length = {original_length} bytes, PASSWORD_MAX_BYTES = {PASSWORD_MAX_BYTES}")
+    logger.debug("hash_password called")
     
     # If password exceeds bcrypt's 72-byte limit, pre-hash with SHA256
     if original_length > PASSWORD_MAX_BYTES:
-        logger.info(f"Password exceeds {PASSWORD_MAX_BYTES} bytes, pre-hashing with SHA256")
         # Hash with SHA256 to get a fixed 32-byte value
         sha256_hash = hashlib.sha256(password_bytes).digest()
         # Convert to a string representation that bcrypt can handle
         # Use base64 encoding (44 ASCII chars = 44 bytes when UTF-8 encoded)
         password_for_bcrypt = base64.b64encode(sha256_hash).decode('ascii')
         final_length = len(password_for_bcrypt.encode('utf-8'))
-        logger.info(f"Pre-hashed: {original_length} bytes -> SHA256 -> base64 = {len(password_for_bcrypt)} chars ({final_length} bytes)")
     else:
         password_for_bcrypt = password
-        logger.info(f"Password within limit, using directly: {original_length} bytes")
     
     # Double-check the final length (should be safe, but verify)
     final_bytes = password_for_bcrypt.encode('utf-8')
@@ -290,7 +287,7 @@ def hash_password(password: str) -> str:
         logger.error(f"ERROR: Password still exceeds limit after pre-hashing: {len(final_bytes)} bytes (original: {original_length} bytes)")
         raise ValueError(f"Password processing error: final length {len(final_bytes)} bytes exceeds {PASSWORD_MAX_BYTES} byte limit")
     
-    logger.info(f"Calling pwd_context.hash() with password: '{password_for_bcrypt[:20]}...' (length: {len(final_bytes)} bytes)")
+    logger.debug("Password hashing attempted")
     try:
         # Ensure we're passing a string (not bytes) to passlib
         if isinstance(password_for_bcrypt, bytes):

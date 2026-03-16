@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
 Script to re-index existing documents with the new embedding model.
+Run from project root: python scripts/reindex_documents.py
 """
 import sys
 import os
 
-# Add src to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _project_root)
+os.chdir(_project_root)
 
 from src.ingestion import DocumentProcessor
 
@@ -66,5 +69,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
-

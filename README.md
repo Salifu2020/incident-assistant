@@ -41,8 +41,8 @@ pip install -r requirements.txt
 
 ## **Running the API Server**
 ```bash
-# Option 1: Using the entry point script
-python run_api.py
+# Option 1: Using the unified entry point
+python run.py api
 
 # Option 2: Using uvicorn directly
 uvicorn src.api:app --reload
@@ -54,8 +54,8 @@ The API will be available at:
 
 ## **Running the Streamlit Frontend**
 ```bash
-# Option 1: Using the entry point script
-python run_app.py
+# Option 1: Using the unified entry point
+python run.py app
 
 # Option 2: Using streamlit directly
 streamlit run src/app.py
@@ -66,8 +66,8 @@ Open the displayed URL (usually **http://localhost:8501**) in your browser.
 
 ## **Running the CLI Interface**
 ```bash
-# Option 1: Using the entry point script
-python run_cli.py
+# Option 1: Using the unified entry point
+python run.py cli
 
 # Option 2: Using Python module
 python -m src.cli
@@ -97,9 +97,17 @@ incident-assistant/
 │   ├── querying.py    # Logic for querying knowledge base
 │   ├── dependencies.py # Dependency injection for assistant and processor
 │   └── models.py      # Pydantic models for API request/response
-├── run_api.py         # Entry point for API server
-├── run_app.py         # Entry point for Streamlit frontend
-├── run_cli.py         # Entry point for CLI interface
+├── scripts/           # Utility and deployment scripts
+│   ├── deploy.sh      # Docker deployment script
+│   ├── setup_oracle_vm.sh  # Oracle Cloud VM setup
+│   ├── generate_secret_key.py  # Generate JWT secret key
+│   └── reindex_documents.py   # Re-index with new embedding model
+├── docs/              # Documentation
+│   ├── INTERVIEW_QA.md
+│   └── UI_IMPROVEMENT_RECOMMENDATIONS.md
+├── config/            # Configuration templates
+│   └── nginx.conf.example
+├── run.py             # Unified entry point (api | app | cli)
 ├── requirements.txt   # Python dependencies
 ├── source_files/      # Stores uploaded files (all supported types)
 ├── ingested_files/    # Stores processed files by type
@@ -125,7 +133,13 @@ incident-assistant/
 ---
 
 ## **Troubleshooting**
-- **404 errors:** Ensure you are calling `/ask` or `/upload`.  
+- **Port 8000 already in use (WinError 10048):** Run the API on another port:
+  ```powershell
+  $env:PORT=8001; python run.py api
+  ```
+  If running Streamlit, point it to the API: `$env:API_URL="http://127.0.0.1:8001"; python run.py app`
+- **Database password authentication failed / "Falling back to JSON file storage":** For local dev this is fine—the app uses JSON file storage. To use PostgreSQL, set `DATABASE_URL` (or `POSTGRES_URL`) with valid credentials.
+- **404 errors:** Ensure you are calling `/ask` or `/upload**.  
 - **Changes not taking effect:** Restart the API server after modifying code or adding dependencies.  
 - **Logs not updating:** Check file permissions and ensure logging is enabled in both backend and frontend.  
 

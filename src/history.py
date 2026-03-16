@@ -344,6 +344,11 @@ class ConversationManager:
         return sorted(conversations, key=lambda x: x.get("updated_at", ""), reverse=True)
     
     @staticmethod
+    def list_conversations() -> List[Dict]:
+        """Alias for get_all_conversations for backward compatibility."""
+        return ConversationManager.get_all_conversations()
+    
+    @staticmethod
     def add_message(conversation_id: str, role: str, content: str, sources: List[Dict] = None):
         """Add a message to a conversation."""
         conversations = load_json_file(CONVERSATIONS_FILE, [])

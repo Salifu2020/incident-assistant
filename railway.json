@@ -5,10 +5,12 @@
     "buildCommand": "pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt"
   },
   "deploy": {
-    "startCommand": "python run_api.py",
+    "startCommand": "python run.py api",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
 }
+
+
 
 

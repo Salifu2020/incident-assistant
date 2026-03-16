@@ -1,0 +1,68 @@
+# Oracle Cloud deployment - uses Ollama (self-hosted LLM)
+# Requires: SECRET_KEY in .env
+# Note: Use VM.Standard.A1.Flex with 4+ GB RAM (Ollama needs ~2.5GB for phi3:mini)
+
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: incident-assistant-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.docker
+    container_name: incident-assistant-api
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=${LLM_MODEL:-phi3:mini}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - ENVIRONMENT=production
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+    volumes:
+      - ./data:/app/data
+      - ./.chromadb:/app/.chromadb
+      - ./ingested_files:/app/ingested_files
+      - ./source_files:/app/source_files
+      - ./logs:/app/logs
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    command: uvicorn src.api:app --host 0.0.0.0 --port 8000 --workers 1
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.docker
+    container_name: incident-assistant-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - api
+    restart: unless-stopped
+    command: streamlit run src/app.py --server.port=8501 --server.address=0.0.0.0
+
+volumes:
+  ollama_data:
+    driver: local

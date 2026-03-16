@@ -1,12 +1,26 @@
 #!/usr/bin/env python
-"""Entry point for running the Streamlit frontend."""
-import subprocess
-import sys
+"""Start the Streamlit frontend. Usage: python run_app.py"""
 import os
+import sys
+import subprocess
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def _load_dotenv():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+def main():
+    _load_dotenv()
+    app_path = os.path.join(os.path.dirname(__file__), "src", "app.py")
+    subprocess.run([
+        sys.executable, "-m", "streamlit", "run",
+        os.path.abspath(app_path),
+    ])
 
 if __name__ == "__main__":
-    app_path = os.path.join(os.path.dirname(__file__), "src", "app.py")
-    # Convert to absolute path for cross-platform compatibility
-    app_path = os.path.abspath(app_path)
-    subprocess.run([sys.executable, "-m", "streamlit", "run", app_path])
-
+    main()

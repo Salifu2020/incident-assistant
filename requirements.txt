@@ -26,7 +26,5 @@ alembic>=1.12.0
 # LLM Providers (install one or more based on your setup)
 groq>=0.4.0              # Recommended: Fast, free tier available
 ollama                   # Optional: Self-hosted Ollama (fallback)
-# openai>=1.0.0          # Optional: OpenAI GPT models
-
-# Vector Store (pgvector uses same psycopg2-binary as above)
+# openai>=1.0.0          # Optional: OpenAI GPT models# Vector Store (pgvector uses same psycopg2-binary as above)
 # pgvector extension is enabled in Supabase/Postgres, no extra package needed

@@ -51,8 +51,7 @@ RUN rm -rf /opt/venv/lib/python*/site-packages/*/models 2>/dev/null || true && \
 
 # Copy application code (only what's needed)
 COPY src/ ./src/
-COPY run_api.py .
-COPY run_cli.py .
+COPY run.py .
 
 # Create necessary directories
 RUN mkdir -p data logs .chromadb ingested_files source_files
@@ -77,6 +76,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Default command
-CMD ["python", "run_api.py"]
+CMD ["python", "run.py", "api"]
 
 

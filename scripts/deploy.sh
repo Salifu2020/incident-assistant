@@ -1,8 +1,11 @@
 #!/bin/bash
 # Deployment script for Incident Assistant
-# Usage: ./deploy.sh [environment]
+# Usage: ./scripts/deploy.sh [environment]
 
 set -e
+
+# Run from project root
+cd "$(dirname "$0")/.."
 
 ENVIRONMENT=${1:-production}
 echo "🚀 Deploying Incident Assistant to $ENVIRONMENT environment..."
@@ -40,10 +43,6 @@ mkdir -p data logs .chromadb ingested_files source_files ssl
 echo "🔨 Building Docker images..."
 docker-compose build
 
-# Pull latest Ollama image
-echo "📥 Pulling Ollama image..."
-docker-compose pull ollama
-
 # Start services
 echo "🚀 Starting services..."
 docker-compose up -d
@@ -70,12 +69,9 @@ echo ""
 echo "📝 Services:"
 echo "  - API: http://localhost:8000"
 echo "  - Frontend: http://localhost:8501"
-echo "  - Ollama: http://localhost:11434"
 echo ""
 echo "📋 Useful commands:"
 echo "  - View logs: docker-compose logs -f"
 echo "  - Stop services: docker-compose down"
 echo "  - Restart services: docker-compose restart"
-echo "  - Update deployment: git pull && ./deploy.sh"
-
-
+echo "  - Update deployment: git pull && ./scripts/deploy.sh"

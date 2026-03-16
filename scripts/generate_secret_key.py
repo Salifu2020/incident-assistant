@@ -14,4 +14,3 @@ print("\nCopy the key above and use it as:")
 print("- JWT_SECRET_KEY in Railway (API service)")
 print("- JWT_SECRET_KEY in Render (when migrating)")
 print("\nNote: If you generate a new key, existing user sessions will be invalidated.")
-

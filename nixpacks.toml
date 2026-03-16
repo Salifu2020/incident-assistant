@@ -4,7 +4,7 @@ providers = ["python"]
 nixPkgs = ["python311", "curl"]
 
 [start]
-cmd = "python run_api.py"
+cmd = "python run.py api"
 
 [variables]
 PYTHONUNBUFFERED = "1"

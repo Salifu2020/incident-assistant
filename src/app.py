@@ -95,12 +95,14 @@ def log_error_to_console(error_message, error_type="Error", exception=None):
     """
     st.markdown(console_script, unsafe_allow_html=True)
 
-# Page configuration
+# Page configuration - respect ?sidebar=open for reopening when Streamlit's control is hidden
+_sidebar_open = "sidebar" in st.query_params and st.query_params.get("sidebar") == "open"
+_want_sidebar_reload = st.session_state.pop("_want_sidebar_reload", False)
 st.set_page_config(
     page_title="Incident Assistant",
     page_icon="📚",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded" if _sidebar_open else "auto",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
@@ -112,134 +114,474 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Global Styles - Copilot Theme */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    /* Global Styles - Fluid, Modern, Simplified */
     * {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     
-    /* Main container - Dark theme */
+    /* Main - Soft gradient background */
     .main {
         padding: 0;
-        background: #0f172a;
+        background: linear-gradient(180deg, #0c1222 0%, #0f172a 50%, #0a0f1a 100%);
         color: #e2e8f0;
     }
     
-    /* Header - Dark theme */
-    .header-container {
-        text-align: left;
-        padding: 1.5rem 2rem;
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border-bottom: 1px solid #334155;
-        margin-bottom: 0;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    /* Tab Navigation Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background: rgba(15, 23, 42, 0.5);
+        padding: 8px 12px;
+        border-radius: 12px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 14px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
     }
     
+    /* Slim command bar - logo above, nav bar below */
+    .zone-top-nav {
+        background: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(51, 65, 85, 0.35);
+        margin: -1rem -1rem 0 -1rem;
+        padding: 0.5rem 1.25rem 0.35rem 1.25rem;
+    }
+    .nav-brand-row {
+        margin-bottom: 0.35rem;
+    }
+    /* Nav bar row (Chat | Documents | ... | avatar) - same visual bar as logo area */
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"]:first-of-type {
+        margin-top: 0;
+        padding: 0.35rem 0 0.35rem 0;
+        background: transparent;
+    }
+    /* Nav bar columns - align nav items */
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:first-child {
+        display: flex !important;
+        align-items: center !important;
+    }
+    .nav-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin: 0;
+        line-height: 1.2;
+    }
+    .nav-brand-icon {
+        font-size: 1.75rem;
+        opacity: 0.95;
+        flex-shrink: 0;
+    }
+    .nav-brand-text {
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+    }
+    .zone-nav-title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin: 0;
+    }
+    .zone-nav-tabs {
+        display: flex;
+        gap: 0.2rem;
+        flex-wrap: wrap;
+    }
+    .zone-nav-tabs .stButton > button,
+    .cmd-bar-nav .stButton > button {
+        padding: 0.3rem 0.75rem !important;
+        font-size: 0.8rem !important;
+        border-radius: 6px !important;
+        background: transparent !important;
+        border: 1px solid transparent !important;
+        min-height: 32px !important;
+    }
+    .zone-nav-tabs .stButton > button:hover,
+    .cmd-bar-nav .stButton > button:hover {
+        background: rgba(51, 65, 85, 0.5) !important;
+    }
+    .zone-nav-active .stButton > button,
+    .cmd-bar-nav-active .stButton > button {
+        background: rgba(59, 130, 246, 0.25) !important;
+        border-color: rgba(59, 130, 246, 0.4) !important;
+        color: #93c5fd !important;
+    }
+    /* Nav bar buttons - dark grey style */
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button {
+        background: rgba(30, 41, 59, 0.9) !important;
+        border: 1px solid rgba(71, 85, 105, 0.5) !important;
+        color: #e2e8f0 !important;
+    }
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button:hover {
+        background: rgba(51, 65, 85, 0.9) !important;
+    }
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button[kind="primary"] {
+        background: rgba(59, 130, 246, 0.2) !important;
+        border-color: rgba(59, 130, 246, 0.4) !important;
+        color: #93c5fd !important;
+    }
+    /* Open sidebar button - when Streamlit's collapse control is hidden */
+    .btn-open-sidebar {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 0.4rem 0.75rem !important;
+        border-radius: 10px !important;
+        background: rgba(30, 41, 59, 0.9) !important;
+        border: 1px solid rgba(71, 85, 105, 0.5) !important;
+        color: #e2e8f0 !important;
+        font-size: 1.1rem !important;
+        cursor: pointer !important;
+        transition: all 0.2s ease !important;
+    }
+    .btn-open-sidebar:hover {
+        background: rgba(51, 65, 85, 0.9) !important;
+    }
+    .cmd-bar-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(71, 85, 105, 0.5);
+    }
+    /* Profile avatar button - normal pill shape */
+    div:has(.nav-avatar-col) .stButton > button {
+        border-radius: 10px !important;
+        padding: 0.5rem 1rem !important;
+        background: rgba(30, 41, 59, 0.8) !important;
+        border: 1px solid rgba(71, 85, 105, 0.5) !important;
+        color: #e2e8f0 !important;
+        width: 100% !important;
+        min-width: unset !important;
+        max-width: none !important;
+        height: auto !important;
+    }
+    /* Nav bar - modern pill shape, full text, NOT circular */
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button {
+        border-radius: 10px !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        height: auto !important;
+        padding: 0.4rem 0.9rem !important;
+    }
+    /* Profile page avatar image - round */
+    .profile-avatar-section ~ div [data-testid="stImage"] img {
+        border-radius: 50% !important;
+        object-fit: cover !important;
+    }
+    
+    /* Right context panel - zone C layout */
+    .zone-context-panel {
+        background: rgba(30, 41, 59, 0.4);
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px solid rgba(71, 85, 105, 0.4);
+        min-height: 200px;
+    }
+    .zone-context-panel h4 {
+        font-size: 0.9rem;
+        color: #94a3b8;
+        margin: 0 0 0.75rem 0;
+    }
+    
+    /* Header - legacy, kept for non-chat views */
+    .header-container {
+        text-align: center;
+        padding: 0.75rem 2rem;
+        background: rgba(15, 23, 42, 0.7);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+        margin-bottom: 0;
+        transition: all 0.3s ease;
+    }
     .header-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: #94a3b8;
+        margin: 0;
+        letter-spacing: -0.02em;
+        line-height: 1.3;
+    }
+    .header-subtitle {
+        font-size: 0.8rem;
+        color: #64748b;
+        margin-top: 0.2rem;
+        font-weight: 400;
+        opacity: 0.9;
+    }
+    
+    /* Copilot-style empty state: centered greeting */
+    .copilot-greeting {
+        text-align: center;
+        padding: 3rem 2rem 2rem;
+        margin-bottom: 1rem;
+    }
+    .copilot-greeting h2 {
         font-size: 1.75rem;
         font-weight: 600;
-        color: #f1f5f9;
-        margin: 0;
-        letter-spacing: -0.01em;
+        color: #f8fafc;
+        margin: 0 0 0.5rem 0;
+        letter-spacing: -0.02em;
     }
-    
-    .header-subtitle {
-        font-size: 0.875rem;
+    .copilot-greeting p {
+        font-size: 1.1rem;
         color: #94a3b8;
-        margin-top: 0.25rem;
-        font-weight: 400;
+        margin: 0;
+    }
+    /* Suggestion pills - row of buttons below chat bar */
+    .copilot-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: center;
+        margin-top: 1.5rem;
+        padding: 0 1rem;
+    }
+    /* Constrain pill parent so overflow is clipped */
+    [data-testid="stMarkdown"]:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton,
+    div:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton {
+        overflow: hidden !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+    .copilot-pills .stButton>button,
+    div:has(.copilot-pills-marker) .stButton > button,
+    div:has(.copilot-pills-marker) ~ div .stButton > button,
+    div:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton > button,
+    [data-testid="stMarkdown"]:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton > button,
+    div.copilot-pills-marker ~ div .stButton > button {
+        border-radius: 12px !important;
+        padding: 0.5rem 1rem !important;
+        font-size: 0.875rem !important;
+        background: rgba(55, 65, 81, 0.9) !important;
+        border: 1px solid rgba(71, 85, 105, 0.5) !important;
+        color: #e5e7eb !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        height: auto !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+        margin: 0 0.25rem 0.5rem 0.25rem !important;
+        white-space: normal !important;
+        text-overflow: unset !important;
+        text-align: center !important;
+        direction: ltr !important;
+        display: block !important;
+    }
+    .copilot-pills .stButton>button:hover,
+    div:has(.copilot-pills-marker) .stButton > button:hover {
+        background: rgba(71, 85, 105, 0.8) !important;
+        border-color: rgba(100, 116, 139, 0.6) !important;
+    }
+    /* Override blue - pills must stay dark grey (revert from primary) */
+    div:has(.copilot-pills-marker) .stButton > button[kind="primary"],
+    div:has(.copilot-pills-marker) .stButton > button {
+        background: rgba(51, 65, 85, 0.6) !important;
+        border-color: rgba(71, 85, 105, 0.5) !important;
+        color: #e2e8f0 !important;
+    }
+    /* Nav bar - modern pill shape, full text, uniform height */
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:first-child .stButton > button {
+        border-radius: 10px !important;
+        width: 100% !important;
+        min-width: unset !important;
+        max-width: none !important;
+        min-height: 38px !important;
+        height: 38px !important;
+        max-height: 38px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 0.5rem 1rem !important;
+        font-size: 0.9rem !important;
+        line-height: 1 !important;
+        overflow: hidden !important;
+    }
+    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:first-child .stButton > button[kind="secondary"] {
+        background: rgba(30, 41, 59, 0.8) !important;
+        border: 1px solid rgba(71, 85, 105, 0.5) !important;
+        color: #e2e8f0 !important;
+    }
+    /* Sidebar - modern pill shape, full text, NOT circular */
+    [data-testid="stSidebar"] .stButton > button {
+        background: rgba(30, 41, 59, 0.8) !important;
+        border: 1px solid rgba(71, 85, 105, 0.5) !important;
+        color: #e2e8f0 !important;
+        border-radius: 10px !important;
+        width: 100% !important;
+        min-width: unset !important;
+        height: auto !important;
+        padding: 0.5rem 1rem !important;
     }
     
-    /* Copilot-style Chat Interface */
+    /* Chat - Fluid message bubbles */
     .chat-container {
         margin-bottom: 0;
-        padding: 1rem 0;
+        padding: 0.5rem 0;
     }
     
     .message-user {
-        background: #2563eb;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
         color: white;
-        padding: 0.875rem 1.125rem;
-        border-radius: 18px 18px 4px 18px;
-        margin-left: 20%;
-        margin-bottom: 1rem;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        padding: 1rem 1.25rem;
+        border-radius: 20px 20px 6px 20px;
+        margin-left: 15%;
+        margin-bottom: 0.75rem;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
         word-wrap: break-word;
-        font-size: 0.9375rem;
-        line-height: 1.5;
-        max-width: 75%;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 80%;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     
     .message-bot {
-        background: #1e293b;
+        background: rgba(30, 41, 59, 0.6);
+        backdrop-filter: blur(8px);
         color: #e2e8f0;
-        padding: 0.875rem 1.125rem;
-        border-radius: 18px 18px 18px 4px;
-        margin-right: 20%;
-        margin-bottom: 1rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        border: 1px solid #334155;
+        padding: 1rem 1.25rem;
+        border-radius: 20px 20px 20px 6px;
+        margin-right: 15%;
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        border: 1px solid rgba(51, 65, 85, 0.4);
         word-wrap: break-word;
-        font-size: 0.9375rem;
+        font-size: 0.95rem;
         line-height: 1.6;
-        max-width: 75%;
+        max-width: 80%;
+        transition: border-color 0.2s ease;
     }
     
     .message-time {
-        font-size: 0.75rem;
-        color: #9ca3af;
+        font-size: 0.7rem;
+        color: #64748b;
         margin-top: 0.5rem;
         font-weight: 400;
+        opacity: 0.9;
     }
     
-    /* Buttons - Dark theme */
+    /* Buttons - Softer, fluid interactions */
     .stButton>button {
-        border-radius: 8px;
-        padding: 0.5rem 1rem;
+        border-radius: 12px;
+        padding: 0.55rem 1.1rem;
         font-weight: 500;
         font-size: 0.875rem;
-        transition: all 0.15s ease;
-        border: 1px solid #475569;
-        background: #1e293b;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid rgba(71, 85, 105, 0.5);
+        background: rgba(30, 41, 59, 0.8);
         color: #e2e8f0;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
     
     .stButton>button:hover {
-        background: #334155;
-        border-color: #64748b;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-        transform: translateY(-1px);
+        background: rgba(51, 65, 85, 0.9);
+        border-color: rgba(100, 116, 139, 0.6);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        transform: translateY(-2px);
     }
     
     button[kind="primary"] {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%) !important;
         color: white !important;
-        border-color: #3b82f6 !important;
+        border: none !important;
     }
     
     button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
-        border-color: #2563eb !important;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35) !important;
     }
     
-    /* Input Fields - Dark theme */
+    /* Auth Page - Centered card layout */
+    .auth-container {
+        max-width: 440px;
+        margin: 2rem auto 2rem;
+        padding: 2rem;
+        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+        border-radius: 16px;
+        border: 1px solid #334155;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .auth-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .auth-header h1 {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #f1f5f9;
+        margin: 0 0 0.5rem 0;
+    }
+    .auth-header p {
+        font-size: 0.9375rem;
+        color: #94a3b8;
+        margin: 0;
+    }
+    .auth-tabs .stTabs [data-baseweb="tab-list"] {
+        gap: 0;
+        background: #0f172a;
+        padding: 0.25rem;
+        border-radius: 10px;
+        border: 1px solid #334155;
+    }
+    .auth-tabs .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 0.5rem 1.25rem;
+        font-weight: 500;
+        color: #94a3b8;
+        background: transparent;
+    }
+    .auth-tabs .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+    }
+    .auth-form-section {
+        margin-top: 1.5rem;
+        padding: 1.25rem;
+        background: rgba(15, 23, 42, 0.6);
+        border-radius: 12px;
+        border: 1px solid #334155;
+    }
+    .auth-footer {
+        text-align: center;
+        margin-top: 1.5rem;
+        padding: 1rem;
+        font-size: 0.8125rem;
+        color: #64748b;
+        background: rgba(15, 23, 42, 0.4);
+        border-radius: 8px;
+        border: 1px dashed #334155;
+    }
+    
+    /* Input Fields - Fluid, soft focus */
     .stTextInput>div>div>input,
     .stTextArea>div>div>textarea {
-        border-radius: 8px;
+        border-radius: 12px;
         padding: 0.75rem 1rem;
-        border: 1px solid #475569;
-        transition: all 0.15s ease;
+        border: 1px solid rgba(71, 85, 105, 0.5);
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         font-size: 0.9375rem;
-        background: #1e293b;
+        background: rgba(30, 41, 59, 0.6);
         color: #e2e8f0;
     }
     
     .stTextInput>div>div>input:focus,
     .stTextArea>div>div>textarea:focus {
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        border-color: rgba(59, 130, 246, 0.6);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
         outline: none;
-        background: #1e293b;
+        background: rgba(30, 41, 59, 0.8);
     }
     
     /* Select boxes */
@@ -249,6 +591,47 @@ st.markdown(
         border: 1px solid #d1d5db;
         transition: all 0.15s ease;
         font-size: 0.9375rem;
+    }
+    
+    /* Auth page - Centered card layout */
+    .auth-wrapper {
+        max-width: 420px;
+        margin: 2rem auto;
+        padding: 2rem;
+        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+        border-radius: 16px;
+        border: 1px solid #334155;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+    .auth-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #f1f5f9;
+        margin-bottom: 0.25rem;
+        text-align: center;
+    }
+    .auth-subtitle {
+        font-size: 0.875rem;
+        color: #94a3b8;
+        margin-bottom: 1.5rem;
+        text-align: center;
+    }
+    .auth-form-section {
+        margin: 1.5rem 0;
+    }
+    div[data-testid="stTabs"] > div:first-child {
+        background: #1e293b !important;
+        border-radius: 10px 10px 0 0 !important;
+        padding: 0.25rem !important;
+    }
+    div[data-testid="stTabs"] [role="tab"] {
+        color: #94a3b8 !important;
+        font-weight: 500 !important;
+    }
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+        color: #3b82f6 !important;
+        background: rgba(59, 130, 246, 0.15) !important;
+        border-radius: 8px !important;
     }
     
     /* Status badges - Minimal design */
@@ -271,47 +654,81 @@ st.markdown(
         color: #991b1b;
     }
     
-    /* Example questions - Dark theme */
+    /* Example questions - Pill-style, fluid */
     .example-question {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 8px;
-        padding: 0.75rem 1rem;
-        margin: 0.5rem 0;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(51, 65, 85, 0.4);
+        border-radius: 24px;
+        padding: 0.65rem 1.1rem;
+        margin: 0.35rem 0;
         cursor: pointer;
-        transition: all 0.15s ease;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         font-size: 0.875rem;
         color: #e2e8f0;
     }
     
     .example-question:hover {
-        border-color: #3b82f6;
-        background: #1e3a8a;
+        border-color: rgba(59, 130, 246, 0.5);
+        background: rgba(59, 130, 246, 0.15);
         color: #f1f5f9;
-        transform: translateX(4px);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
     }
     
-    /* Sidebar - Dark theme */
+    /* Logo - hide app name on very narrow screens to prevent overflow */
+    @media (max-width: 480px) {
+        .nav-brand-text { display: none !important; }
+    }
+    /* Example questions - responsive: 1 col mobile, 2 tablet, 3 desktop */
+    @media (max-width: 640px) {
+        div:has(.example-questions-marker) + div > div {
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+        }
+    }
+    @media (min-width: 641px) and (max-width: 1024px) {
+        div:has(.example-questions-marker) + div > div {
+            flex: 1 1 50% !important;
+            min-width: 45% !important;
+        }
+    }
+    
+    /* Sidebar - Fluid, minimal */
     [data-testid="stSidebar"] {
-        background: #1e293b;
-        border-right: 1px solid #334155;
+        background: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(8px);
+        border-right: 1px solid rgba(51, 65, 85, 0.4);
     }
     
     [data-testid="stSidebar"] .stButton>button {
         width: 100%;
-        margin-bottom: 0.375rem;
-        border-radius: 8px;
-        background: #0f172a;
+        margin-bottom: 0.25rem;
+        border-radius: 10px;
+        background: transparent;
         color: #e2e8f0;
-        border: 1px solid #334155;
+        border: 1px solid transparent;
         text-align: left;
-        padding-left: 0.875rem;
+        padding: 0.5rem 0.875rem;
         font-size: 0.875rem;
+        transition: all 0.2s ease;
     }
     
     [data-testid="stSidebar"] .stButton>button:hover {
-        background: #334155;
-        border-color: #475569;
+        background: rgba(51, 65, 85, 0.5);
+        border-color: rgba(71, 85, 105, 0.3);
+    }
+    
+    /* Ensure sidebar expand/collapse button is always visible and clickable */
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebar"] [data-testid="collapsedControl"],
+    button[kind="header"] {
+        z-index: 9999 !important;
+        position: relative !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
     }
     
     /* Cards and containers */
@@ -406,9 +823,10 @@ st.markdown(
         background: #1e293b;
     }
     
-    /* Hide Streamlit default elements */
+    /* Hide Streamlit default elements (including red status dot / running indicator) */
     footer {visibility: hidden;}
     #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
     
     /* Header styling */
     [data-testid="stHeader"] {
@@ -485,12 +903,41 @@ st.markdown(
         border-color: #3b82f6 transparent #3b82f6 transparent;
     }
     
-    /* Container padding */
+    /* Typing indicator - animated dots while waiting for first token */
+    .typing-dots span {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #3b82f6;
+        margin: 0 2px;
+        animation: typing-blink 1.4s ease-in-out infinite both;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing-blink {
+        0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+        40% { opacity: 1; transform: scale(1); }
+    }
+    /* Subtle pulse on assistant message while streaming */
+    .message-bot.streaming {
+        animation: streaming-pulse 2s ease-in-out infinite;
+        box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+    }
+    @keyframes streaming-pulse {
+        0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.2), 0 0 0 1px rgba(59, 130, 246, 0.2); }
+        50% { box-shadow: 0 2px 12px rgba(0,0,0,0.25), 0 0 0 2px rgba(59, 130, 246, 0.4); }
+    }
+    
+    /* Container padding - Zone layout: wider for center+right; standard for other views */
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-        max-width: 1200px;
-        background: #0f172a;
+        padding-top: 1.25rem;
+        padding-bottom: 2rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
+        max-width: 1400px;
+        margin: 0 auto;
+        background: transparent;
     }
     
     /* Text colors */
@@ -502,22 +949,218 @@ st.markdown(
         color: #e2e8f0;
     }
     
-    /* Streamlit chat input */
+    /* Chat input - Command Palette style (Spotlight / VS Code) */
     [data-testid="stChatInputContainer"] {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 8px;
+        width: 100% !important;
+        max-width: 720px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        background: rgba(30, 41, 59, 0.95) !important;
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(71, 85, 105, 0.5) !important;
+        border-radius: 16px !important;
+        position: relative !important;
+        z-index: 400 !important;
+        margin-top: 3rem !important;
+        margin-bottom: 2rem !important;
+        padding: 1.5rem 1.75rem !important;
+        min-height: 180px !important;
+        height: 180px !important;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04), 0 0 40px rgba(59, 130, 246, 0.06) !important;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    [data-testid="stChatInputContainer"]:focus-within {
+        border-color: rgba(59, 130, 246, 0.5) !important;
+        box-shadow: 0 4px 28px rgba(0,0,0,0.35), 0 0 0 1px rgba(59, 130, 246, 0.3), 0 0 32px rgba(59, 130, 246, 0.2), 0 0 64px rgba(59, 130, 246, 0.08) !important;
+        transform: translateY(-2px) !important;
     }
     
-    [data-testid="stChatInputContainer"] input {
-        background: #1e293b !important;
-        color: #e2e8f0 !important;
+    /* Parent block: chat input zone - extra spacing so input stands out */
+    [data-testid="stVerticalBlock"]:has([data-testid="stChatInputContainer"]) {
+        padding-top: 3rem !important;
+        margin-top: 3rem !important;
+        margin-bottom: 1.5rem !important;
+    }
+    
+    /* Target both input and textarea - Streamlit uses textarea for chat_input */
+    [data-testid="stChatInputContainer"] input,
+    [data-testid="stChatInputContainer"] textarea,
+    [data-testid="stChatInput"] {
+        background: transparent !important;
+        color: #f9fafb !important;
+        font-size: 1.125rem !important;
+        line-height: 1.6 !important;
+        min-height: 120px !important;
+        height: 120px !important;
+        padding: 0.75rem 0 !important;
+        border: none !important;
+        resize: none !important;
+    }
+    [data-testid="stChatInputContainer"] input::placeholder,
+    [data-testid="stChatInputContainer"] textarea::placeholder {
+        color: #9ca3af !important;
+    }
+    
+    /* Copilot-style empty state: greeting, centered layout */
+    .copilot-greeting {
+        text-align: center;
+        padding: 2rem 0 1.5rem;
+    }
+    .copilot-greeting h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin: 0 0 0.25rem 0;
+    }
+    .copilot-greeting p {
+        font-size: 1rem;
+        color: #94a3b8;
+        margin: 0;
+    }
+    .copilot-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: center;
+        margin-top: 1.5rem;
+    }
+    .copilot-pill {
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(71, 85, 105, 0.4);
+        border-radius: 16px;
+        padding: 0.35rem 0.75rem;
+        font-size: 0.8rem;
+        color: #94a3b8;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .copilot-pill:hover {
+        background: rgba(51, 65, 85, 0.9);
+        border-color: rgba(59, 130, 246, 0.5);
+    }
+    
+    /* Copilot-style: greeting and centered empty state */
+    .copilot-greeting {
+        text-align: center;
+        padding: 2rem 0 1.5rem;
+        margin: 0 auto;
+        max-width: 640px;
+    }
+    .copilot-greeting h2 {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin: 0 0 0.25rem;
+        letter-spacing: -0.02em;
+    }
+    .copilot-greeting p {
+        font-size: 1rem;
+        color: #94a3b8;
+        margin: 0;
+    }
+    /* Suggestion pills - row of buttons below chat bar, small & secondary */
+    .copilot-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        justify-content: center;
+        margin-top: 1rem;
+    }
+    
+    /* De-emphasize expander (filters/options) - subtle so chat bar stands out */
+    .streamlit-expanderHeader {
+        font-size: 0.85rem !important;
+        color: #94a3b8 !important;
+    }
+    
+    /* Input bar DOMINANT - suggestions secondary: de-emphasize Example Questions & Popular queries */
+    div[data-testid="stVerticalBlock"] > div:has(button) {
+        opacity: 0.92;
+    }
+    /* Make suggestion headings smaller and muted */
+    .stMarkdown h3 {
+        font-size: 0.95rem !important;
+        color: #94a3b8 !important;
+        font-weight: 500 !important;
+    }
+    /* Empty-state message - subtle, don't compete with input */
+    .stAlert {
+        font-size: 0.875rem !important;
+        opacity: 0.9;
+    }
+    /* Conversation header - compact */
+    .stMarkdown h3:has(+ div) {
+        font-size: 0.9rem !important;
+        color: #64748b !important;
+    }
+    
+    /* Secondary content - de-emphasized, compact */
+    .chat-secondary-section {
+        opacity: 0.9;
+        font-size: 0.9rem;
     }
     
     /* Selectbox dropdown */
     .stSelectbox>div>div>div {
         background: #1e293b;
         color: #e2e8f0;
+    }
+    
+    /* Typing indicator - animated dots while waiting for first token */
+    .typing-dots span {
+        animation: typing-blink 1.4s infinite;
+        opacity: 0.4;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing-blink {
+        0%, 60%, 100% { opacity: 0.4; }
+        30% { opacity: 1; }
+    }
+    
+    /* Pulse highlight on assistant message while streaming */
+    .message-bot.streaming {
+        animation: streaming-pulse 2s ease-in-out infinite;
+        box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+    }
+    @keyframes streaming-pulse {
+        0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.2), 0 0 0 1px rgba(59, 130, 246, 0.2); }
+        50% { box-shadow: 0 2px 12px rgba(0,0,0,0.25), 0 0 0 2px rgba(59, 130, 246, 0.4); }
+    }
+    
+    /* Copilot-style empty state: greeting, centered layout, pill suggestions */
+    .copilot-greeting {
+        text-align: center;
+        padding: 3rem 0 2rem 0;
+    }
+    .copilot-greeting h2 {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin: 0;
+        letter-spacing: -0.02em;
+    }
+    .copilot-greeting p {
+        font-size: 1rem;
+        color: #94a3b8;
+        margin-top: 0.5rem;
+    }
+    .copilot-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        justify-content: center;
+        margin: 1rem 0;
+    }
+    .copilot-pills .stButton {
+        flex: 0 0 auto;
+    }
+    .copilot-pills .stButton > button {
+        border-radius: 16px;
+        padding: 0.35rem 0.75rem;
+        font-size: 0.8rem;
+        background: rgba(30, 41, 59, 0.6);
+        border: 1px solid rgba(71, 85, 105, 0.4);
     }
     </style>
     """,
@@ -627,6 +1270,8 @@ if "kb_status" not in st.session_state:
     st.session_state.kb_status = None
 if "show_documents" not in st.session_state:
     st.session_state.show_documents = False
+if "show_upload" not in st.session_state:
+    st.session_state.show_upload = False
 if "selected_documents" not in st.session_state:
     st.session_state.selected_documents = []  # List of document filenames to filter by
 if "show_advanced_filters" not in st.session_state:
@@ -667,8 +1312,136 @@ if "pending_2fa_username" not in st.session_state:
     st.session_state.pending_2fa_username = None
 if "2fa_setup_data" not in st.session_state:
     st.session_state["2fa_setup_data"] = None
+if "show_profile" not in st.session_state:
+    st.session_state.show_profile = False
+if "show_sessions" not in st.session_state:
+    st.session_state.show_sessions = False
+if "show_audit_logs" not in st.session_state:
+    st.session_state.show_audit_logs = False
+if "show_export_backup" not in st.session_state:
+    st.session_state.show_export_backup = False
+if "show_history" not in st.session_state:
+    st.session_state.show_history = False
+if "show_saved_queries" not in st.session_state:
+    st.session_state.show_saved_queries = False
+if "show_conversations" not in st.session_state:
+    st.session_state.show_conversations = False
+if "conversation_order" not in st.session_state:
+    st.session_state.conversation_order = "oldest_first"  # Chronological default; "newest_first" for reverse
 
 MAX_HISTORY = 50
+
+# Navigation: page ID -> (label, session_state_key)
+NAV_OPTIONS = [
+    ("🏠 Chat", "chat"),
+    ("📚 Documents", "documents"),
+    ("📤 Upload", "upload"),
+    ("🕐 History", "history"),
+    ("💾 Saved Queries", "saved_queries"),
+    ("📋 Conversations", "conversations"),
+    ("👤 Profile", "profile"),
+    ("🔑 Change Password", "change_password"),
+    ("🔐 2FA", "2fa"),
+    ("📱 Sessions", "sessions"),
+    ("👥 Manage Users", "user_management"),
+    ("📋 Audit Logs", "audit_logs"),
+    ("💾 Export & Backup", "export_backup"),
+    ("📈 Metrics", "health"),
+]
+NAV_LABEL_TO_KEY = {label: key for label, key in NAV_OPTIONS}
+NAV_KEY_TO_LABEL = {key: label for label, key in NAV_OPTIONS}
+VALID_VIEW_KEYS = {key for _, key in NAV_OPTIONS}
+
+
+def apply_view_from_query_params():
+    """Deep linking: if URL has ?view=documents etc., navigate to that page on load."""
+    view = st.query_params.get("view")
+    if not view or view not in VALID_VIEW_KEYS:
+        return
+    # Admin-only views: require admin role
+    admin_views = {"user_management", "audit_logs", "export_backup"}
+    if view in admin_views:
+        user = st.session_state.get("current_user") or {}
+        if user.get("role") != "admin":
+            return
+    current = get_current_nav_page()
+    if view != current:
+        navigate_to_page(view)
+        st.query_params["view"] = view
+
+
+def get_current_nav_page():
+    """Return the current page ID based on session state."""
+    if st.session_state.show_documents:
+        return "documents"
+    if st.session_state.show_upload:
+        return "upload"
+    if st.session_state.show_history:
+        return "history"
+    if st.session_state.show_saved_queries:
+        return "saved_queries"
+    if st.session_state.show_conversations:
+        return "conversations"
+    if st.session_state.show_profile:
+        return "profile"
+    if st.session_state.show_change_password:
+        return "change_password"
+    if st.session_state.show_2fa_setup:
+        return "2fa"
+    if st.session_state.show_sessions:
+        return "sessions"
+    if st.session_state.show_user_management:
+        return "user_management"
+    if st.session_state.show_audit_logs:
+        return "audit_logs"
+    if st.session_state.show_export_backup:
+        return "export_backup"
+    if st.session_state.show_health:
+        return "health"
+    return "chat"
+
+def navigate_to_page(page_key: str):
+    """Clear all show flags and set the target page."""
+    st.session_state.show_documents = False
+    st.session_state.show_upload = False
+    st.session_state.show_history = False
+    st.session_state.show_saved_queries = False
+    st.session_state.show_conversations = False
+    st.session_state.show_profile = False
+    st.session_state.show_change_password = False
+    st.session_state.show_2fa_setup = False
+    st.session_state.show_sessions = False
+    st.session_state.show_user_management = False
+    st.session_state.show_audit_logs = False
+    st.session_state.show_export_backup = False
+    st.session_state.show_health = False
+    if page_key == "documents":
+        st.session_state.show_documents = True
+    elif page_key == "upload":
+        st.session_state.show_upload = True
+    elif page_key == "history":
+        st.session_state.show_history = True
+    elif page_key == "saved_queries":
+        st.session_state.show_saved_queries = True
+    elif page_key == "conversations":
+        st.session_state.show_conversations = True
+    elif page_key == "profile":
+        st.session_state.show_profile = True
+    elif page_key == "change_password":
+        st.session_state.show_change_password = True
+    elif page_key == "2fa":
+        st.session_state.show_2fa_setup = True
+    elif page_key == "sessions":
+        st.session_state.show_sessions = True
+    elif page_key == "user_management":
+        st.session_state.show_user_management = True
+    elif page_key == "audit_logs":
+        st.session_state.show_audit_logs = True
+    elif page_key == "export_backup":
+        st.session_state.show_export_backup = True
+    elif page_key == "health":
+        st.session_state.show_health = True
+    # chat: all show_* remain False
 
 # Authentication check and login UI
 def get_auth_headers():
@@ -745,12 +1518,22 @@ if not st.session_state.authenticated:
         except:
             pass  # Will show error in form
     
-    st.title("🔐 Authentication Required")
+    # Auth header with polished styling
+    st.markdown(
+        """
+        <div class="auth-card">
+            <div class="auth-header">🔐 Welcome to Incident Assistant</div>
+            <div class="auth-subtitle">Sign in or create an account to access the knowledge base</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown("<div class='auth-tabs'>", unsafe_allow_html=True)
     
     tab1, tab2 = st.tabs(["Login", "Register"])
     
     with tab1:
-        st.markdown("### Login")
+        st.markdown("#### Sign in to your account")
         
         # Password reset link
         if st.session_state.show_password_reset:
@@ -807,7 +1590,7 @@ if not st.session_state.authenticated:
                                         "token": st.session_state.password_reset_token,
                                         "new_password": new_password
                                     },
-                                    timeout=10
+                                    timeout=30
                                 )
                                 if response.status_code == 200:
                                     st.success("✅ Password reset successful! You can now login with your new password.")
@@ -875,10 +1658,10 @@ if not st.session_state.authenticated:
                 st.rerun()
             
             with st.form("login_form"):
-                username = st.text_input("Username", key="login_username")
-                password = st.text_input("Password", type="password", key="login_password")
+                username = st.text_input("Username", key="login_username", placeholder="Enter your username")
+                password = st.text_input("Password", type="password", key="login_password", placeholder="Enter your password")
                 
-                submit = st.form_submit_button("Login", use_container_width=True)
+                submit = st.form_submit_button("Sign in", use_container_width=True, type="primary")
                 
                 if submit:
                     if username and password:
@@ -995,7 +1778,7 @@ if not st.session_state.authenticated:
                     upper: /[A-Z]/.test(password),
                     lower: /[a-z]/.test(password),
                     number: /[0-9]/.test(password),
-                    special: /[!@#$%^&*()_+\\-=\[\]{}|;:,.<>?]/.test(password)
+                    special: /[!@#$%^&*()_+\\-=\\[\\]{}|;:,.<>?]/.test(password)
                 };
                 
                 // Update UI
@@ -1111,10 +1894,10 @@ if not st.session_state.authenticated:
         """, unsafe_allow_html=True)
         
         with st.form("register_form"):
-            reg_username = st.text_input("Username", key="reg_username")
-            reg_email = st.text_input("Email", key="reg_email")
-            reg_password = st.text_input("Password", type="password", key="reg_password", help="See password requirements above")
-            reg_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm")
+            reg_username = st.text_input("Username", key="reg_username", placeholder="Choose a username")
+            reg_email = st.text_input("Email", key="reg_email", placeholder="you@example.com")
+            reg_password = st.text_input("Password", type="password", key="reg_password", placeholder="••••••••", help="See password requirements above")
+            reg_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm", placeholder="••••••••")
             reg_role = st.selectbox("Role", ["user", "admin"], key="reg_role", help="Note: Admin role creation may be restricted")
             submit_reg = st.form_submit_button("Register", use_container_width=True)
             
@@ -1146,207 +1929,224 @@ if not st.session_state.authenticated:
                 else:
                     st.warning("⚠️ Please fill in all fields")
     
-    st.info("💡 **Default Admin Credentials:** username: `admin`, password: `REDACTED`")
+    with st.expander("🔑 Default credentials (for first-time setup)", expanded=False):
+        st.code("username: admin\npassword: REDACTED", language="text")
+        st.caption("Use these to sign in if the admin account was seeded during setup.")
     st.stop()
 
 # Main app (only shown if authenticated)
-# Simplified Sidebar
+# Deep linking: open view from URL (?view=documents etc.)
+apply_view_from_query_params()
+
+# Sidebar - organized into clear sections
 with st.sidebar:
-    # User info and logout
+    # --- User block (compact) ---
     if st.session_state.current_user:
         user = st.session_state.current_user
-        role_badge = "👑 Admin" if user.get("role") == "admin" else "👤 User"
-        st.markdown(f"### {user.get('username', 'User')}")
-        st.caption(f"{role_badge}")
-        
-        if st.button("🚪 Logout", use_container_width=True):
-            # Clear session state
+        role_badge = "👑" if user.get("role") == "admin" else "👤"
+        st.markdown(f"**{user.get('username', 'User')}** {role_badge}")
+        if st.button("🚪 Logout", use_container_width=True, key="sidebar_logout"):
             st.session_state.authenticated = False
             st.session_state.access_token = None
             st.session_state.current_user = None
             st.session_state.chat_history = []
-            # Clear token from query params
+            st.session_state.pop("_last_processed_query", None)
             st.query_params.clear()
             st.rerun()
-        
         st.markdown("---")
-    
-    # Quick Status (compact)
-    if st.session_state.api_status:
-        status_class = "status-online" if st.session_state.api_status == "online" else "status-offline"
-        status_text = "🟢 Connected" if st.session_state.api_status == "online" else "🔴 Offline"
-        st.markdown(f'<div class="status-badge {status_class}">{status_text}</div>', unsafe_allow_html=True)
-    
-    if st.session_state.kb_status is not None:
-        kb_data = st.session_state.kb_status
-        if isinstance(kb_data, dict):
-            chunk_count = kb_data.get("knowledge_base_chunks", 0)
-            doc_count = kb_data.get("document_count", 0)
-            if chunk_count > 0:
-                st.caption(f"📚 {chunk_count} chunks • {doc_count} docs")
-        else:
-            chunk_count = kb_data if isinstance(kb_data, int) else 0
-            if chunk_count > 0:
-                st.caption(f"📚 {chunk_count} chunks")
-    
-    # Cache status (if available and API is online)
-    if st.session_state.api_status == "online":
-        try:
-            cache_resp = requests.get(f"{API_URL}/cache/stats", timeout=2)
-            if cache_resp.status_code == 200:
-                cache_data = cache_resp.json()
-                if cache_data.get("enabled"):
-                    hit_rate = cache_data.get("hit_rate", 0)
-                    cache_size = cache_data.get("size", 0)
-                    max_size = cache_data.get("max_size", 0)
-                    if cache_size > 0:
-                        st.caption(f"⚡ Cache: {hit_rate:.0f}% hit ({cache_size}/{max_size})")
-        except:
-            pass  # Cache status is optional, don't fail if unavailable
-    
+
+    # --- Navigation (grouped with section headers) ---
+    nav_groups = [
+        ("Main", ["🏠 Chat", "📚 Documents"]),
+        ("Data", ["🕐 History", "💾 Saved Queries", "📋 Conversations"]),
+        ("Account", ["👤 Profile", "🔑 Change Password", "🔐 2FA", "📱 Sessions"]),
+        ("Admin", ["👥 Manage Users", "📋 Audit Logs", "💾 Export & Backup"]),
+        ("System", ["📈 Metrics"]),
+    ]
+    is_admin = st.session_state.current_user and st.session_state.current_user.get("role") == "admin"
+    current_page = get_current_nav_page()
+
+    for cat, items in nav_groups:
+        if cat == "Admin" and not is_admin:
+            continue
+        st.caption(f"▸ {cat}")
+        for label in items:
+            if label not in NAV_LABEL_TO_KEY:
+                continue
+            key = NAV_LABEL_TO_KEY[label]
+            is_active = current_page == key
+            btn_type = "primary" if is_active else "secondary"
+            if st.button(label, key=f"side_nav_{key}", use_container_width=True, type=btn_type):
+                if key != current_page:
+                    navigate_to_page(key)
+                    st.query_params["view"] = key
+                    st.rerun()
+
     st.markdown("---")
-    
-    # Main Actions (most used)
-    if st.button("📚 Documents", use_container_width=True):
-        st.session_state.show_documents = True
-        st.rerun()
-    
-    if st.button("💬 New Chat", use_container_width=True):
-        try:
-            resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
-            if resp.status_code == 200:
-                conv = resp.json()
-                st.session_state.current_conversation_id = conv.get("id")
-                st.session_state.chat_history = []
-                st.rerun()
+
+    # --- Search options (simplified, single expander) ---
+    with st.expander("🔍 Search options", expanded=False):
+        st.markdown("### 📄 Search Filters")
+        col_filter_toggle, col_advanced = st.columns([3, 1])
+        with col_filter_toggle:
+            if st.checkbox("🔍 Enable Advanced Filters", value=st.session_state.show_advanced_filters, key="advanced_filters_toggle"):
+                st.session_state.show_advanced_filters = True
             else:
-                st.warning(f"⚠️ Failed to create conversation: {resp.status_code}")
-        except requests.exceptions.ConnectionError:
-            st.error("❌ Cannot connect to API. Please ensure the server is running.")
-        except requests.exceptions.Timeout:
-            st.warning("⏱️ Request timed out. Please try again.")
-        except Exception as e:
-            logger.error(f"Error creating conversation: {e}")
-            st.warning(f"⚠️ Error: {str(e)}")
-    
-    if st.button("🗑️ Clear Chat", use_container_width=True):
-        st.session_state.chat_history = []
-        if st.session_state.current_conversation_id:
+                st.session_state.show_advanced_filters = False
+
+        if st.session_state.show_advanced_filters:
             try:
-                resp = requests.post(f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear", timeout=5)
-                if resp.status_code != 200:
-                    logger.warning(f"Failed to clear conversation on server: {resp.status_code}")
-            except requests.exceptions.ConnectionError:
-                logger.warning("Cannot connect to API to clear conversation")
-            except Exception as e:
-                logger.warning(f"Error clearing conversation: {e}")
-        st.rerun()
-    
+                docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=5)
+                if docs_resp.status_code == 200:
+                    data = docs_resp.json()
+                    available_docs = data.get("documents", [])
+                    if available_docs:
+                        doc_names = [doc.get("filename", "") for doc in available_docs]
+                        file_types = list(set([doc.get("file_type", "").upper() for doc in available_docs if doc.get("file_type")]))
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            selected_docs = st.multiselect(
+                                "📄 Include Documents",
+                                options=doc_names,
+                                default=st.session_state.selected_documents,
+                                help="Select documents to search. Leave empty to search all."
+                            )
+                            st.session_state.selected_documents = selected_docs
+                            selected_types = st.multiselect("📁 File Types", options=file_types, help="Filter by file types")
+                            excluded_docs = st.multiselect("🚫 Exclude Documents", options=doc_names, help="Documents to exclude from search")
+                        with col2:
+                            st.markdown("**📅 Date Range**")
+                            date_from = st.date_input("From Date", value=None, help="Filter by processing date from")
+                            date_to = st.date_input("To Date", value=None, help="Filter by processing date to")
+                            min_relevance = st.slider("Minimum Relevance", min_value=0.0, max_value=1.0, value=0.0, step=0.1, help="Minimum relevance score")
+                            max_results = st.number_input("Max Results", min_value=1, max_value=20, value=4, help="Maximum number of results to return")
+                        st.session_state.advanced_filters = {
+                            "document_names": selected_docs if selected_docs else None,
+                            "file_types": [t.lower() for t in selected_types] if selected_types else None,
+                            "date_from": date_from.strftime("%Y-%m-%d") if date_from else None,
+                            "date_to": date_to.strftime("%Y-%m-%d") if date_to else None,
+                            "min_relevance": min_relevance if min_relevance > 0 else None,
+                            "max_results": max_results if max_results != 4 else None,
+                            "exclude_documents": excluded_docs if excluded_docs else None
+                        }
+                        active_filters = []
+                        if selected_docs:
+                            active_filters.append(f"{len(selected_docs)} document(s)")
+                        if selected_types:
+                            active_filters.append(f"{len(selected_types)} file type(s)")
+                        if date_from or date_to:
+                            active_filters.append("date range")
+                        if min_relevance > 0:
+                            active_filters.append(f"relevance ≥ {min_relevance:.1f}")
+                        if excluded_docs:
+                            active_filters.append(f"excluding {len(excluded_docs)} doc(s)")
+                        if active_filters:
+                            st.info(f"🔍 **Active filters:** {', '.join(active_filters)}")
+                        else:
+                            st.caption("No documents available. Upload documents to enable filtering.")
+                    else:
+                        st.caption("No documents available. Upload documents to enable filtering.")
+                else:
+                    st.caption("Unable to load document list for filtering.")
+            except Exception:
+                st.caption("Filtering unavailable (API connection issue)")
+        else:
+            # Simple document filter
+            try:
+                try:
+                    docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=30)
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Cannot connect to API. Make sure the API server is running.")
+                    docs_resp = None
+                
+                if docs_resp and docs_resp.status_code == 200:
+                    data = docs_resp.json()
+                    available_docs = data.get("documents", [])
+
+                    if available_docs:
+                        doc_names = [doc.get("filename", "") for doc in available_docs]
+                        selected = st.multiselect(
+                            "Select documents to search (leave empty to search all documents)",
+                            options=doc_names,
+                            default=st.session_state.selected_documents,
+                            key="document_filter_select",
+                            help="Choose specific documents to search. Leave empty to search all documents in the knowledge base."
+                        )
+                        st.session_state.selected_documents = selected
+                        if selected:
+                            st.info(f"🔍 **Filtering by {len(selected)} document(s):** {', '.join(selected[:3])}{'...' if len(selected) > 3 else ''}")
+                        else:
+                            st.caption("💡 Searching all documents in knowledge base")
+                    else:
+                        st.caption("No documents available. Upload documents to enable filtering.")
+            except Exception:
+                st.caption("Filtering unavailable (API connection issue)")
+
+        st.markdown("---")
+        @st.fragment
+        def streaming_toggle_fragment():
+            st.checkbox(
+                "⚡ Enable Real-time Streaming",
+                value=st.session_state.enable_streaming,
+                key="enable_streaming",
+                help="Enable real-time streaming to see responses as they're generated"
+            )
+        streaming_toggle_fragment()
+
     st.markdown("---")
     
-    # More Options (collapsible)
-    with st.expander("⚙️ More Options", expanded=False):
-        # Account Settings
-        if st.session_state.current_user:
-            if st.button("👤 Profile", use_container_width=True):
-                st.session_state.show_profile = True
-                st.rerun()
-            
-            if st.button("🔑 Change Password", use_container_width=True):
-                st.session_state.show_change_password = True
-                st.rerun()
-            
-            if st.button("🔐 2FA", use_container_width=True):
-                st.session_state.show_2fa_setup = True
-                st.rerun()
-            
-            if st.button("📱 Sessions", use_container_width=True):
-                st.session_state.show_sessions = True
-                st.rerun()
-            
-            # Admin only
-            if user.get("role") == "admin":
-                st.markdown("---")
-                if st.button("👥 Manage Users", use_container_width=True):
-                    st.session_state.show_user_management = True
-                    st.rerun()
-                
-                if st.button("📋 Audit Logs", use_container_width=True):
-                    st.session_state.show_audit_logs = True
-                    st.rerun()
-                
-                if st.button("💾 Export & Backup", use_container_width=True):
-                    st.session_state.show_export_backup = True
-                    st.rerun()
-        
-        st.markdown("---")
-        
-        # History & Data
-        if st.button("🕐 History", use_container_width=True):
-            st.session_state.show_history = True
-            st.rerun()
-        
-        if st.button("💾 Saved Queries", use_container_width=True):
-            st.session_state.show_saved_queries = True
-            st.rerun()
-        
-        if st.button("📋 Conversations", use_container_width=True):
-            st.session_state.show_conversations = True
-            st.rerun()
-        
-        if st.button("📈 Metrics", use_container_width=True):
-            st.session_state.show_health = True
-            st.rerun()
-        
-        if st.button("📥 Export Chat", use_container_width=True):
-            if st.session_state.chat_history:
-                export_text = "\n\n".join([
-                    f"**You:** {msg[0]}\n**Assistant:** {msg[1]}"
-                    for msg in st.session_state.chat_history
-                ])
-                st.download_button(
-                    "⬇️ Download",
-                    export_text,
-                    file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-        
-        # API Status Check
-        if st.button("🔄 Check Status", use_container_width=True):
+    # Quick actions (chat-related)
+    st.markdown("**Quick Actions**")
+    col_new, col_clear = st.columns(2)
+    with col_new:
+        if st.button("💬 New Chat", use_container_width=True, help="Start a new conversation"):
+            st.session_state.pop("_last_processed_query", None)  # Clear so new query can process
             try:
-                status_resp = requests.get(f"{API_URL}/status", timeout=2)
-                if status_resp.status_code == 200:
-                    status_data = status_resp.json()
-                    st.session_state.api_status = "online"
-                    st.session_state.kb_status = status_data
-                    
-                    # Also check cache status
-                    try:
-                        cache_resp = requests.get(f"{API_URL}/cache/stats", timeout=2)
-                        if cache_resp.status_code == 200:
-                            cache_data = cache_resp.json()
-                            if cache_data.get("enabled"):
-                                hit_rate = cache_data.get("hit_rate", 0)
-                                cache_size = cache_data.get("size", 0)
-                                st.success(f"✅ Connected | ⚡ Cache: {hit_rate:.1f}% hit rate ({cache_size} entries)")
-                            else:
-                                st.success("✅ Connected")
-                        else:
-                            st.success("✅ Connected")
-                    except:
-                        st.success("✅ Connected")
-                    
+                resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
+                if resp.status_code == 200:
+                    conv = resp.json()
+                    st.session_state.current_conversation_id = conv.get("id")
+                    st.session_state.chat_history = []
+                    st.session_state.pop("_last_processed_query", None)
                     st.rerun()
                 else:
-                    st.session_state.api_status = "offline"
-                    st.error("❌ Error")
+                    st.warning(f"⚠️ Failed: {resp.status_code}")
             except requests.exceptions.ConnectionError:
-                st.session_state.api_status = "offline"
-                st.error(get_api_connection_error_message())
+                st.error("❌ Cannot connect to API.")
             except Exception as e:
-                st.session_state.api_status = "offline"
-                st.error(f"❌ Error: {str(e)}")
+                logger.error(f"Error creating conversation: {e}")
+                st.warning(f"⚠️ Error: {str(e)}")
+    with col_clear:
+        if st.button("🗑️ Clear", use_container_width=True, help="Clear current chat"):
+            st.session_state.chat_history = []
+            st.session_state.pop("_last_processed_query", None)
+            if st.session_state.current_conversation_id:
+                try:
+                    requests.post(f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear", timeout=5)
+                except:
+                    pass
+            st.rerun()
+    
+    # Export Chat & Check Status
+    if st.session_state.chat_history:
+        export_lines = []
+        for msg in st.session_state.chat_history:
+            role = msg[0]
+            content = msg[1] if len(msg) > 1 else ""
+            timestamp = msg[2] if len(msg) > 2 else ""
+            if role == "user":
+                export_lines.append(f"**You** [{timestamp}]:\n{content}")
+            else:
+                export_lines.append(f"**Assistant** [{timestamp}]:\n{content}")
+        export_text = "\n\n---\n\n".join(export_lines)
+        st.download_button(
+            "📥 Export Chat",
+            export_text,
+            file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            key="sidebar_export_chat"
+        )
     
     # File Upload (always visible at bottom)
     st.markdown("---")
@@ -1403,11 +2203,12 @@ with st.sidebar:
                     if upload_resp.status_code == 200:
                         st.session_state[upload_key] = True  # Mark as uploaded
                         st.success(f"✅ {uploaded_file.name} uploaded successfully!")
+                        st.info("💡 Document is being processed in the background. It may take 10–30 seconds to appear in **Documents**. Open Documents and click **🔄 Refresh** to see it.")
                         logger.info(f"Uploaded: {uploaded_file.name}")
                         # Refresh KB status without rerun (to avoid infinite loop)
                         time.sleep(1)
                         try:
-                            status_resp = requests.get(f"{API_URL}/status", timeout=2)
+                            status_resp = requests.get(f"{API_URL}/status", headers=get_auth_headers(), timeout=2)
                             if status_resp.status_code == 200:
                                 st.session_state.kb_status = status_resp.json()
                         except requests.exceptions.ConnectionError:
@@ -1489,7 +2290,7 @@ with st.sidebar:
                         # Refresh KB status without rerun (to avoid infinite loop)
                         time.sleep(1)
                         try:
-                            status_resp = requests.get(f"{API_URL}/status", timeout=2)
+                            status_resp = requests.get(f"{API_URL}/status", headers=get_auth_headers(), timeout=2)
                             if status_resp.status_code == 200:
                                 st.session_state.kb_status = status_resp.json()
                         except:
@@ -1506,6 +2307,15 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 
+    # Footer - in sidebar so chat bar is the last element in main area
+    st.markdown("---")
+    st.markdown(
+        "<div style='text-align: center; color: #6b7280; font-size: 0.8rem;'>"
+        "Powered by FastAPI & Streamlit | Incident Assistant v1.0"
+        "</div>",
+        unsafe_allow_html=True
+    )
+
 # Sidebar toggle helper banner
 st.markdown(
     """
@@ -1515,27 +2325,108 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Main content - Copilot style header
+# ===== ZONE-BASED LAYOUT: Top bar (Header + Primary Nav) =====
+current_page = get_current_nav_page()
+is_admin = st.session_state.current_user and st.session_state.current_user.get("role") == "admin"
+
+# Top zone: logo above, then nav bar (Menu | Chat Documents | avatar)
 st.markdown(
     """
-    <div class="header-container">
-        <h1 class="header-title">Knowledge Assistant</h1>
-        <p class="header-subtitle">Ask questions about your documents</p>
+    <div class="zone-top-nav">
+        <div class="nav-brand-row">
+            <div class="nav-brand">
+                <span class="nav-brand-icon">📚</span>
+                <span class="nav-brand-text">Incident Assistant</span>
+            </div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True
 )
+st.markdown('<div class="nav-bar-row">', unsafe_allow_html=True)
+col_open_sidebar, col_nav, col_avatar = st.columns([1, 4, 1])
+with col_open_sidebar:
+    # Reopen sidebar - add ?sidebar=open and force full reload via link (form/script unreliable in Streamlit)
+    _params = dict(st.query_params)
+    _params["sidebar"] = "open"
+    from urllib.parse import urlencode
+    _href = "?" + urlencode(_params)
+    st.markdown(
+        f'<a href="{html.escape(_href)}" class="btn-open-sidebar" title="Open sidebar" target="_self">☰</a>',
+        unsafe_allow_html=True
+    )
+with col_nav:
+    st.markdown('<div class="nav-buttons-marker"></div>', unsafe_allow_html=True)
+    nav_items = [
+        ("💬 Chat", "chat"),
+        ("📄 Documents", "documents"),
+        ("📤 Upload", "upload"),
+        ("🕐 History", "history"),
+        ("👤 Account", "profile"),
+    ]
+    if is_admin:
+        nav_items.append(("⚙️ Admin", "user_management"))
+    cols = st.columns(len(nav_items))
+    for i, (label, key) in enumerate(nav_items):
+        with cols[i]:
+            is_active = current_page == key or (key == "history" and current_page in ("history", "saved_queries", "conversations"))
+            if key == "profile":
+                is_active = current_page in ("profile", "change_password", "2fa", "sessions")
+            if key == "user_management":
+                is_active = current_page in ("user_management", "audit_logs", "export_backup", "health")
+            btn_type = "primary" if is_active else "secondary"
+            if st.button(label, key=f"nav_{key}", use_container_width=True, type=btn_type):
+                target = key
+                if key == "history":
+                    target = "history"
+                # Documents toggle: if already showing documents, close the dashboard
+                if key == "documents" and current_page == "documents":
+                    st.session_state.show_documents = False
+                    st.query_params["view"] = "chat"
+                    st.rerun()
+                # Upload toggle: if already on upload, return to chat
+                elif key == "upload" and current_page == "upload":
+                    st.session_state.show_upload = False
+                    st.query_params["view"] = "chat"
+                    st.rerun()
+                else:
+                    navigate_to_page(target)
+                    st.query_params["view"] = target
+                    st.rerun()
+with col_avatar:
+    st.markdown('<div class="nav-avatar-col"></div>', unsafe_allow_html=True)
+    user = st.session_state.get("current_user") or {}
+    username = user.get("username", "User")
+    initial = (username[0] if username else "U").upper()
+    # Narrow slot so avatar stays circular (not pill-shaped)
+    _a1, _a2, _a3 = st.columns([1, 1, 1])
+    with _a2:
+        if st.button(initial, key="nav_avatar_btn", help=f"Profile: {username}", use_container_width=True):
+            navigate_to_page("profile")
+            st.query_params["view"] = "profile"
+            st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Document Management Dashboard
 if st.session_state.get("show_documents", False):
     st.markdown("---")
-    st.markdown("### 📚 Document Management Dashboard")
+    col_title, col_refresh, col_close = st.columns([3, 1, 1])
+    with col_title:
+        st.markdown("### 📚 Document Management Dashboard")
+    with col_refresh:
+        if st.button("🔄 Refresh", key="refresh_documents", use_container_width=True, help="Refresh the document list (use after uploading new files)"):
+            st.rerun()
+    with col_close:
+        if st.button("✕ Close", key="close_documents_dashboard", use_container_width=True, help="Close document dashboard and return to chat"):
+            st.session_state.show_documents = False
+            st.query_params["view"] = "chat"
+            st.rerun()
     
     # Show loading spinner
     try:
         with st.spinner("Loading documents..."):
             try:
-                docs_resp = requests.get(f"{API_URL}/documents", timeout=30)
+                docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=30)
             except requests.exceptions.ConnectionError:
                 st.error(get_api_connection_error_message())
                 docs_resp = None
@@ -1561,6 +2452,8 @@ if st.session_state.get("show_documents", False):
             
             if total_docs == 0:
                 st.info("📭 No documents in the knowledge base. Upload documents to get started!")
+                st.caption("💡 **Just uploaded?** Processing takes 10–30 seconds. Click **🔄 Refresh** above to check again.")
+                st.caption("💡 If you just uploaded a file, wait 10–30 seconds for processing, then click **Refresh** above.")
             else:
                 st.markdown("---")
                 
@@ -1674,7 +2567,7 @@ if st.session_state.get("show_documents", False):
                         
                         with col_check:
                             st.checkbox(
-                                "",
+                                f"Select {filename or 'document'}",
                                 value=st.session_state.get(checkbox_key, False),
                                 key=checkbox_key,
                                 label_visibility="collapsed"
@@ -1728,6 +2621,7 @@ if st.session_state.get("show_documents", False):
                                         try:
                                             delete_resp = requests.delete(
                                                 f"{API_URL}/documents/{doc.get('filename')}",
+                                                headers=get_auth_headers(),
                                                 timeout=10
                                             )
                                             if delete_resp.status_code == 200:
@@ -1763,12 +2657,115 @@ if st.session_state.get("show_documents", False):
         st.info("💡 **Tip:** If you have many documents, the query may take longer. The timeout has been increased to 30 seconds.")
     except requests.exceptions.ConnectionError:
         st.error("❌ Cannot connect to API. Make sure the API server is running.")
-        st.info("💡 **Tip:** Start the API server with: `python run_api.py`")
+        st.info("💡 **Tip:** Start the API server with: `python run.py api`")
     except Exception as e:
         st.error(f"❌ Error loading documents: {str(e)}")
         st.info("💡 **Tip:** Check the API logs in `logs/api.log` for more details.")
     
     st.markdown("---")
+
+# Upload view - primary focus for adding documents to the knowledge base
+if st.session_state.get("show_upload", False):
+    st.markdown("---")
+    col_title, col_close = st.columns([4, 1])
+    with col_title:
+        st.markdown("### 📤 Upload Documents")
+        st.caption("Add documents to your knowledge base. Supported formats: PDF, Word, TXT, CSV, HTML.")
+    with col_close:
+        if st.button("✕ Close", key="close_upload_view", use_container_width=True, help="Return to chat"):
+            st.session_state.show_upload = False
+            st.query_params["view"] = "chat"
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Upload UI - prominent in main area
+    up_col1, up_col2 = st.columns(2)
+    with up_col1:
+        uploaded_file = st.file_uploader(
+            "📄 Upload Single Document",
+            type=["pdf", "docx", "txt", "csv", "html"],
+            help="Upload a single document to enhance the knowledge base",
+            key="upload_view_single"
+        )
+    with up_col2:
+        uploaded_files = st.file_uploader(
+            "📚 Upload Multiple Documents (Bulk)",
+            type=["pdf", "docx", "txt", "csv", "html"],
+            help="Upload multiple documents at once",
+            accept_multiple_files=True,
+            key="upload_view_bulk"
+        )
+    
+    if uploaded_file:
+        upload_key = f"upload_view_{uploaded_file.name}_{uploaded_file.size}"
+        if upload_key not in st.session_state:
+            st.session_state[upload_key] = False
+        if not st.session_state[upload_key]:
+            with st.spinner("Uploading..."):
+                try:
+                    file_ext = uploaded_file.name.split('.')[-1].lower()
+                    mime_types = {"pdf": "application/pdf", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "txt": "text/plain", "csv": "text/csv", "html": "text/html"}
+                    mime_type = mime_types.get(file_ext, "application/octet-stream")
+                    files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
+                    upload_resp = requests.post(f"{API_URL}/upload", files=files, headers=get_auth_headers(), timeout=30)
+                    if upload_resp.status_code == 200:
+                        st.session_state[upload_key] = True
+                        st.success(f"✅ {uploaded_file.name} uploaded!")
+                        st.info("💡 Processing in background (10–30s). Go to **Documents** and click **🔄 Refresh** to see it.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Upload failed: {upload_resp.status_code}")
+                except requests.exceptions.ConnectionError:
+                    st.error(get_api_connection_error_message())
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+        else:
+            st.success(f"✅ {uploaded_file.name} (already uploaded)")
+    
+    try:
+        has_uploaded_files = uploaded_files is not None and len(uploaded_files) > 0
+    except (NameError, TypeError):
+        has_uploaded_files = False
+    
+    if has_uploaded_files:
+        files_key = "_".join([f"{f.name}_{f.size}" for f in uploaded_files])
+        bulk_upload_key = f"upload_view_bulk_{files_key}"
+        if bulk_upload_key not in st.session_state:
+            st.session_state[bulk_upload_key] = False
+        if not st.session_state[bulk_upload_key]:
+            with st.spinner(f"Uploading {len(uploaded_files)} file(s)..."):
+                try:
+                    files_data = []
+                    for uf in uploaded_files:
+                        file_ext = uf.name.split('.')[-1].lower()
+                        mime_types = {"pdf": "application/pdf", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "txt": "text/plain", "csv": "text/csv", "html": "text/html"}
+                        mime_type = mime_types.get(file_ext, "application/octet-stream")
+                        files_data.append(("files", (uf.name, uf, mime_type)))
+                    upload_resp = requests.post(f"{API_URL}/upload/bulk", files=files_data, headers=get_auth_headers(), timeout=120)
+                    if upload_resp.status_code == 200:
+                        st.session_state[bulk_upload_key] = True
+                        data = upload_resp.json()
+                        st.success(f"✅ Uploaded {data.get('successful', 0)} file(s)")
+                        if data.get('failed', 0) > 0:
+                            st.warning(f"⚠️ {data.get('failed', 0)} failed")
+                        st.info("💡 Processing in background. Go to **Documents** and click **🔄 Refresh**.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Bulk upload failed: {upload_resp.status_code}")
+                except requests.exceptions.ConnectionError:
+                    st.error(get_api_connection_error_message())
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+        else:
+            st.success(f"✅ Bulk upload already completed")
+    
+    st.markdown("---")
+    if st.button("📚 View Documents", use_container_width=True, key="upload_view_docs"):
+        st.session_state.show_upload = False
+        st.session_state.show_documents = True
+        st.query_params["view"] = "documents"
+        st.rerun()
 
 # Search History Dashboard
 if st.session_state.get("show_history", False):
@@ -1866,7 +2863,7 @@ if st.session_state.get("show_saved_queries", False):
                 saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=10)
             except requests.exceptions.ConnectionError:
                 st.error("❌ Cannot connect to API. Make sure the API server is running.")
-                st.info("💡 **Tip:** Start the API server with: `python run_api.py`")
+                st.info("💡 **Tip:** Start the API server with: `python run.py api`")
                 saved_resp = None
             except requests.exceptions.Timeout:
                 st.error("⏱️ Request timed out. Please try again.")
@@ -2027,12 +3024,24 @@ if st.session_state.get("show_conversations", False):
                                         timeout=5
                                     ).json()
                                     messages = conv_detail.get("messages", [])
-                                    st.session_state.chat_history = [
-                                        (msg.get("role"), msg.get("content"), msg.get("timestamp", "")[:5], msg.get("sources", []))
-                                        for msg in messages
-                                    ]
-                                except:
+                                    loaded_history = []
+                                    for msg in messages:
+                                        role = msg.get("role", "assistant")
+                                        content = msg.get("content", "")
+                                        timestamp = msg.get("timestamp", "")[:5] if msg.get("timestamp") else ""
+                                        sources = msg.get("sources", [])
+                                        
+                                        # Validate content - skip corrupted messages
+                                        if content and not (content.strip().startswith("<div") or content.strip().startswith("<span")):
+                                            loaded_history.append((role, content, timestamp, sources))
+                                        elif content:
+                                            logger.warning(f"Skipped corrupted message with HTML content: {content[:50]}")
+                                    
+                                    st.session_state.chat_history = loaded_history
+                                except Exception as e:
+                                    logger.error(f"Error loading conversation: {e}")
                                     st.session_state.chat_history = []
+                                st.session_state.pop("_last_processed_query", None)
                                 st.session_state.show_conversations = False
                                 st.rerun()
                         
@@ -2060,6 +3069,9 @@ if st.session_state.get("show_conversations", False):
                                         timeout=5
                                     )
                                     if clear_resp.status_code == 200:
+                                        if conv.get("id") == st.session_state.current_conversation_id:
+                                            st.session_state.chat_history = []
+                                            st.session_state.pop("_last_processed_query", None)
                                         st.success("✅ Cleared")
                                         time.sleep(0.5)
                                         st.rerun()
@@ -3275,8 +4287,11 @@ if st.session_state.get("show_profile", False):
             profile_data = profile_resp.json()
             user_info = profile_data.get("user", {})
             preferences = profile_data.get("preferences", {})
+            # Store preferences in session so chat uses them (e.g. language)
+            st.session_state.user_preferences = preferences
             
             # Display profile
+            st.markdown('<div class="profile-avatar-section"></div>', unsafe_allow_html=True)
             col1, col2 = st.columns([1, 2])
             
             with col1:
@@ -3422,6 +4437,7 @@ if st.session_state.get("show_profile", False):
                                     timeout=10
                                 )
                                 if prefs_resp.status_code == 200:
+                                    st.session_state.user_preferences = prefs_data
                                     st.success("✅ Preferences saved successfully!")
                                     st.rerun()
                                 else:
@@ -3450,9 +4466,8 @@ if st.session_state.get("show_profile", False):
                             st.text(user_info.get("created_at", "N/A"))
                     else:
                         st.text("N/A")
-                
-            with info_col2:
-                st.caption("**Last Login:**")
+                with info_col2:
+                    st.caption("**Last Login:**")
                 if user_info.get("last_login"):
                     try:
                         from datetime import datetime
@@ -3487,197 +4502,192 @@ if st.session_state.get("show_profile", False):
     
     st.markdown("---")
 
-# Troubleshooting section
-with st.expander("🔧 Troubleshooting: No results found?", expanded=False):
-    st.markdown("""
-    **If you're getting 'No relevant information found' even after uploading documents:**
-    
-    1. **⏱️ Wait for processing** - Documents are processed in the background. Wait 5-10 seconds after upload, then click "🔄 Check API Status" in the sidebar.
-    
-    2. **📊 Check knowledge base** - Use the sidebar status check to verify chunks were added. You should see chunk count > 0.
-    
-    3. **🔍 Try different queries** - Use keywords that are likely in your documents. Be specific but not too narrow.
-    
-    4. **📄 Verify document content** - Ensure your documents contain readable text (not just images or scanned PDFs).
-    
-    5. **💬 Rephrase your question** - Try:
-       - Using different keywords from your documents
-       - Asking more general questions first
-       - Breaking complex questions into simpler ones
-    
-    6. **📝 Check logs** - Review API logs in `logs/api.log` for processing errors.
-    """)
-
-# Add a prominent help section for sidebar access
-st.info("""
-""")
-
-# Document Filter Section
-st.markdown("### 📄 Search Filters")
-col_filter_toggle, col_advanced = st.columns([3, 1])
-with col_filter_toggle:
-    if st.checkbox("🔍 Enable Advanced Filters", value=st.session_state.show_advanced_filters, key="advanced_filters_toggle"):
-        st.session_state.show_advanced_filters = True
-    else:
-        st.session_state.show_advanced_filters = False
-
-if st.session_state.show_advanced_filters:
-    # Advanced Filters Section
-    with st.expander("🔧 Advanced Search Filters", expanded=True):
+# Example questions helper
+def get_example_questions():
+    raw = os.environ.get("EXAMPLE_QUESTIONS", "").strip()
+    if not raw:
+        return ["What is the billing process?", "How do I handle a student inquiry?", "What are the payment deadlines?"]
+    if raw.startswith("["):
         try:
-            docs_resp = requests.get(f"{API_URL}/documents", timeout=5)
-            if docs_resp.status_code == 200:
-                data = docs_resp.json()
-                available_docs = data.get("documents", [])
-                
-                if available_docs:
-                    doc_names = [doc.get("filename", "") for doc in available_docs]
-                    file_types = list(set([doc.get("file_type", "").upper() for doc in available_docs if doc.get("file_type")]))
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Document selection
-                        selected_docs = st.multiselect(
-                            "📄 Include Documents",
-                            options=doc_names,
-                            default=st.session_state.selected_documents,
-                            help="Select documents to search. Leave empty to search all."
-                        )
-                        st.session_state.selected_documents = selected_docs
-                        
-                        # File type filter
-                        selected_types = st.multiselect(
-                            "📁 File Types",
-                            options=file_types,
-                            help="Filter by file types"
-                        )
-                        
-                        # Exclude documents
-                        excluded_docs = st.multiselect(
-                            "🚫 Exclude Documents",
-                            options=doc_names,
-                            help="Documents to exclude from search"
-                        )
-                    
-                    with col2:
-                        # Date range
-                        st.markdown("**📅 Date Range**")
-                        date_from = st.date_input("From Date", value=None, help="Filter by processing date from")
-                        date_to = st.date_input("To Date", value=None, help="Filter by processing date to")
-                        
-                        # Relevance threshold
-                        min_relevance = st.slider(
-                            "Minimum Relevance",
-                            min_value=0.0,
-                            max_value=1.0,
-                            value=0.0,
-                            step=0.1,
-                            help="Minimum relevance score (0.0 = all results, 1.0 = only perfect matches)"
-                        )
-                        
-                        # Max results
-                        max_results = st.number_input(
-                            "Max Results",
-                            min_value=1,
-                            max_value=20,
-                            value=4,
-                            help="Maximum number of results to return"
-                        )
-                    
-                    # Store advanced filters in session state
-                    st.session_state.advanced_filters = {
-                        "document_names": selected_docs if selected_docs else None,
-                        "file_types": [t.lower() for t in selected_types] if selected_types else None,
-                        "date_from": date_from.strftime("%Y-%m-%d") if date_from else None,
-                        "date_to": date_to.strftime("%Y-%m-%d") if date_to else None,
-                        "min_relevance": min_relevance if min_relevance > 0 else None,
-                        "max_results": max_results if max_results != 4 else None,
-                        "exclude_documents": excluded_docs if excluded_docs else None
-                    }
-                    
-                    # Show active filters
-                    active_filters = []
-                    if selected_docs:
-                        active_filters.append(f"{len(selected_docs)} document(s)")
-                    if selected_types:
-                        active_filters.append(f"{len(selected_types)} file type(s)")
-                    if date_from or date_to:
-                        active_filters.append("date range")
-                    if min_relevance > 0:
-                        active_filters.append(f"relevance ≥ {min_relevance:.1f}")
-                    if excluded_docs:
-                        active_filters.append(f"excluding {len(excluded_docs)} doc(s)")
-                    
-                    if active_filters:
-                        st.info(f"🔍 **Active filters:** {', '.join(active_filters)}")
-                else:
-                    st.caption("No documents available. Upload documents to enable filtering.")
-            else:
-                st.caption("Unable to load document list for filtering.")
-        except:
-            st.caption("Filtering unavailable (API connection issue)")
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+    for sep in ("|", ","):
+        if sep in raw:
+            return [q.strip() for q in raw.split(sep) if q.strip()]
+    return [raw]
+
+# Zone-based layout: center (chat) + right (context panel) when on chat view
+suggestions_placeholder = st.empty()
+chat_empty = not st.session_state.chat_history
+current_page = get_current_nav_page()
+show_copilot_empty = chat_empty and current_page == "chat" and not st.session_state.get("show_documents", False)
+use_zone_layout = current_page == "chat" and not st.session_state.get("show_documents", False)
+
+# Handle example query (define query before use in col_chat)
+if "example_query" in st.session_state:
+    query = st.session_state.example_query
+    del st.session_state.example_query
 else:
-    # Simple document filter
-    try:
+    query = None
+
+# Extract sources from last assistant message for right context panel
+last_sources = []
+if st.session_state.chat_history:
+    for item in reversed(st.session_state.chat_history):
+        if len(item) >= 4 and item[0] == "assistant":
+            last_sources = item[3] if isinstance(item[3], list) else []
+            break
+
+# Create zone layout: when empty use centered layout [1,3,1]; when has content use [3,1] for chat+sources
+if use_zone_layout:
+    if show_copilot_empty:
+        col_left, col_chat, col_right = st.columns([1, 3, 1], gap="large")
+        col_context = None
+    else:
+        col_chat, col_context = st.columns([3, 1], gap="large")
+else:
+    col_chat = st.container()
+    col_context = None
+
+with col_chat:
+    if show_copilot_empty:
+        # 1. Salutation
+        from datetime import datetime as dt
+        hour = dt.now().hour
+        if hour < 12:
+            time_greeting = "Good morning"
+        elif hour < 18:
+            time_greeting = "Good afternoon"
+        else:
+            time_greeting = "Good evening"
+        user_name = "there"
+        if st.session_state.get("current_user"):
+            user_name = st.session_state.current_user.get("username", "there")
+            if user_name:
+                user_name = user_name.split()[0] if " " in user_name else user_name  # First name only
+        st.markdown(
+            f'<div class="copilot-greeting"><h2>{time_greeting}, {user_name}</h2>'
+            '<p>What can I help you with today?</p></div>',
+            unsafe_allow_html=True
+        )
+        # 2. Chat bar (rendered here for correct order when empty)
+        if query is None:
+            query = st.chat_input("Ask anything", key="chat_input")
+        # 3. Suggested questions (below chat bar) - centered via spacer columns
+        example_questions = get_example_questions()
+        all_suggestions = list(example_questions)[:3]
         try:
-            docs_resp = requests.get(f"{API_URL}/documents", timeout=5)
-        except requests.exceptions.ConnectionError:
-            st.error("❌ Cannot connect to API. Make sure the API server is running.")
-            docs_resp = None
-        
-        if docs_resp and docs_resp.status_code == 200:
-            data = docs_resp.json()
-            available_docs = data.get("documents", [])
-            
-            if available_docs:
-                doc_names = [doc.get("filename", "") for doc in available_docs]
-                
-                selected = st.multiselect(
-                    "Select documents to search (leave empty to search all documents)",
-                    options=doc_names,
-                    default=st.session_state.selected_documents,
-                    key="document_filter_select",
-                    help="Choose specific documents to search. Leave empty to search all documents in the knowledge base."
-                )
-                st.session_state.selected_documents = selected
-                
-                # Show filter status
-                if selected:
-                    st.info(f"🔍 **Filtering by {len(selected)} document(s):** {', '.join(selected[:3])}{'...' if len(selected) > 3 else ''}")
-                else:
-                    st.caption("💡 Searching all documents in knowledge base")
-            else:
-                st.caption("No documents available. Upload documents to enable filtering.")
-    except:
-        st.caption("Filtering unavailable (API connection issue)")
+            suggestions_resp = requests.get(f"{API_URL}/suggestions", params={"q": "", "limit": 2}, timeout=2)
+            if suggestions_resp.status_code == 200:
+                pop = suggestions_resp.json().get("suggestions", [])
+                for s in pop[:2]:
+                    q = s.get("query", "")
+                    if q and q not in all_suggestions:
+                        all_suggestions.append(q)
+        except:
+            pass
+        n_pills = min(5, len(all_suggestions))
+        pills_list = all_suggestions[:n_pills]
+        st.markdown('<div class="copilot-pills-marker"></div>', unsafe_allow_html=True)
+        # Two rows: 3 pills top, 2 pills bottom - wider columns so text fits
+        top_cols = st.columns([0.25, 4, 4, 4, 0.25], gap="medium")
+        for i, q in enumerate(pills_list[:3]):
+            with top_cols[i + 1]:
+                if st.button(q, key=f"copilot_pill_{i}", use_container_width=True):
+                    st.session_state.example_query = q
+                    st.rerun()
+        if len(pills_list) > 3:
+            bot_cols = st.columns([0.5, 4, 4, 0.5], gap="medium")
+            for i, q in enumerate(pills_list[3:5]):
+                with bot_cols[i + 1]:
+                    if st.button(q, key=f"copilot_pill_{i+3}", use_container_width=True):
+                        st.session_state.example_query = q
+                        st.rerun()
+    # Center zone: suggestions placeholder, chat history, input
+    suggestions_placeholder = st.empty()
+    if "last_query_input" not in st.session_state:
+        st.session_state.last_query_input = ""
+    current_input = ""
+    if "query_input_text" in st.session_state:
+        current_input = st.session_state.query_input_text
+    if current_input and len(current_input.strip()) > 0:
+        try:
+            suggestions_resp = requests.get(
+                f"{API_URL}/suggestions",
+                params={"q": current_input.strip(), "limit": 5, "include_documents": True},
+                timeout=3
+            )
+            if suggestions_resp.status_code == 200:
+                suggestions_data = suggestions_resp.json()
+                suggestions = suggestions_data.get("suggestions", [])
+                if suggestions:
+                    with suggestions_placeholder.container():
+                        st.markdown("**💡 Query Suggestions:**")
+                        for idx, suggestion in enumerate(suggestions):
+                            sq = suggestion.get("query", "")
+                            stype = suggestion.get("type", "")
+                            icon = "⭐" if stype == "saved" else ("📚" if stype == "document" else "🕐")
+                            label = f"{suggestion.get('name', '')}: {sq}" if stype == "saved" and suggestion.get("name") else sq
+                            if st.button(f"{icon} {label}", key=f"suggestion_{idx}", use_container_width=True):
+                                st.session_state.example_query = sq
+                                st.rerun()
+        except:
+            pass
+    # Chat history and input - continue in center zone
+    if not show_copilot_empty:
+        st.markdown("---")
+        col_conv_title, col_order = st.columns([3, 1])
+        with col_conv_title:
+            st.markdown("### 💬 Conversation")
+        with col_order:
+            order = st.selectbox(
+                "Sort",
+                options=["oldest_first", "newest_first"],
+                format_func=lambda x: "Oldest first" if x == "oldest_first" else "Newest first",
+                key="conversation_order_select",
+                index=0 if st.session_state.conversation_order == "oldest_first" else 1,
+                help="Oldest first: chronological order. Newest first: latest at top."
+            )
+            if order != st.session_state.conversation_order:
+                st.session_state.conversation_order = order
+                st.rerun()
 
-st.markdown("---")
-
-# Streaming toggle
-st.checkbox(
-    "⚡ Enable Real-time Streaming",
-    value=st.session_state.enable_streaming,
-    key="streaming_toggle",
-    help="Enable real-time streaming to see responses as they're generated"
-)
-
-st.markdown("---")
-
-# Example questions
-st.markdown("### 💡 Example Questions")
-example_cols = st.columns(3)
-example_questions = [
-    "What is the billing process?",
-    "How do I handle a student inquiry?",
-    "What are the payment deadlines?",
-]
-
-for i, (col, question) in enumerate(zip(example_cols, example_questions)):
-    with col:
-        if st.button(question, key=f"example_{i}", use_container_width=True):
-            st.session_state.example_query = question
-            st.rerun()
+# Right context panel (Zone C) - sources or suggestions (hidden when empty - pills are in center)
+if col_context is not None and not show_copilot_empty:
+    with col_context:
+        st.markdown('<div class="zone-context-panel context-panel">', unsafe_allow_html=True)
+        if last_sources:
+            st.markdown("**📚 Sources**")
+            for i, src in enumerate(last_sources[:5]):
+                title = src.get("title", src.get("filename", "Document")) if isinstance(src, dict) else str(src)
+                relevance = src.get("relevance", src.get("score")) if isinstance(src, dict) else None
+                rel_str = f" ({relevance:.0%})" if relevance is not None else ""
+                st.caption(f"• {title}{rel_str}")
+        else:
+            with st.expander("💡 Try a suggestion", expanded=False):
+                example_questions = get_example_questions()
+                for i, question in enumerate(example_questions[:5]):
+                    if st.button(question, key=f"example_{i}", use_container_width=True):
+                        st.session_state.example_query = question
+                        st.rerun()
+                try:
+                    suggestions_resp = requests.get(f"{API_URL}/suggestions", params={"q": "", "limit": 3}, timeout=2)
+                    if suggestions_resp.status_code == 200:
+                        suggestions = suggestions_resp.json().get("suggestions", [])
+                        if suggestions:
+                            st.caption("**Popular**")
+                            for idx, suggestion in enumerate(suggestions[:3]):
+                                sq = suggestion.get("query", "")
+                                stype = suggestion.get("type", "")
+                                icon = "⭐" if stype == "saved" else ("📚" if stype == "document" else "🕐")
+                                disp = (sq[:40] + "…") if len(sq) > 40 else sq
+                                if st.button(f"{icon} {disp}", key=f"popular_{idx}", use_container_width=True):
+                                    st.session_state.example_query = sq
+                                    st.rerun()
+                except:
+                    pass
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # Handle example query
 if "example_query" in st.session_state:
@@ -3686,582 +4696,517 @@ if "example_query" in st.session_state:
 else:
     query = None
 
-# Query suggestions/autocomplete (shown before chat input)
-suggestions_placeholder = st.empty()
+# Message loop and chat input - in center zone when using zone layout
+with col_chat:
+    if not st.session_state.chat_history:
+        # Greeting shown above in show_copilot_empty; only show here when not in that state
+        if not show_copilot_empty:
+            hour = datetime.now().hour
+            if 5 <= hour < 12:
+                time_greeting = "Good morning"
+            elif 12 <= hour < 17:
+                time_greeting = "Good afternoon"
+            else:
+                time_greeting = "Good evening"
+            user_name = "there"
+            if st.session_state.get("current_user"):
+                user_name = st.session_state.current_user.get("username", "there").split("@")[0]
+                if user_name:
+                    user_name = user_name.title()
+            st.markdown(
+                f"""
+                <div class="copilot-greeting">
+                    <h2>{time_greeting}, {user_name}</h2>
+                    <p>What can I help you with today?</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    else:
+        hist = st.session_state.chat_history[-MAX_HISTORY:]
+        items_to_show = list(reversed(hist)) if st.session_state.conversation_order == "newest_first" else hist
+        for idx, item in enumerate(items_to_show):
+            # Handle both old format (3 items) and new format (4 items with sources)
+            if len(item) == 3:
+                role, message, msg_time = item
+                sources = []
+            else:
+                role, message, msg_time, sources = item
 
-# Show popular queries when no input
-if "last_query_input" not in st.session_state:
-    st.session_state.last_query_input = ""
-
-# Check for query input changes
-current_input = ""
-if "query_input_text" in st.session_state:
-    current_input = st.session_state.query_input_text
-
-# Show suggestions based on input
-if current_input and len(current_input.strip()) > 0:
-    try:
-        suggestions_resp = requests.get(
-            f"{API_URL}/suggestions",
-            params={"q": current_input.strip(), "limit": 5, "include_documents": True},
-            timeout=3  # Slightly longer timeout for document-based suggestions
-        )
-        if suggestions_resp.status_code == 200:
-            suggestions_data = suggestions_resp.json()
-            suggestions = suggestions_data.get("suggestions", [])
-            
-            if suggestions:
-                with suggestions_placeholder.container():
-                    st.markdown("**💡 Query Suggestions:**")
-                    for idx, suggestion in enumerate(suggestions):
-                        suggestion_query = suggestion.get("query", "")
-                        suggestion_type = suggestion.get("type", "")
-                        suggestion_name = suggestion.get("name", "")
-                        
-                        # Create a button for each suggestion
-                        label = suggestion_query
-                        # Use different icons for different suggestion types
-                        if suggestion_type == "saved":
-                            icon = "⭐"
-                        elif suggestion_type == "document":
-                            icon = "📚"
-                        else:
-                            icon = "🕐"
-                        if suggestion_type == "saved" and suggestion_name:
-                            label = f"{suggestion_name}: {suggestion_query}"
-                        
-                        if st.button(
-                            f"{icon} {label}",
-                            key=f"suggestion_{idx}",
-                            use_container_width=True,
-                            help=f"Type: {suggestion_type}"
-                        ):
-                            st.session_state.example_query = suggestion_query
+            if role == "user":
+                col_msg, col_save = st.columns([5, 1])
+                with col_msg:
+                    safe_message = html.escape(str(message)).replace("\n", "<br/>")
+                    st.markdown(
+                        textwrap.dedent(
+                            f"""
+                            <div class="message-user">
+                                <strong>You</strong>
+                                <div style="margin-top: 0.5rem;">{safe_message}</div>
+                                <div class="message-time">{html.escape(str(msg_time))}</div>
+                            </div>
+                            """
+                        ).strip(),
+                        unsafe_allow_html=True
+                    )
+                with col_save:
+                    # Check if already saved
+                    is_saved = False
+                    try:
+                        saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=5)
+                        if saved_resp.status_code == 200:
+                            saved_queries = saved_resp.json().get("saved_queries", [])
+                            is_saved = any(sq.get("query") == message for sq in saved_queries)
+                    except:
+                        pass
+                
+                    save_key = f"save_query_{idx}"
+                    if not is_saved:
+                        if st.button("⭐", key=save_key, help="Save this query", use_container_width=True):
+                            st.session_state[f"show_save_dialog_{idx}"] = True
                             st.rerun()
-    except:
-        pass  # Silently fail if suggestions unavailable
-elif not current_input:
-    # Show popular queries when input is empty
-    try:
-        suggestions_resp = requests.get(
-            f"{API_URL}/suggestions",
-            params={"q": "", "limit": 3},
-            timeout=2
-        )
-        if suggestions_resp.status_code == 200:
-            suggestions_data = suggestions_resp.json()
-            suggestions = suggestions_data.get("suggestions", [])
+                    else:
+                        st.button("⭐", key=f"saved_{save_key}", disabled=True, use_container_width=True)
             
-            if suggestions:
-                with suggestions_placeholder.container():
-                    st.caption("💡 **Popular queries - Click to use:**")
-                    cols = st.columns(min(len(suggestions), 3))
-                    for idx, (col, suggestion) in enumerate(zip(cols, suggestions[:3])):
-                        with col:
-                            suggestion_query = suggestion.get("query", "")
-                            suggestion_type = suggestion.get("type", "")
-                            # Use different icons for different suggestion types
-                            if suggestion_type == "saved":
-                                icon = "⭐"
-                            elif suggestion_type == "document":
-                                icon = "📚"
-                            else:
-                                icon = "🕐"
-                            display_text = suggestion_query[:35] + ("..." if len(suggestion_query) > 35 else "")
-                            if st.button(
-                                f"{icon} {display_text}",
-                                key=f"popular_{idx}",
-                                use_container_width=True
-                            ):
-                                st.session_state.example_query = suggestion_query
+                # Save dialog
+                if st.session_state.get(f"show_save_dialog_{idx}", False):
+                    with st.form(f"save_form_{idx}"):
+                        save_name = st.text_input("Name (optional)", value=message[:50], key=f"save_name_{idx}")
+                        save_desc = st.text_area("Description (optional)", key=f"save_desc_{idx}")
+                        col_save_btn, col_cancel_btn = st.columns(2)
+                        with col_save_btn:
+                            if st.form_submit_button("💾 Save"):
+                                try:
+                                    save_resp = requests.post(
+                                        f"{API_URL}/saved-queries",
+                                        json={
+                                            "query": message,
+                                            "name": save_name,
+                                            "description": save_desc
+                                        },
+                                        timeout=5
+                                    )
+                                    if save_resp.status_code == 200:
+                                        st.success("✅ Saved!")
+                                        st.session_state[f"show_save_dialog_{idx}"] = False
+                                        time.sleep(0.5)
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                        with col_cancel_btn:
+                            if st.form_submit_button("❌ Cancel"):
+                                st.session_state[f"show_save_dialog_{idx}"] = False
                                 st.rerun()
-    except:
-        pass
+                else:
+                    # Display assistant message - single HTML block with proper escaping (avoids raw HTML display bug)
+                    col_msg, col_actions = st.columns([5, 1])
+                    with col_msg:
+                        safe_message = html.escape(str(message)).replace("\n", "<br/>")
+                        if str(message).strip().startswith("<"):
+                            safe_message = "⚠️ An error occurred while displaying the response. Please try again."
+                    # Build sources as simple escaped text (no nested HTML that could break rendering)
+                    sources_text = ""
+                    if sources and len(sources) > 0:
+                        parts = []
+                        for source in sources:
+                            name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
+                            rel = source.get("relevance", 0) if isinstance(source, dict) else 0
+                            rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
+                            parts.append("📄 " + html.escape(str(name)) + " (" + rel_label + ", " + f"{rel:.0%}" + ")")
+                        sources_text = "<div style='margin-top:0.5rem;'><strong>📚 Sources:</strong><br/>" + "<br/>".join(parts) + "</div>"
+                    template = (
+                        '<div class="message-bot" id="answer_' + str(idx) + '">'
+                        "<strong>📚 Assistant</strong>"
+                        '<div style="margin-top:0.5rem;">' + safe_message + "</div>"
+                        + sources_text
+                        + '<div class="message-time">' + html.escape(str(msg_time)) + "</div>"
+                        "</div>"
+                    )
+                    st.markdown(template, unsafe_allow_html=True)
+                
+                    with col_actions:
+                        # Overflow menu (⋮) - Copy & Feedback; saves space on mobile
+                        with st.popover("⋮", help="Copy, Feedback"):
+                            copy_key = f"copy_answer_{idx}"
+                            if st.button("📋 Copy", key=copy_key, use_container_width=True):
+                                # Store message in session state for JavaScript access
+                                st.session_state[f"copy_text_{idx}"] = message
+                                # Use JavaScript to copy to clipboard
+                                # Escape the message for JavaScript
+                                escaped_message = message.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$').replace('\n', '\\n').replace('\r', '\\r')
+                                copy_script = f"""
+                            <script>
+                                (function() {{
+                                    const text = `{escaped_message}`;
+                                    if (navigator.clipboard && navigator.clipboard.writeText) {{
+                                        navigator.clipboard.writeText(text).then(function() {{
+                                            // Success - show toast notification
+                                            const toast = document.createElement('div');
+                                            toast.textContent = '✅ Copied to clipboard!';
+                                            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
+                                            document.body.appendChild(toast);
+                                            setTimeout(() => toast.remove(), 2000);
+                                        }}).catch(function(err) {{
+                                            console.error('Copy failed:', err);
+                                            fallbackCopy(text);
+                                        }});
+                                    }} else {{
+                                        fallbackCopy(text);
+                                    }}
+                                
+                                    function fallbackCopy(text) {{
+                                        const textArea = document.createElement('textarea');
+                                        textArea.value = text;
+                                        textArea.style.position = 'fixed';
+                                        textArea.style.left = '-999999px';
+                                        textArea.style.top = '-999999px';
+                                        document.body.appendChild(textArea);
+                                        textArea.focus();
+                                        textArea.select();
+                                        try {{
+                                            const successful = document.execCommand('copy');
+                                            if (successful) {{
+                                                const toast = document.createElement('div');
+                                                toast.textContent = '✅ Copied to clipboard!';
+                                                toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
+                                                document.body.appendChild(toast);
+                                                setTimeout(() => toast.remove(), 2000);
+                                            }} else {{
+                                                alert('❌ Failed to copy. Please select and copy manually.');
+                                            }}
+                                        }} catch (err) {{
+                                            console.error('Fallback copy failed:', err);
+                                            alert('❌ Failed to copy. Please select and copy manually.');
+                                        }}
+                                        document.body.removeChild(textArea);
+                                    }}
+                                }})();
+                            </script>
+                            """
+                            st.markdown(copy_script, unsafe_allow_html=True)
+                
+                        # Get the user query for this response (previous message in items_to_show)
+                        user_query = ""
+                        if idx > 0 and len(items_to_show[idx - 1]) >= 2 and items_to_show[idx - 1][0] == "user":
+                            user_query = items_to_show[idx - 1][1]
+                    
+                        # Check if feedback already submitted
+                        feedback_key = f"feedback_submitted_{idx}"
+                        if not st.session_state.get(feedback_key, False):
+                            st.markdown("---")
+                            col_thumbs_up, col_thumbs_down = st.columns(2)
+                            with col_thumbs_up:
+                                if st.button("👍", key=f"thumbs_up_{idx}", help="Good answer", use_container_width=True):
+                                    try:
+                                        feedback_resp = requests.post(
+                                            f"{API_URL}/feedback",
+                                            json={
+                                                "query": user_query,
+                                                "response": message,
+                                                "rating": 1,
+                                                "feedback_type": "thumbs",
+                                                "sources_count": len(sources)
+                                            },
+                                            timeout=5
+                                        )
+                                        if feedback_resp.status_code == 200:
+                                            st.session_state[feedback_key] = True
+                                            st.success("👍 Thanks!")
+                                            time.sleep(1)
+                                            st.rerun()
+                                    except:
+                                        st.error("Failed to submit feedback")
+                        
+                            with col_thumbs_down:
+                                if st.button("👎", key=f"thumbs_down_{idx}", help="Poor answer", use_container_width=True):
+                                    # Show feedback form
+                                    st.session_state[f"show_feedback_form_{idx}"] = True
+                                    st.rerun()
+                        
+                            # Detailed feedback form
+                            if st.session_state.get(f"show_feedback_form_{idx}", False):
+                                with st.form(f"feedback_form_{idx}"):
+                                    st.write("**Help us improve:**")
+                                    rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{idx}")
+                                    comment = st.text_area("Comments (optional)", key=f"comment_{idx}")
+                                    col_submit, col_cancel = st.columns(2)
+                                    with col_submit:
+                                        if st.form_submit_button("Submit"):
+                                            try:
+                                                feedback_resp = requests.post(
+                                                    f"{API_URL}/feedback",
+                                                    json={
+                                                        "query": user_query,
+                                                        "response": message,
+                                                        "rating": rating,
+                                                        "feedback_type": "detailed",
+                                                        "comment": comment,
+                                                        "sources_count": len(sources)
+                                                    },
+                                                    timeout=5
+                                                )
+                                                if feedback_resp.status_code == 200:
+                                                    st.session_state[feedback_key] = True
+                                                    st.session_state[f"show_feedback_form_{idx}"] = False
+                                                    st.success("✅ Feedback submitted!")
+                                                    time.sleep(1)
+                                                    st.rerun()
+                                            except Exception as e:
+                                                st.error(f"❌ Error: {str(e)}")
+                                    with col_cancel:
+                                        if st.form_submit_button("Cancel"):
+                                            st.session_state[f"show_feedback_form_{idx}"] = False
+                                            st.rerun()
+                        else:
+                            st.caption("✅ Feedback submitted")
 
-# Chat input
-if query is None:
-    query = st.chat_input("Ask anything...", key="chat_input")
+
+    # Chat input - when not in copilot empty state, render below messages
+if not show_copilot_empty and query is None:
+    st.markdown("---")
+    query = st.chat_input("Ask anything", key="chat_input")
+elif query is None:
+    query = None  # Already rendered in empty-state block above
 
 if query:
     if query.strip():
-        logger.info(f"Query: {query}")
-        
-        # Auto-create conversation if none exists
-        if not st.session_state.current_conversation_id:
-            try:
-                resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
-                if resp.status_code == 200:
-                    conv = resp.json()
-                    st.session_state.current_conversation_id = conv.get("id")
-            except:
-                pass  # Continue without conversation if creation fails
-        
-        # Add user message to history
-        timestamp = datetime.now().strftime("%H:%M")
-        st.session_state.chat_history.append(("user", query.strip(), timestamp))
-        
-        # Get response (streaming or regular)
-        if st.session_state.enable_streaming:
-            # Streaming response (note: advanced filters not yet supported in streaming)
-            try:
-                start_time = time.time()
-                # Prepare request payload with document filters and conversation
-                payload = {"query": query}
-                if st.session_state.selected_documents:
-                    payload["document_filters"] = st.session_state.selected_documents
-                if st.session_state.current_conversation_id:
-                    payload["conversation_id"] = st.session_state.current_conversation_id
-                # Add language preference if available
-                if st.session_state.get("user_language"):
-                    payload["language"] = st.session_state.user_language
-                elif st.session_state.get("user_preferences", {}).get("language"):
-                    payload["language"] = st.session_state.user_preferences["language"]
-                endpoint = f"{API_URL}/ask/stream"
-                
-                # Create placeholder for streaming response
-                answer_placeholder = st.empty()
-                answer_text = ""
-                sources = []
-                status_text = ""
-                
-                # Stream the response (use appropriate endpoint)
-                # Use a longer read timeout for streaming; connect timeout stays short
-                try:
-                    with requests.post(endpoint, json=payload, stream=True, timeout=(5, 300)) as response:
-                        if response.status_code == 200:
-                            for line in response.iter_lines(decode_unicode=True):
-                                if line:
-                                    line_str = line
-                                    if isinstance(line_str, bytes):
-                                        line_str = line_str.decode("utf-8", errors="ignore")
-                                    if line_str.startswith("data: "):
-                                        try:
-                                            data = json.loads(line_str[6:])  # Remove 'data: ' prefix
-                                            event_type = data.get("type")
-                                            
-                                            if event_type == "status":
-                                                # Render lightweight progress updates while backend is working
-                                                stage = data.get("stage", "")
-                                                elapsed = data.get("elapsed")
-                                                if elapsed is not None:
-                                                    status_text = f"_{stage.replace('_', ' ').title()}... ({elapsed:.1f}s)_"
-                                                else:
-                                                    status_text = f"_{stage.replace('_', ' ').title()}..._"
-                                                answer_placeholder.markdown(f"**📚 Assistant**\n\n{status_text}")
-                                            elif event_type == "sources":
-                                                sources = data.get("sources", [])
-                                            elif event_type == "chunk":
-                                                chunk = data.get("content", "")
-                                                answer_text += chunk
-                                                # Update placeholder with current text
-                                                answer_placeholder.markdown(f"**📚 Assistant**\n\n{answer_text}")
-                                            elif event_type == "done":
-                                                full_response = data.get("full_response", answer_text)
-                                                answer_text = full_response
-                                                answer_placeholder.empty()  # Clear placeholder
-                                            elif event_type == "error":
-                                                error_msg = data.get("content", "Unknown error")
-                                                answer_text = error_msg
-                                                answer_placeholder.empty()
-                                        except json.JSONDecodeError:
-                                            continue
-                        else:
-                            # Fall back to non-streaming on server error
-                            try:
-                                fallback = requests.post(f"{API_URL}/ask", json=payload, timeout=180)
-                                if fallback.status_code == 200:
-                                    rd = fallback.json()
-                                    answer_text = rd.get("response", "No answer received")
-                                    sources = rd.get("sources", [])
-                                else:
-                                    answer_text = f"⚠️ Error {fallback.status_code}: {fallback.text}"
-                            except Exception:
-                                answer_text = f"⚠️ Error {response.status_code}: {response.text}"
-                except (ProtocolError, ChunkedEncodingError) as e:
-                    # Streaming connection dropped (often uvicorn reload or server restart). Retry once via non-streaming.
-                    answer_placeholder.empty()
-                    log_error_to_console(f"Streaming connection dropped: {str(e)}", "Warning", e)
-                    try:
-                        fallback = requests.post(f"{API_URL}/ask", json=payload, timeout=180)
-                        if fallback.status_code == 200:
-                            rd = fallback.json()
-                            answer_text = rd.get("response", "No answer received")
-                            sources = rd.get("sources", [])
-                        else:
-                            answer_text = f"⚠️ Stream dropped, and fallback failed ({fallback.status_code}). Please retry."
-                    except Exception:
-                        if answer_text.strip():
-                            answer_text = answer_text.strip() + "\n\n⚠️ Connection dropped before completion. Please retry."
-                        else:
-                            answer_text = "⚠️ Connection dropped before completion. Please retry."
-                
-                elapsed_time = time.time() - start_time
-                answer_timestamp = datetime.now().strftime("%H:%M")
-                st.session_state.chat_history.append(("assistant", answer_text, answer_timestamp, sources))
-                logger.info(f"Streaming response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
-            except requests.exceptions.ConnectionError:
-                error_msg = "Cannot connect to API. Please ensure the server is running."
-                st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
-                log_error_to_console(error_msg, "ConnectionError")
-            except requests.exceptions.Timeout:
-                error_msg = "Request timed out. The query may be taking longer than expected. Please try again or simplify your query."
-                try:
-                    answer_placeholder.empty()
-                except Exception:
-                    pass
-                st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
-                log_error_to_console(error_msg, "Timeout")
-                st.info("💡 **Tip:** Complex queries or large knowledge bases may take longer. Try breaking down your question into smaller parts.")
-            except Exception as e:
-                error_msg = f"Unexpected error: {str(e)}"
-                try:
-                    answer_placeholder.empty()
-                except Exception:
-                    pass
-                st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
-                log_error_to_console(error_msg, "Exception", e)
+        # Guard: avoid double-processing when st.rerun() causes chat_input to resubmit
+        # Use both session-state flag and history check for robustness
+        hist = st.session_state.chat_history
+        already_responded = (
+            st.session_state.get("_last_processed_query") == query.strip()
+            or (len(hist) >= 2 and hist[-2][0] == "user" and hist[-2][1] == query.strip() and hist[-1][0] == "assistant")
+        )
+        if already_responded:
+            pass  # Skip - already responded to this query
         else:
-            # Regular (non-streaming) response
-            with st.spinner("🤔 Thinking..."):
+            logger.info(f"Query: {query}")
+            # Auto-create conversation if none exists
+            if not st.session_state.current_conversation_id:
+                try:
+                    resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
+                    if resp.status_code == 200:
+                        conv = resp.json()
+                        st.session_state.current_conversation_id = conv.get("id")
+                except:
+                    pass  # Continue without conversation if creation fails
+            
+            # Add user message to history
+            timestamp = datetime.now().strftime("%H:%M")
+            st.session_state.chat_history.append(("user", query.strip(), timestamp))
+            
+            # Get response (streaming or regular)
+            if st.session_state.enable_streaming:
+                # Streaming response (note: advanced filters not yet supported in streaming)
                 try:
                     start_time = time.time()
-                    # Prepare request payload with filters and conversation
-                    if st.session_state.show_advanced_filters and st.session_state.get("advanced_filters"):
-                        # Use advanced search endpoint
-                        payload = {
-                            "query": query,
-                            "filters": st.session_state.advanced_filters
-                        }
-                        if st.session_state.current_conversation_id:
-                            payload["conversation_id"] = st.session_state.current_conversation_id
-                        endpoint = f"{API_URL}/ask/advanced"
+                    # Prepare request payload with document filters and conversation
+                    payload = {"query": query}
+                    if st.session_state.selected_documents:
+                        payload["document_filters"] = st.session_state.selected_documents
+                    if st.session_state.current_conversation_id:
+                        payload["conversation_id"] = st.session_state.current_conversation_id
+                    # Add language preference (default to "en" to avoid wrong auto-detection)
+                    if st.session_state.get("user_language"):
+                        payload["language"] = st.session_state.user_language
+                    elif st.session_state.get("user_preferences", {}).get("language"):
+                        payload["language"] = st.session_state.user_preferences["language"]
                     else:
-                        # Use regular endpoint
-                        payload = {"query": query}
-                        if st.session_state.selected_documents:
-                            payload["document_filters"] = st.session_state.selected_documents
-                        if st.session_state.current_conversation_id:
-                            payload["conversation_id"] = st.session_state.current_conversation_id
-                        # Add language preference if available
-                        if st.session_state.get("user_language"):
-                            payload["language"] = st.session_state.user_language
-                        elif st.session_state.get("user_preferences", {}).get("language"):
-                            payload["language"] = st.session_state.user_preferences["language"]
-                        endpoint = f"{API_URL}/ask"
+                        payload["language"] = "en"
+                    endpoint = f"{API_URL}/ask/stream"
                     
-                    # Non-streaming calls can legitimately take longer (first model load, large context, etc.)
-                    response = requests.post(endpoint, json=payload, timeout=180)
+                    # Create placeholder for streaming response
+                    answer_placeholder = st.empty()
+                    answer_text = ""
+                    sources = []
+                    status_text = ""
+                    # Show typing indicator (animated dots) while waiting for first token
+                    answer_placeholder.markdown(
+                        '**📚 Assistant**\n\n'
+                        '<div class="typing-dots" style="display:inline-flex;gap:4px;margin-top:0.5rem;">'
+                        '<span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;"></span>'
+                        '<span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;"></span>'
+                        '<span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;"></span>'
+                        '</div>',
+                        unsafe_allow_html=True
+                    )
+                    # Stream the response (use appropriate endpoint)
+                    # Use a longer read timeout for streaming; connect timeout stays short
+                    try:
+                        with requests.post(endpoint, json=payload, stream=True, timeout=(5, 300)) as response:
+                            if response.status_code == 200:
+                                for line in response.iter_lines(decode_unicode=True):
+                                    if line:
+                                        line_str = line
+                                        if isinstance(line_str, bytes):
+                                            line_str = line_str.decode("utf-8", errors="ignore")
+                                        if line_str.startswith("data: "):
+                                            try:
+                                                data = json.loads(line_str[6:])  # Remove 'data: ' prefix
+                                                event_type = data.get("type")
+                                            
+                                                if event_type == "status":
+                                                    # Render lightweight progress updates while backend is working
+                                                    stage = data.get("stage", "")
+                                                    elapsed = data.get("elapsed")
+                                                    if elapsed is not None:
+                                                        status_text = f"_{stage.replace('_', ' ').title()}... ({elapsed:.1f}s)_"
+                                                    else:
+                                                        status_text = f"_{stage.replace('_', ' ').title()}..._"
+                                                    answer_placeholder.markdown(f"**📚 Assistant**\n\n{status_text}")
+                                                elif event_type == "sources":
+                                                    sources = data.get("sources", [])
+                                                elif event_type == "chunk":
+                                                    chunk = data.get("content", "")
+                                                    answer_text += chunk
+                                                    # Update placeholder - use message-bot.streaming for subtle pulse
+                                                    safe_text = html.escape(answer_text).replace("\n", "<br/>")
+                                                    answer_placeholder.markdown(
+                                                        f'<div class="message-bot streaming"><strong>📚 Assistant</strong>'
+                                                        f'<div style="margin-top:0.5rem;">{safe_text}</div></div>',
+                                                        unsafe_allow_html=True
+                                                    )
+                                                elif event_type == "done":
+                                                    full_response = data.get("full_response", answer_text)
+                                                    answer_text = full_response
+                                                    answer_placeholder.empty()  # Clear placeholder
+                                                elif event_type == "error":
+                                                    error_msg = data.get("content", "Unknown error")
+                                                    answer_text = error_msg
+                                                    answer_placeholder.empty()
+                                            except json.JSONDecodeError:
+                                                continue
+                            else:
+                                # Fall back to non-streaming on server error
+                                try:
+                                    fallback = requests.post(f"{API_URL}/ask", json=payload, timeout=180)
+                                    if fallback.status_code == 200:
+                                        rd = fallback.json()
+                                        answer_text = rd.get("response", "No answer received")
+                                        sources = rd.get("sources", [])
+                                    else:
+                                        answer_text = f"⚠️ Error {fallback.status_code}: {fallback.text}"
+                                except Exception:
+                                    answer_text = f"⚠️ Error {response.status_code}: {response.text}"
+                    except (ProtocolError, ChunkedEncodingError) as e:
+                        # Streaming connection dropped (often uvicorn reload or server restart). Retry once via non-streaming.
+                        answer_placeholder.empty()
+                        log_error_to_console(f"Streaming connection dropped: {str(e)}", "Warning", e)
+                        try:
+                            fallback = requests.post(f"{API_URL}/ask", json=payload, timeout=180)
+                            if fallback.status_code == 200:
+                                rd = fallback.json()
+                                answer_text = rd.get("response", "No answer received")
+                                sources = rd.get("sources", [])
+                            else:
+                                answer_text = f"⚠️ Stream dropped, and fallback failed ({fallback.status_code}). Please retry."
+                        except Exception:
+                            if answer_text.strip():
+                                answer_text = answer_text.strip() + "\n\n⚠️ Connection dropped before completion. Please retry."
+                            else:
+                                answer_text = "⚠️ Connection dropped before completion. Please retry."
+                
                     elapsed_time = time.time() - start_time
-                    
-                    if response.status_code == 200:
-                        response_data = response.json()
-                        answer = response_data.get("response", "No answer received")
-                        sources = response_data.get("sources", [])
-                        answer_timestamp = datetime.now().strftime("%H:%M")
-                        st.session_state.chat_history.append(("assistant", answer, answer_timestamp, sources))
-                        logger.info(f"Response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
-                    else:
-                        error_msg = f"⚠️ Error {response.status_code}: {response.text}"
-                        st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                    answer_timestamp = datetime.now().strftime("%H:%M")
+                
+                    # Validate response before storing - prevent empty or corrupted responses
+                    if not answer_text or not answer_text.strip():
+                        answer_text = "⚠️ No response received. Please try again."
+                    elif answer_text.strip().startswith("<div") or answer_text.strip().startswith("<span"):
+                        # Detect accidentally captured HTML (should never happen, but safeguard)
+                        logger.warning(f"Detected HTML in response, this indicates a bug: {answer_text[:100]}")
+                        answer_text = "⚠️ An error occurred while processing the response. Please try again."
+                
+                    st.session_state.chat_history.append(("assistant", answer_text, answer_timestamp, sources))
+                    logger.info(f"Streaming response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
                 except requests.exceptions.ConnectionError:
                     error_msg = "Cannot connect to API. Please ensure the server is running."
                     st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
                     log_error_to_console(error_msg, "ConnectionError")
                 except requests.exceptions.Timeout:
                     error_msg = "Request timed out. The query may be taking longer than expected. Please try again or simplify your query."
+                    try:
+                        answer_placeholder.empty()
+                    except Exception:
+                        pass
                     st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
                     log_error_to_console(error_msg, "Timeout")
                     st.info("💡 **Tip:** Complex queries or large knowledge bases may take longer. Try breaking down your question into smaller parts.")
                 except Exception as e:
                     error_msg = f"Unexpected error: {str(e)}"
+                    try:
+                        answer_placeholder.empty()
+                    except Exception:
+                        pass
                     st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
                     log_error_to_console(error_msg, "Exception", e)
-        
+            else:
+                # Regular (non-streaming) response - runs only when streaming is disabled
+                with st.spinner("🤔 Thinking..."):
+                        try:
+                            start_time = time.time()
+                            # Prepare request payload with filters and conversation
+                            if st.session_state.show_advanced_filters and st.session_state.get("advanced_filters"):
+                                # Use advanced search endpoint
+                                payload = {
+                                    "query": query,
+                                    "filters": st.session_state.advanced_filters
+                                }
+                                if st.session_state.current_conversation_id:
+                                    payload["conversation_id"] = st.session_state.current_conversation_id
+                                endpoint = f"{API_URL}/ask/advanced"
+                            else:
+                                # Use regular endpoint
+                                payload = {"query": query}
+                                if st.session_state.selected_documents:
+                                    payload["document_filters"] = st.session_state.selected_documents
+                                if st.session_state.current_conversation_id:
+                                    payload["conversation_id"] = st.session_state.current_conversation_id
+                                # Add language preference (default to "en" to avoid wrong auto-detection)
+                                if st.session_state.get("user_language"):
+                                    payload["language"] = st.session_state.user_language
+                                elif st.session_state.get("user_preferences", {}).get("language"):
+                                    payload["language"] = st.session_state.user_preferences["language"]
+                                else:
+                                    payload["language"] = "en"
+                                endpoint = f"{API_URL}/ask"
+                            
+                            # Non-streaming calls can legitimately take longer (first model load, large context, etc.)
+                            response = requests.post(endpoint, json=payload, timeout=180)
+                            elapsed_time = time.time() - start_time
+                            
+                            if response.status_code == 200:
+                                response_data = response.json()
+                                answer = response_data.get("response", "No answer received")
+                                sources = response_data.get("sources", [])
+                                answer_timestamp = datetime.now().strftime("%H:%M")
+                                
+                                # Validate response before storing
+                                if not answer or not answer.strip():
+                                    answer = "⚠️ No response received. Please try again."
+                                elif answer.strip().startswith("<div") or answer.strip().startswith("<span"):
+                                    logger.warning(f"Detected HTML in response: {answer[:100]}")
+                                    answer = "⚠️ An error occurred while processing the response. Please try again."
+                                
+                                st.session_state.chat_history.append(("assistant", answer, answer_timestamp, sources))
+                                logger.info(f"Response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
+                            else:
+                                error_msg = f"⚠️ Error {response.status_code}: {response.text}"
+                                st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                        except requests.exceptions.ConnectionError:
+                            error_msg = "Cannot connect to API. Please ensure the server is running."
+                            st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                            log_error_to_console(error_msg, "ConnectionError")
+                        except requests.exceptions.Timeout:
+                            error_msg = "Request timed out. The query may be taking longer than expected. Please try again or simplify your query."
+                            st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
+                            log_error_to_console(error_msg, "Timeout")
+                            st.info("💡 **Tip:** Complex queries or large knowledge bases may take longer. Try breaking down your question into smaller parts.")
+                        except Exception as e:
+                            error_msg = f"Unexpected error: {str(e)}"
+                            st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                            log_error_to_console(error_msg, "Exception", e)
+
+                        st.session_state._last_processed_query = query.strip()  # Mark as processed before rerun
         st.rerun()
 
-# Display chat history
-st.markdown("---")
-st.markdown("### 💬 Conversation")
-
-if not st.session_state.chat_history:
-    st.info("👋 Start a conversation by asking a question or clicking an example above!")
-else:
-    # Display in reverse order (newest first) or normal order
-    for idx, item in enumerate(reversed(st.session_state.chat_history[-MAX_HISTORY:])):
-        # Handle both old format (3 items) and new format (4 items with sources)
-        if len(item) == 3:
-            role, message, msg_time = item
-            sources = []
-        else:
-            role, message, msg_time, sources = item
-        
-        if role == "user":
-            col_msg, col_save = st.columns([5, 1])
-            with col_msg:
-                safe_message = html.escape(str(message)).replace("\n", "<br/>")
-                st.markdown(
-                    textwrap.dedent(
-                        f"""
-                        <div class="message-user">
-                            <strong>You</strong>
-                            <div style="margin-top: 0.5rem;">{safe_message}</div>
-                            <div class="message-time">{html.escape(str(msg_time))}</div>
-                        </div>
-                        """
-                    ).strip(),
-                    unsafe_allow_html=True
-                )
-            with col_save:
-                # Check if already saved
-                is_saved = False
-                try:
-                    saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=5)
-                    if saved_resp.status_code == 200:
-                        saved_queries = saved_resp.json().get("saved_queries", [])
-                        is_saved = any(sq.get("query") == message for sq in saved_queries)
-                except:
-                    pass
-                
-                save_key = f"save_query_{idx}"
-                if not is_saved:
-                    if st.button("⭐", key=save_key, help="Save this query", use_container_width=True):
-                        st.session_state[f"show_save_dialog_{idx}"] = True
-                        st.rerun()
-                else:
-                    st.button("⭐", key=f"saved_{save_key}", disabled=True, use_container_width=True)
-            
-            # Save dialog
-            if st.session_state.get(f"show_save_dialog_{idx}", False):
-                with st.form(f"save_form_{idx}"):
-                    save_name = st.text_input("Name (optional)", value=message[:50], key=f"save_name_{idx}")
-                    save_desc = st.text_area("Description (optional)", key=f"save_desc_{idx}")
-                    col_save_btn, col_cancel_btn = st.columns(2)
-                    with col_save_btn:
-                        if st.form_submit_button("💾 Save"):
-                            try:
-                                save_resp = requests.post(
-                                    f"{API_URL}/saved-queries",
-                                    json={
-                                        "query": message,
-                                        "name": save_name,
-                                        "description": save_desc
-                                    },
-                                    timeout=5
-                                )
-                                if save_resp.status_code == 200:
-                                    st.success("✅ Saved!")
-                                    st.session_state[f"show_save_dialog_{idx}"] = False
-                                    time.sleep(0.5)
-                                    st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
-                    with col_cancel_btn:
-                        if st.form_submit_button("❌ Cancel"):
-                            st.session_state[f"show_save_dialog_{idx}"] = False
-                            st.rerun()
-        else:
-            # Format sources HTML
-            sources_html = ""
-            if sources and len(sources) > 0:
-                sources_list = []
-                for source in sources:
-                    source_name = source.get("source", "Unknown")
-                    relevance = source.get("relevance", 0)
-                    
-                    # Determine relevance class
-                    if relevance >= 0.7:
-                        rel_class = "relevance-high"
-                        rel_label = "High"
-                    elif relevance >= 0.4:
-                        rel_class = "relevance-medium"
-                        rel_label = "Medium"
-                    else:
-                        rel_class = "relevance-low"
-                        rel_label = "Low"
-                    
-                    sources_list.append(
-                        f"""
-                        <div class="source-item">
-                            <span class="source-name">📄 {source_name}</span>
-                            <span class="source-relevance">
-                                <span class="relevance-badge {rel_class}">{rel_label} ({relevance:.0%})</span>
-                            </span>
-                        </div>
-                        """
-                    )
-                
-                sources_html = f"""
-                <div class="sources-container">
-                    <strong style="color: #667eea; font-size: 0.9rem;">📚 Sources:</strong>
-                    {"".join(sources_list)}
-                </div>
-                """
-            
-            # Display message with feedback buttons and copy button
-            col_msg, col_actions = st.columns([5, 1])
-            with col_msg:
-                safe_message = html.escape(str(message)).replace("\n", "<br/>")
-                st.markdown(
-                    textwrap.dedent(
-                        f"""
-                        <div class="message-bot" id="answer_{idx}">
-                            <strong>📚 Assistant</strong>
-                            <div style="margin-top: 0.5rem;" id="answer_text_{idx}">{safe_message}</div>
-                            {sources_html}
-                            <div class="message-time">{html.escape(str(msg_time))}</div>
-                        </div>
-                        """
-                    ).strip(),
-                    unsafe_allow_html=True
-                )
-            
-            with col_actions:
-                # Action buttons column
-                col_copy, col_feedback = st.columns([1, 1])
-                
-                with col_copy:
-                    copy_key = f"copy_answer_{idx}"
-                    if st.button("📋", key=copy_key, help="Copy answer to clipboard", use_container_width=True):
-                        # Store message in session state for JavaScript access
-                        st.session_state[f"copy_text_{idx}"] = message
-                        # Use JavaScript to copy to clipboard
-                        # Escape the message for JavaScript
-                        escaped_message = message.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$').replace('\n', '\\n').replace('\r', '\\r')
-                        copy_script = f"""
-                        <script>
-                            (function() {{
-                                const text = `{escaped_message}`;
-                                if (navigator.clipboard && navigator.clipboard.writeText) {{
-                                    navigator.clipboard.writeText(text).then(function() {{
-                                        // Success - show toast notification
-                                        const toast = document.createElement('div');
-                                        toast.textContent = '✅ Copied to clipboard!';
-                                        toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
-                                        document.body.appendChild(toast);
-                                        setTimeout(() => toast.remove(), 2000);
-                                    }}).catch(function(err) {{
-                                        console.error('Copy failed:', err);
-                                        fallbackCopy(text);
-                                    }});
-                                }} else {{
-                                    fallbackCopy(text);
-                                }}
-                                
-                                function fallbackCopy(text) {{
-                                    const textArea = document.createElement('textarea');
-                                    textArea.value = text;
-                                    textArea.style.position = 'fixed';
-                                    textArea.style.left = '-999999px';
-                                    textArea.style.top = '-999999px';
-                                    document.body.appendChild(textArea);
-                                    textArea.focus();
-                                    textArea.select();
-                                    try {{
-                                        const successful = document.execCommand('copy');
-                                        if (successful) {{
-                                            const toast = document.createElement('div');
-                                            toast.textContent = '✅ Copied to clipboard!';
-                                            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
-                                            document.body.appendChild(toast);
-                                            setTimeout(() => toast.remove(), 2000);
-                                        }} else {{
-                                            alert('❌ Failed to copy. Please select and copy manually.');
-                                        }}
-                                    }} catch (err) {{
-                                        console.error('Fallback copy failed:', err);
-                                        alert('❌ Failed to copy. Please select and copy manually.');
-                                    }}
-                                    document.body.removeChild(textArea);
-                                }}
-                            }})();
-                        </script>
-                        """
-                        st.markdown(copy_script, unsafe_allow_html=True)
-                
-                with col_feedback:
-                    # Get the user query for this response (previous message)
-                    user_query = ""
-                    if idx < len(st.session_state.chat_history) - 1:
-                        prev_item = st.session_state.chat_history[-(idx+2)]
-                        if len(prev_item) >= 2 and prev_item[0] == "user":
-                            user_query = prev_item[1]
-                    
-                    # Check if feedback already submitted
-                    feedback_key = f"feedback_submitted_{idx}"
-                    if not st.session_state.get(feedback_key, False):
-                        col_thumbs_up, col_thumbs_down = st.columns(2)
-                        with col_thumbs_up:
-                            if st.button("👍", key=f"thumbs_up_{idx}", help="Good answer", use_container_width=True):
-                                try:
-                                    feedback_resp = requests.post(
-                                        f"{API_URL}/feedback",
-                                        json={
-                                            "query": user_query,
-                                            "response": message,
-                                            "rating": 1,
-                                            "feedback_type": "thumbs",
-                                            "sources_count": len(sources)
-                                        },
-                                        timeout=5
-                                    )
-                                    if feedback_resp.status_code == 200:
-                                        st.session_state[feedback_key] = True
-                                        st.success("👍 Thanks!")
-                                        time.sleep(1)
-                                        st.rerun()
-                                except:
-                                    st.error("Failed to submit feedback")
-                        
-                        with col_thumbs_down:
-                            if st.button("👎", key=f"thumbs_down_{idx}", help="Poor answer", use_container_width=True):
-                                # Show feedback form
-                                st.session_state[f"show_feedback_form_{idx}"] = True
-                                st.rerun()
-                        
-                        # Detailed feedback form
-                        if st.session_state.get(f"show_feedback_form_{idx}", False):
-                            with st.form(f"feedback_form_{idx}"):
-                                st.write("**Help us improve:**")
-                                rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{idx}")
-                                comment = st.text_area("Comments (optional)", key=f"comment_{idx}")
-                                col_submit, col_cancel = st.columns(2)
-                                with col_submit:
-                                    if st.form_submit_button("Submit"):
-                                        try:
-                                            feedback_resp = requests.post(
-                                                f"{API_URL}/feedback",
-                                                json={
-                                                    "query": user_query,
-                                                    "response": message,
-                                                    "rating": rating,
-                                                    "feedback_type": "detailed",
-                                                    "comment": comment,
-                                                    "sources_count": len(sources)
-                                                },
-                                                timeout=5
-                                            )
-                                            if feedback_resp.status_code == 200:
-                                                st.session_state[feedback_key] = True
-                                                st.session_state[f"show_feedback_form_{idx}"] = False
-                                                st.success("✅ Feedback submitted!")
-                                                time.sleep(1)
-                                                st.rerun()
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
-                                with col_cancel:
-                                    if st.form_submit_button("Cancel"):
-                                        st.session_state[f"show_feedback_form_{idx}"] = False
-                                        st.rerun()
-                    else:
-                        st.caption("✅ Feedback submitted")
-
-# Footer
-st.markdown("---")
-col1, col2, col3 = st.columns(3)
-with col2:
-    st.markdown(
-        "<div style='text-align: center; color: #6b7280; font-size: 0.85rem;'>"
-        "Powered by FastAPI & Streamlit | Incident Assistant v1.0"
-        "</div>",
-        unsafe_allow_html=True
-    )

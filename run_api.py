@@ -1,20 +1,31 @@
 #!/usr/bin/env python
-"""Entry point for running the FastAPI server."""
-import uvicorn
+"""Start the FastAPI backend. Usage: python run_api.py"""
+import os
+import sys
 
-if __name__ == "__main__":
-    import os
-    # Railway provides PORT environment variable
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def _load_dotenv():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+def main():
+    _load_dotenv()
+    import uvicorn
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
     uvicorn.run(
         "src.api:app",
         host=host,
         port=port,
-        # Default to no auto-reload because it can drop active SSE streams ("Response ended prematurely").
-        # Set UVICORN_RELOAD=1 for dev auto-reload.
         reload=os.environ.get("UVICORN_RELOAD", "0") == "1",
-        timeout_keep_alive=75,  # Keep connections alive longer for slow requests
-        timeout_graceful_shutdown=10
+        timeout_keep_alive=75,
+        timeout_graceful_shutdown=10,
     )
 
+if __name__ == "__main__":
+    main()
