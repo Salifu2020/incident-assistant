@@ -63,7 +63,7 @@ def get_assistant():
         _assistant_instance = KnowledgeAssistant(
             get_processor(), 
             model_name=llm_model,
-            max_context_chars=2000,  # Reduced from 2500 to save memory
+            max_context_chars=3500,  # Enough context for document summaries (resume, etc.)
             enable_streaming=True,   # Enable streaming for faster perceived response
             enable_query_expansion=False,  # Disabled: Can cause slow context retrieval if Ollama is slow/timeout
             enable_hybrid_search=True,  # Enable hybrid search (semantic + keyword) for better accuracy

@@ -1245,6 +1245,19 @@ def get_status(current_user: UserInfo = Depends(get_current_user)):
         proc = get_processor()
         collection_count = proc.collection.count()
         
+        # Detect files still waiting in source_files (uploaded but not yet ingested)
+        pending_files = []
+        try:
+            source_files_dir = os.path.join(PROJECT_ROOT, "source_files")
+            if os.path.isdir(source_files_dir):
+                pending_files = [
+                    f for f in os.listdir(source_files_dir)
+                    if os.path.isfile(os.path.join(source_files_dir, f))
+                ]
+        except Exception as e:
+            logger.warning(f"Could not inspect pending source_files: {e}")
+            pending_files = []
+        
         # Get list of unique documents
         try:
             # Sample some chunks to get document names
@@ -1264,6 +1277,9 @@ def get_status(current_user: UserInfo = Depends(get_current_user)):
             "knowledge_base_chunks": collection_count,
             "documents": documents,
             "document_count": len(documents),
+            "pending_files_count": len(pending_files),
+            "pending_files": pending_files,
+            "is_processing": len(pending_files) > 0,
             "message": f"Knowledge base contains {collection_count} chunks from {len(documents)} document(s)"
         }
     except Exception as e:
@@ -2055,7 +2071,7 @@ async def ask_question_stream(payload: QuestionRequest):
                 None,
                 assistant.retrieve_context,
                 enhanced_query if is_followup else query_for_retrieval,
-                4,  # k value
+                8,  # k value (higher recall for summaries)
                 payload.document_filters,
             )
             while True:
@@ -2067,10 +2083,7 @@ async def ask_question_stream(payload: QuestionRequest):
                     yield _sse({"type": "status", "stage": "retrieving_context", "elapsed": round(_elapsed(), 1)})
             
             if not context:
-                # Send error message
-                error_msg = "⚠️ No relevant information found in the knowledge base."
-                yield _sse({"type": "error", "content": error_msg})
-                return
+                context = ""
             
             # Send sources first
             yield _sse({"type": "sources", "sources": sources})
@@ -2172,9 +2185,9 @@ async def ask_question_stream(payload: QuestionRequest):
             if assistant.enable_multilanguage and detected_language != assistant.default_language:
                 yield _sse({"type": "status", "stage": "translating_answer", "elapsed": round(_elapsed(), 1)})
                 # translate_text signature: translate_text(text, target_lang, source_lang)
-                # target is detected_language, source is default_language (en)
+                # Use final_response (not response_text) so echo replacement is preserved when translating
                 translate_a_future = loop.run_in_executor(
-                    None, assistant.translate_text, response_text.strip(), detected_language, assistant.default_language
+                    None, assistant.translate_text, final_response, detected_language, assistant.default_language
                 )
                 while True:
                     try:

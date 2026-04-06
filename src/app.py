@@ -1,4 +1,5 @@
 import os
+import re
 import streamlit as st
 import requests
 import logging
@@ -7,6 +8,7 @@ import time
 import json
 import textwrap
 import html
+import hashlib
 from urllib3.exceptions import ProtocolError
 from requests.exceptions import ChunkedEncodingError
 
@@ -18,8 +20,10 @@ API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 def get_api_connection_error_message() -> str:
     """Get a helpful error message when API connection fails."""
     api_url = os.environ.get("API_URL", "http://127.0.0.1:8000")
-    
-    if api_url.startswith("http://127.0.0.1") or api_url.startswith("http://localhost"):
+    # Only show Streamlit Cloud guidance when actually running on Streamlit Cloud.
+    is_streamlit_cloud = bool(os.environ.get("STREAMLIT_SHARING_MODE"))
+
+    if (api_url.startswith("http://127.0.0.1") or api_url.startswith("http://localhost")) and is_streamlit_cloud:
         return (
             "❌ Cannot connect to API.\n\n"
             "**The API URL is set to localhost, which won't work on Streamlit Cloud.**\n\n"
@@ -29,6 +33,16 @@ def get_api_connection_error_message() -> str:
             "3. Add: `API_URL = \"https://your-backend-url.com\"`\n"
             "4. Redeploy your app\n\n"
             "See `STREAMLIT_CLOUD_DEPLOYMENT.md` for detailed instructions."
+        )
+    elif api_url.startswith("http://127.0.0.1") or api_url.startswith("http://localhost"):
+        return (
+            f"❌ Cannot connect to local API at `{api_url}`.\n\n"
+            "**This is a local run issue (not Streamlit Cloud).**\n"
+            "**Please check:**\n"
+            "1. Is FastAPI running on that exact port?\n"
+            "2. Are Streamlit and API using the same `API_URL` / `PORT` values?\n"
+            "3. Restart Streamlit after changing environment variables.\n\n"
+            "Tip: run `python run_api.py` and `python run_app.py` from fresh terminals."
         )
     else:
         return (
@@ -115,6 +129,7 @@ st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap');
     /* Global Styles - Fluid, Modern, Simplified */
     * {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -504,15 +519,243 @@ st.markdown(
     }
     
     /* Auth Page - Centered card layout */
-    .auth-container {
-        max-width: 440px;
-        margin: 2rem auto 2rem;
-        padding: 2rem;
-        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+    /* ===== MODERN AUTH SCREEN ===== */
+    .auth-page {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem 1rem;
+    }
+    .auth-card {
+        width: 100%;
+        max-width: 300px;
+        margin-left: auto;
+        margin-right: auto;
+        background: rgba(15, 23, 42, 0.74);
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        box-shadow: 0 10px 28px -16px rgba(0, 0, 0, 0.55);
+        padding: 1.05rem 1rem 0.85rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .auth-card::before {
+        content: none;
+    }
+    .auth-card::after {
+        content: none;
+    }
+    .auth-brand {
+        text-align: center;
+        margin-bottom: 0;
+        position: relative;
+        z-index: 1;
+    }
+    .auth-logo-wrap {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin: 0 auto 0.65rem;
+        position: relative;
+        z-index: 1;
+    }
+    .auth-logo-svg {
+        width: 2.7rem;
+        height: 2.7rem;
+        filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.35));
+    }
+    .auth-logo {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        display: block;
+    }
+    .auth-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #f8fafc;
+        margin: 0 0 0.25rem 0;
+        letter-spacing: -0.03em;
+        line-height: 1.2;
+    }
+    .auth-subtitle {
+        font-size: 0.82rem;
+        color: #94a3b8;
+        margin: 0;
+        line-height: 1.35;
+        font-weight: 400;
+    }
+    .auth-features {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.75rem 0 0;
+        flex-wrap: wrap;
+        position: relative;
+        z-index: 1;
+    }
+    .auth-feature {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.65rem;
+        font-weight: 500;
+        color: #94a3b8;
+        letter-spacing: 0.01em;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+    }
+    .auth-feature-icon {
+        font-size: 0.95rem;
+        line-height: 1;
+    }
+    .auth-lead {
+        font-size: 0.9375rem;
+        color: #94a3b8;
+        margin: 0 0 1.5rem 0;
+        line-height: 1.6;
+        text-align: center;
+        width: 100%;
+        max-width: none;
+        letter-spacing: 0.01em;
+        box-sizing: border-box;
+    }
+    .auth-tabs-container {
+        margin-bottom: 1.5rem;
+    }
+    .auth-tabs .stTabs [data-baseweb="tab-list"] {
+        gap: 0;
+        background: #0f172a;
+        padding: 4px;
+        border-radius: 12px;
+        border: 1px solid #334155;
+    }
+    .auth-tabs .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        font-size: 0.9375rem;
+        color: #94a3b8;
+        background: transparent;
+        transition: all 0.2s ease;
+    }
+    .auth-tabs .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    }
+    .auth-form {
+        background: rgba(15, 23, 42, 0.6);
         border-radius: 16px;
         border: 1px solid #334155;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        padding: 1.5rem;
     }
+    .auth-input-group {
+        margin-bottom: 1rem;
+    }
+    .auth-input-label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #e2e8f0;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+    .auth-submit-btn {
+        width: 100%;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 0.875rem 1.5rem;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        margin-top: 0.5rem;
+    }
+    .auth-submit-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    }
+    .auth-divider {
+        display: flex;
+        align-items: center;
+        margin: 1.5rem 0;
+        color: #64748b;
+        font-size: 0.8125rem;
+    }
+    .auth-divider::before,
+    .auth-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: #334155;
+    }
+    .auth-divider span {
+        padding: 0 1rem;
+    }
+    .password-requirements {
+        background: rgba(15, 23, 42, 0.45);
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    .password-requirements-title {
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: #e2e8f0;
+        margin-bottom: 0.75rem;
+    }
+    .password-req {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        margin: 0.375rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .password-req.met {
+        color: #10b981;
+    }
+    .auth-footer-text {
+        text-align: center;
+        margin-top: 1.5rem;
+        font-size: 0.8125rem;
+        color: #64748b;
+    }
+    .auth-footer-text a {
+        color: #3b82f6;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    .auth-footer-text a:hover {
+        text-decoration: underline;
+    }
+    /* Responsive */
+    @media (max-width: 480px) {
+        .auth-card {
+            max-width: min(300px, 100%);
+            padding: 1.5rem 1.15rem 1.35rem;
+            border-radius: 20px;
+        }
+        .auth-title {
+            font-size: 1.35rem;
+        }
+        .auth-features {
+            gap: 0.35rem;
+        }
+        .auth-feature {
+            font-size: 0.7rem;
+            padding: 0.28rem 0.55rem;
+        }
+    }
+    
+    /* Old styles (keeping for compatibility) */
     .auth-header {
         text-align: center;
         margin-bottom: 2rem;
@@ -1162,6 +1405,423 @@ st.markdown(
         background: rgba(30, 41, 59, 0.6);
         border: 1px solid rgba(71, 85, 105, 0.4);
     }
+
+    /* Login / signup only — toggled via body.auth-screen in app */
+    body.auth-screen section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+    body.auth-screen .stApp > div {
+        flex-direction: row;
+    }
+    body.auth-screen section.main > div {
+        flex: 1 1 100%;
+        max-width: 100%;
+    }
+    body.auth-screen [data-testid="stAppViewContainer"] .main {
+        background: radial-gradient(ellipse 100% 60% at 50% -15%, rgba(59, 130, 246, 0.12), transparent 55%),
+            linear-gradient(180deg, #0a0f1a 0%, #0f172a 40%, #0c1222 100%);
+    }
+    /* Compact centered rail — avoids stretched full-width inputs/buttons */
+    body.auth-screen .main .block-container,
+    body.auth-screen [data-testid="stMain"] .block-container,
+    body.auth-screen [data-testid="stMainBlockContainer"] {
+        max-width: 300px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    body.auth-screen [data-testid="stHorizontalBlock"] {
+        max-width: 300px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        width: 100% !important;
+        justify-content: center !important;
+        gap: 0.5rem !important;
+    }
+    body.auth-screen [data-testid="stAlert"] {
+        max-width: 300px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        width: 100% !important;
+        box-sizing: border-box;
+    }
+    body.auth-screen .auth-card {
+        max-width: 300px !important;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+    }
+    body.auth-screen .auth-card .auth-title {
+        font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #f8fafc;
+        letter-spacing: -0.035em;
+    }
+    body.auth-screen .auth-card .auth-subtitle {
+        font-family: 'DM Sans', 'Inter', sans-serif;
+        color: #a1b4cf;
+    }
+    body.auth-screen .auth-card .auth-feature {
+        font-family: 'DM Sans', 'Inter', sans-serif;
+    }
+    body.auth-screen .auth-lead {
+        margin: 1.15rem 0 1.4rem 0;
+        color: #a8b9d4;
+        width: 100%;
+        text-align: center;
+    }
+    body.auth-screen .auth-form-title {
+        font-size: 1.02rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: #e2e8f0;
+        margin: 0 0 0.4rem 0;
+    }
+    body.auth-screen .auth-form-hint {
+        font-size: 0.84rem;
+        color: #94a3b8;
+        margin: 0 0 1.15rem 0;
+        line-height: 1.45;
+    }
+    body.auth-screen .stTextInput label,
+    body.auth-screen .stSelectbox label {
+        font-size: 0.86rem !important;
+        font-weight: 650 !important;
+        color: #e2e8f0 !important;
+        margin-bottom: 0.35rem !important;
+    }
+    body.auth-screen [data-testid="stVerticalBlock"] [data-testid="stExpander"] {
+        width: 100%;
+        max-width: 100%;
+    }
+    body.auth-screen div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+        gap: 0;
+        background: #0f172a !important;
+        padding: 4px !important;
+        border-radius: 12px !important;
+        border: 1px solid #334155 !important;
+    }
+    body.auth-screen div[data-testid="stTabs"] [data-baseweb="tab"] {
+        border-radius: 8px !important;
+        padding: 0.65rem 1.25rem !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+        color: #94a3b8 !important;
+        background: transparent !important;
+    }
+    body.auth-screen div[data-testid="stTabs"] [aria-selected="true"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35) !important;
+    }
+    /* Streamlit forms use `.stForm` (more reliable than data-testid wrappers) */
+    body.auth-screen .stForm {
+        width: 100% !important;
+        max-width: 280px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        box-sizing: border-box;
+        padding: 1.35rem 1.15rem 1rem 1.15rem !important;
+        border-radius: 14px !important;
+        background: rgba(15, 23, 42, 0.5) !important;
+        border: 1px solid rgba(148, 163, 184, 0.16) !important;
+        backdrop-filter: blur(6px) !important;
+        -webkit-backdrop-filter: blur(6px) !important;
+    }
+    body.auth-screen [data-testid="stForm"] {
+        width: 100%;
+        max-width: 280px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        box-sizing: border-box;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-radius: 14px;
+        padding: 1.35rem 1.15rem 1rem 1.15rem;
+        background: rgba(15, 23, 42, 0.5);
+        box-shadow: none;
+    }
+    body.auth-screen button[kind="primary"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: #fff !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+    }
+    body.auth-screen button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        box-shadow: 0 3px 10px rgba(37, 99, 235, 0.22) !important;
+    }
+    body.auth-screen .stExpander {
+        width: 100% !important;
+        max-width: 280px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        box-sizing: border-box;
+        border-radius: 14px !important;
+        background: rgba(15, 23, 42, 0.42) !important;
+        border: 1px solid rgba(148, 163, 184, 0.14) !important;
+        backdrop-filter: blur(4px) !important;
+        -webkit-backdrop-filter: blur(4px) !important;
+    }
+    body.auth-screen .stTextInput > div > div > input,
+    body.auth-screen .stTextArea > div > div > textarea {
+        border-radius: 12px;
+        border: 1px solid rgba(100, 116, 139, 0.45);
+        background: rgba(15, 23, 42, 0.44);
+    }
+    body.auth-screen .stTextInput > div > div > input:focus {
+        border-color: rgba(96, 165, 250, 0.65);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    body.auth-screen button[kind="tertiary"] {
+        color: #93c5fd !important;
+        font-weight: 500 !important;
+        text-decoration: none;
+    }
+    body.auth-screen button[kind="tertiary"]:hover {
+        color: #bfdbfe !important;
+    }
+    body.auth-screen .auth-link-actions-marker + div [data-testid="stHorizontalBlock"] {
+        align-items: center !important;
+        gap: 0.35rem !important;
+        margin-bottom: 0.8rem !important;
+    }
+    body.auth-screen .auth-link-actions-marker + div .stButton > button[kind="tertiary"] {
+        width: 100%;
+        justify-content: center;
+        border: 1px solid rgba(148, 163, 184, 0.18) !important;
+        border-radius: 12px !important;
+        background: rgba(15, 23, 42, 0.35) !important;
+        color: #c7d2fe !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        padding: 0.35rem 0.6rem !important;
+        transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    body.auth-screen .auth-link-actions-marker + div .stButton > button[kind="tertiary"]:hover {
+        background: rgba(30, 41, 59, 0.55) !important;
+        border-color: rgba(148, 163, 184, 0.32) !important;
+        color: #e2e8f0 !important;
+    }
+
+    /* -------- Phase 1 chat modernization overrides -------- */
+    :root {
+        --ia-bg-card: rgba(17, 25, 40, 0.78);
+        --ia-bg-card-soft: rgba(22, 32, 52, 0.62);
+        --ia-bg-elevated: rgba(12, 19, 33, 0.92);
+        --ia-text-strong: #f8fbff;
+        --ia-text-muted: #9db0c9;
+        --ia-text-subtle: #7f93ad;
+        --ia-border-soft: rgba(130, 153, 187, 0.22);
+        --ia-accent-a: #4f8cff;
+        --ia-accent-b: #2f63ff;
+        --ia-shadow-soft: 0 10px 28px rgba(2, 8, 23, 0.28);
+        --ia-shadow-glow: 0 18px 48px rgba(2, 8, 23, 0.34);
+    }
+
+    /* Make conversation layout feel more intentional */
+    .block-container {
+        max-width: 1520px;
+    }
+
+    .message-user,
+    .message-bot {
+        border-radius: 20px !important;
+        padding: 0.95rem 1.05rem !important;
+        margin-bottom: 0.8rem !important;
+        box-shadow: var(--ia-shadow-soft) !important;
+        border: 1px solid var(--ia-border-soft) !important;
+        max-width: 84% !important;
+        line-height: 1.62 !important;
+        font-size: 0.96rem !important;
+    }
+
+    .message-user {
+        background: linear-gradient(135deg, var(--ia-accent-a) 0%, var(--ia-accent-b) 100%) !important;
+        margin-left: 13% !important;
+        color: #f8fbff !important;
+        border-color: rgba(134, 181, 255, 0.35) !important;
+    }
+
+    .message-bot {
+        background: linear-gradient(180deg, var(--ia-bg-card) 0%, var(--ia-bg-card-soft) 100%) !important;
+        margin-right: 13% !important;
+        color: #e7effa !important;
+        backdrop-filter: blur(10px) saturate(1.06);
+    }
+
+    .message-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .message-role {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.74rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-weight: 700;
+        opacity: 0.94;
+    }
+
+    .message-body p,
+    .message-body div,
+    .message-body span,
+    .message-body li {
+        color: inherit !important;
+    }
+
+    .message-actions-label {
+        font-size: 0.72rem;
+        color: var(--ia-text-subtle);
+    }
+
+    .message-time {
+        font-size: 0.72rem !important;
+        color: var(--ia-text-muted) !important;
+        opacity: 0.9 !important;
+    }
+
+    .message-sources {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-top: 0.8rem;
+    }
+
+    .source-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.38rem 0.62rem;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.09);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        color: #d8e4f5;
+        font-size: 0.76rem;
+        line-height: 1.2;
+    }
+
+    .source-chip em {
+        color: var(--ia-text-subtle);
+        font-style: normal;
+    }
+
+    .zone-context-panel {
+        border-radius: 14px !important;
+        background: linear-gradient(180deg, rgba(17, 25, 40, 0.72) 0%, rgba(17, 25, 40, 0.56) 100%) !important;
+        border: 1px solid var(--ia-border-soft) !important;
+        box-shadow: var(--ia-shadow-soft) !important;
+    }
+
+    /* Modern composer shell */
+    [data-testid="stChatInputContainer"] {
+        max-width: 860px !important;
+        border-radius: 20px !important;
+        border: 1px solid var(--ia-border-soft) !important;
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(15, 23, 42, 0.88) 100%) !important;
+        box-shadow: var(--ia-shadow-glow) !important;
+        padding: 0.1rem 0.95rem 0.15rem 0.95rem !important;
+        backdrop-filter: blur(14px) saturate(1.05);
+        min-height: 78px !important;
+        height: auto !important;
+    }
+
+    [data-testid="stChatInputContainer"]:focus-within {
+        border-color: rgba(108, 160, 255, 0.58) !important;
+        box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.18), 0 16px 40px rgba(2, 8, 23, 0.42) !important;
+    }
+
+    [data-testid="stChatInputContainer"] input::placeholder,
+    [data-testid="stChatInputContainer"] textarea::placeholder {
+        color: #91a4be !important;
+    }
+
+    [data-testid="stChatInputContainer"] textarea,
+    [data-testid="stChatInputContainer"] input,
+    [data-testid="stChatInput"] {
+        min-height: 40px !important;
+        height: auto !important;
+        font-size: 1rem !important;
+        padding: 0.7rem 0 0.55rem 0 !important;
+    }
+
+    .composer-hint {
+        max-width: 860px;
+        margin: 0.7rem auto 0.25rem;
+        color: var(--ia-text-subtle);
+        font-size: 0.8rem;
+        text-align: center;
+    }
+
+    .conversation-toolbar {
+        margin: 0.35rem 0 0.9rem;
+    }
+
+    .section-kicker {
+        color: var(--ia-text-subtle);
+        font-size: 0.76rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 0.2rem;
+    }
+
+    .conversation-title {
+        color: var(--ia-text-strong);
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+    }
+
+    .conversation-subtitle {
+        color: var(--ia-text-muted);
+        font-size: 0.85rem;
+        margin-top: 0.2rem;
+    }
+
+    .starter-grid-title {
+        margin: 1rem 0 0.8rem;
+        text-align: center;
+        color: var(--ia-text-muted);
+        font-size: 0.84rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .starter-card .stButton > button {
+        min-height: 112px !important;
+        height: 112px !important;
+        padding: 0.9rem 1rem !important;
+        border-radius: 18px !important;
+        background: linear-gradient(180deg, rgba(17, 25, 40, 0.88) 0%, rgba(17, 25, 40, 0.72) 100%) !important;
+        border: 1px solid rgba(130, 153, 187, 0.18) !important;
+        box-shadow: var(--ia-shadow-soft) !important;
+        text-align: left !important;
+        white-space: pre-line !important;
+        line-height: 1.35 !important;
+    }
+
+    .starter-card .stButton > button:hover {
+        border-color: rgba(108, 160, 255, 0.42) !important;
+        transform: translateY(-2px);
+    }
+
+    .copilot-greeting h2 {
+        font-weight: 700 !important;
+        letter-spacing: -0.03em !important;
+    }
+
+    .copilot-greeting p {
+        color: #9fb2cb !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -1279,7 +1939,7 @@ if "show_advanced_filters" not in st.session_state:
 if "advanced_filters" not in st.session_state:
     st.session_state.advanced_filters = {}
 if "enable_streaming" not in st.session_state:
-    st.session_state.enable_streaming = True  # Enable streaming by default
+    st.session_state.enable_streaming = True
 if "current_conversation_id" not in st.session_state:
     st.session_state.current_conversation_id = None
 if "conversations" not in st.session_state:
@@ -1288,6 +1948,8 @@ if "show_health" not in st.session_state:
     st.session_state.show_health = False
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "auth_view" not in st.session_state:
+    st.session_state.auth_view = "login"  # "login" | "register" — unauthenticated shell only
 if "access_token" not in st.session_state:
     st.session_state.access_token = None
 if "current_user" not in st.session_state:
@@ -1310,6 +1972,8 @@ if "show_2fa_setup" not in st.session_state:
     st.session_state.show_2fa_setup = False
 if "pending_2fa_username" not in st.session_state:
     st.session_state.pending_2fa_username = None
+if "pending_remember_me" not in st.session_state:
+    st.session_state.pending_remember_me = True
 if "2fa_setup_data" not in st.session_state:
     st.session_state["2fa_setup_data"] = None
 if "show_profile" not in st.session_state:
@@ -1505,6 +2169,7 @@ if not st.session_state.authenticated:
     if reset_token_from_url and not st.session_state.password_reset_token:
         st.session_state.password_reset_token = reset_token_from_url
         st.session_state.show_password_reset = True
+        st.session_state.auth_view = "login"
         # Verify token to get email
         try:
             verify_resp = requests.post(
@@ -1517,37 +2182,262 @@ if not st.session_state.authenticated:
                 st.session_state.password_reset_email = verify_data.get("email")
         except:
             pass  # Will show error in form
+
+    # Dev helpers (default creds + reset token debugging) should never be the default
+    # experience for production users.
+    debug_mode = os.environ.get("DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    show_dev_helpers = debug_mode
     
-    # Auth header with polished styling
+    # Modern Auth UI — compact ~300px rail; body.auth-screen hides sidebar & scopes auth CSS
+    st.markdown(
+        '<script>document.body.classList.add("auth-screen")</script>',
+        unsafe_allow_html=True,
+    )
     st.markdown(
         """
-        <div class="auth-card">
-            <div class="auth-header">🔐 Welcome to Incident Assistant</div>
-            <div class="auth-subtitle">Sign in or create an account to access the knowledge base</div>
+<div class="auth-card">
+    <div class="auth-brand">
+        <div class="auth-logo-wrap" aria-hidden="true">
+            <svg class="auth-logo-svg" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <defs>
+                    <linearGradient id="auth-book-a" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#2dd4bf"/>
+                        <stop offset="100%" stop-color="#14b8a6"/>
+                    </linearGradient>
+                    <linearGradient id="auth-book-b" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#f472b6"/>
+                        <stop offset="100%" stop-color="#db2777"/>
+                    </linearGradient>
+                    <linearGradient id="auth-book-c" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#7dd3fc"/>
+                        <stop offset="100%" stop-color="#0ea5e9"/>
+                    </linearGradient>
+                </defs>
+                <rect x="10" y="22" width="26" height="46" rx="4" fill="url(#auth-book-a)" transform="rotate(-14 23 45)" opacity="0.98"/>
+                <rect x="28" y="14" width="28" height="52" rx="4" fill="url(#auth-book-b)" transform="rotate(6 42 40)" opacity="0.98"/>
+                <rect x="44" y="20" width="28" height="48" rx="4" fill="url(#auth-book-c)" transform="rotate(14 58 44)" opacity="0.98"/>
+            </svg>
         </div>
-        """,
-        unsafe_allow_html=True
+        <h1 class="auth-title">Incident Assistant</h1>
+        <p class="auth-subtitle">Your AI-powered knowledge base</p>
+    </div>
+    <div class="auth-features">
+        <span class="auth-feature"><span class="auth-feature-icon">🔒</span> Secure</span>
+        <span class="auth-feature"><span class="auth-feature-icon">⚡</span> Fast</span>
+        <span class="auth-feature"><span class="auth-feature-icon">🤖</span> AI-Powered</span>
+    </div>
+</div>
+""",
+        unsafe_allow_html=True,
     )
-    st.markdown("<div class='auth-tabs'>", unsafe_allow_html=True)
+
+    if st.session_state.auth_view == "register":
+        st.markdown(
+            '<p class="auth-lead">Create your account to get started.</p>',
+            unsafe_allow_html=True,
+        )
     
-    tab1, tab2 = st.tabs(["Login", "Register"])
-    
-    with tab1:
-        st.markdown("#### Sign in to your account")
+        # Password requirements with modern styling
+        st.markdown("""
+        <div class="password-requirements">
+            <div class="password-requirements-title">📋 Password Requirements:</div>
+            <div id="req-list-reg">
+                <div id="req-length-reg" class="password-req">❌ Min. 8 characters</div>
+                <div id="req-upper-reg" class="password-req">❌ One uppercase letter (A-Z)</div>
+                <div id="req-lower-reg" class="password-req">❌ One lowercase letter (a-z)</div>
+                <div id="req-number-reg" class="password-req">❌ One number (0-9)</div>
+                <div id="req-special-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)</div>
+            </div>
+        </div>
+        <script>
+        (function() {
+            function checkPasswordRequirements(password) {
+                const requirements = {
+                    length: password.length >= 8,
+                    upper: /[A-Z]/.test(password),
+                    lower: /[a-z]/.test(password),
+                    number: /[0-9]/.test(password),
+                    special: /[!@#$%^&*()_+\\-=\\[\\]{}|;:,.<>?]/.test(password)
+                };
+            
+                // Update UI
+                const updateReq = (id, met, text) => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        if (met) {
+                            el.innerHTML = '✅ ' + text;
+                            el.style.color = '#10b981';
+                        } else {
+                            el.innerHTML = '❌ ' + text;
+                            el.style.color = '#94a3b8';
+                        }
+                    }
+                };
+            
+                updateReq('req-length-reg', requirements.length, 'Minimum length: 8 characters');
+                updateReq('req-upper-reg', requirements.upper, 'At least one uppercase letter (A-Z)');
+                updateReq('req-lower-reg', requirements.lower, 'At least one lowercase letter (a-z)');
+                updateReq('req-number-reg', requirements.number, 'At least one number (0-9)');
+                updateReq('req-special-reg', requirements.special, 'At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)');
+            }
         
-        # Password reset link
+            // Monitor password input - find by label text
+            function setupPasswordValidation() {
+                const inputs = document.querySelectorAll('input[type="password"]');
+            
+                // Find the password input (not the confirm password)
+                // In Streamlit, inputs are in forms, and we can find by looking for the one before "Confirm Password"
+                let passwordInput = null;
+            
+                // Method 1: Find by looking for label containing "Password" but not "Confirm"
+                const allLabels = document.querySelectorAll('label, [data-testid*="stTextInput"]');
+                for (let label of allLabels) {
+                    const text = label.textContent || '';
+                    if (text.includes('Password') && !text.includes('Confirm')) {
+                        // Find the input near this label
+                        const form = label.closest('form') || label.closest('[data-testid*="stForm"]');
+                        if (form) {
+                            const formInputs = form.querySelectorAll('input[type="password"]');
+                            if (formInputs.length > 0) {
+                                passwordInput = formInputs[0];
+                                break;
+                            }
+                        }
+                    }
+                }
+            
+                // Method 2: If in register form, use first password input
+                if (!passwordInput) {
+                    const registerForm = document.querySelector('form');
+                    if (registerForm) {
+                        const formInputs = registerForm.querySelectorAll('input[type="password"]');
+                        if (formInputs.length >= 1) {
+                            passwordInput = formInputs[0];
+                        }
+                    }
+                }
+            
+                if (passwordInput) {
+                    // Store original value to detect changes
+                    let lastValue = passwordInput.value || '';
+                
+                    const checkAndUpdate = function() {
+                        const currentValue = passwordInput.value || '';
+                        if (currentValue !== lastValue) {
+                            lastValue = currentValue;
+                            checkPasswordRequirements(currentValue);
+                        }
+                    };
+                
+                    // Add event listeners
+                    passwordInput.addEventListener('input', checkAndUpdate);
+                    passwordInput.addEventListener('keyup', checkAndUpdate);
+                    passwordInput.addEventListener('change', checkAndUpdate);
+                
+                    // Check initial value
+                    checkAndUpdate();
+                } else {
+                    // Retry after a delay if inputs aren't ready yet
+                    setTimeout(setupPasswordValidation, 300);
+                }
+            }
+        
+            // Run after page load
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    setTimeout(setupPasswordValidation, 300);
+                });
+            } else {
+                setTimeout(setupPasswordValidation, 300);
+            }
+        
+            // Also monitor for Streamlit reruns
+            const observer = new MutationObserver(function(mutations) {
+                let shouldCheck = false;
+                mutations.forEach(function(mutation) {
+                    if (mutation.addedNodes.length > 0) {
+                        shouldCheck = true;
+                    }
+                });
+                if (shouldCheck) {
+                    setTimeout(setupPasswordValidation, 100);
+                }
+            });
+        
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        })();
+        </script>
+        """, unsafe_allow_html=True)
+    
+        with st.form("register_form"):
+            st.markdown(
+                '<div class="auth-form-title">Create your account</div><div class="auth-form-hint">Start building with an admin-ready knowledge base.</div>',
+                unsafe_allow_html=True,
+            )
+            reg_username = st.text_input("Username", key="reg_username", placeholder="Choose a username")
+            reg_email = st.text_input("Email", key="reg_email", placeholder="you@example.com")
+            reg_password = st.text_input("Password", type="password", key="reg_password", placeholder="••••••••", help="See password requirements above")
+            reg_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm", placeholder="••••••••")
+            submit_reg = st.form_submit_button("Register", use_container_width=True)
+        
+            if submit_reg:
+                if reg_username and reg_email and reg_password:
+                    if reg_password != reg_password_confirm:
+                        st.error("❌ Passwords do not match")
+                    else:
+                        try:
+                            response = requests.post(
+                                f"{API_URL}/auth/register",
+                                json={
+                                    "username": reg_username,
+                                    "email": reg_email,
+                                    "password": reg_password,
+                                    "role": "user"
+                                },
+                                timeout=5
+                            )
+                            if response.status_code == 200:
+                                st.success("✅ Registration successful! Please login.")
+                            else:
+                                st.error(f"❌ Registration failed: {response.json().get('detail', 'Unknown error')}")
+                        except requests.exceptions.ConnectionError:
+                            st.error(get_api_connection_error_message())
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                else:
+                    st.warning("⚠️ Please fill in all fields")
+    
+
+        if st.button(
+            "Already have an account? Sign in",
+            key="auth_switch_to_login",
+            type="tertiary",
+        ):
+            st.session_state.auth_view = "login"
+            st.rerun()
+    else:
+        st.markdown(
+            '<p class="auth-lead">Welcome back! Enter your credentials to continue.</p>',
+            unsafe_allow_html=True,
+        )
         if st.session_state.show_password_reset:
             st.markdown("---")
             st.markdown("### 🔑 Password Reset")
-            
+        
             if st.session_state.password_reset_token:
                 # Step 2: Reset password with token
                 st.info(f"📧 Reset token received for: {st.session_state.password_reset_email}")
-                st.warning("⚠️ **Development Mode:** In production, this token would be sent via email.")
-                
+                if show_dev_helpers:
+                    st.warning("⚠️ **Development Mode:** In production, this token would be sent via email.")
+                else:
+                    st.caption("Token verified. Set your new password below.")
+            
                 with st.form("reset_password_form"):
                     st.text_input("Reset Token", value=st.session_state.password_reset_token, disabled=True, key="display_token")
-                    
+                
                     # Password requirements info
                     with st.expander("📋 Password Requirements", expanded=False):
                         st.markdown("""
@@ -1559,22 +2449,22 @@ if not st.session_state.authenticated:
                         - **At least one special character** (!@#$%^&*()_+-=[]{}|;:,.<>?)
                         - **Cannot reuse** your last 5 passwords
                         """)
-                    
+                
                     new_password = st.text_input("New Password", type="password", key="reset_new_password", help="See password requirements above")
                     confirm_password = st.text_input("Confirm New Password", type="password", key="reset_confirm_password")
-                    
+                
                     col1, col2 = st.columns(2)
                     with col1:
                         submit_reset = st.form_submit_button("✅ Reset Password", use_container_width=True)
                     with col2:
                         cancel_reset = st.form_submit_button("❌ Cancel", use_container_width=True)
-                    
+                
                     if cancel_reset:
                         st.session_state.show_password_reset = False
                         st.session_state.password_reset_token = None
                         st.session_state.password_reset_email = None
                         st.rerun()
-                    
+                
                     if submit_reset:
                         if not new_password or not confirm_password:
                             st.error("❌ Please fill in all fields")
@@ -1610,17 +2500,17 @@ if not st.session_state.authenticated:
                 # Step 1: Request password reset
                 with st.form("request_reset_form"):
                     reset_email = st.text_input("Email Address", key="reset_email")
-                    
+                
                     col1, col2 = st.columns(2)
                     with col1:
                         submit_request = st.form_submit_button("📧 Send Reset Link", use_container_width=True)
                     with col2:
                         cancel_request = st.form_submit_button("❌ Cancel", use_container_width=True)
-                    
+                
                     if cancel_request:
                         st.session_state.show_password_reset = False
                         st.rerun()
-                    
+                
                     if submit_request:
                         if not reset_email:
                             st.error("❌ Please enter your email address")
@@ -1634,12 +2524,12 @@ if not st.session_state.authenticated:
                                 if response.status_code == 200:
                                     data = response.json()
                                     st.success("✅ " + data.get("message", "Reset link sent"))
-                                    
-                                    # In development, show the token
-                                    if data.get("token"):
+                                
+                                    # In dev/testing, show the token so reset works without email.
+                                    if show_dev_helpers and data.get("token"):
                                         st.session_state.password_reset_token = data.get("token")
                                         st.session_state.password_reset_email = reset_email
-                                        st.info("🔑 **Development Mode:** Your reset token is shown below. In production, this would be sent via email.")
+                                        st.info("🔑 Dev mode: your reset token is shown below. In production, this would be sent via email.")
                                         st.rerun()
                                 else:
                                     error_detail = response.json().get('detail', 'Unknown error')
@@ -1648,38 +2538,154 @@ if not st.session_state.authenticated:
                                 st.error(get_api_connection_error_message())
                             except Exception as e:
                                 st.error(f"❌ Error: {str(e)}")
-            
+        
             st.markdown("---")
         else:
-            # Normal login form
-            # Forgot password link (outside form)
-            if st.button("🔑 Forgot Password?", use_container_width=True, key="forgot_password_btn"):
-                st.session_state.show_password_reset = True
-                st.rerun()
-            
-            with st.form("login_form"):
-                username = st.text_input("Username", key="login_username", placeholder="Enter your username")
-                password = st.text_input("Password", type="password", key="login_password", placeholder="Enter your password")
+            # Normal login form with link actions in the form header area.
+            # Wrapped in an additional center column to keep sign-in compact.
+            _login_l, _login_c, _login_r = st.columns([0.2, 0.6, 0.2])
+            with _login_c:
+                with st.form("login_form"):
+                    st.markdown(
+                        '<div class="auth-form-title">Welcome back</div>',
+                        unsafe_allow_html=True,
+                    )
+                    username = st.text_input("Username", key="login_username", placeholder="Enter your username")
+                    show_password = st.checkbox("Show password", value=False, key="login_show_password")
+                    password = st.text_input(
+                        "Password",
+                        type="default" if show_password else "password",
+                        key="login_password",
+                        placeholder="Enter your password"
+                    )
+                    remember_me = st.checkbox("Remember me on this device", value=True, key="login_remember_me")
+                    st.caption("Keeps you signed in across page refreshes on this browser.")
+
+                    # Inline validation cues (shown before submit)
+                    _username = (username or "").strip()
+                    _password = password or ""
+                    if _username and len(_username) < 3:
+                        st.caption("⚠️ Username looks short.")
+                    if _password and len(_password) < 8:
+                        st.caption("⚠️ Password should usually be at least 8 characters.")
                 
-                submit = st.form_submit_button("Sign in", use_container_width=True, type="primary")
+                    submit = st.form_submit_button(
+                        "Sign in",
+                        use_container_width=True,
+                        type="primary",
+                        disabled=not bool(_username and _password),
+                    )
+                    st.markdown('<div class="auth-link-actions-marker"></div>', unsafe_allow_html=True)
+                    _ac_l, _ac_r = st.columns(2)
+                    with _ac_l:
+                        switch_to_register = st.form_submit_button("Create account", type="tertiary", use_container_width=True)
+                    with _ac_r:
+                        trigger_forgot = st.form_submit_button("Forgot password?", type="tertiary", use_container_width=True)
+
+                    if switch_to_register:
+                        st.session_state.auth_view = "register"
+                        st.rerun()
+                    if trigger_forgot:
+                        st.session_state.show_password_reset = True
+                        st.rerun()
                 
-                if submit:
-                    if username and password:
-                        try:
-                            response = requests.post(
-                                f"{API_URL}/auth/login",
-                                json={"username": username, "password": password},
-                                timeout=5
-                            )
-                            if response.status_code == 200:
-                                data = response.json()
+                    if submit:
+                        if _username and _password:
+                            try:
+                                with st.spinner("Signing in..."):
+                                    response = requests.post(
+                                        f"{API_URL}/auth/login",
+                                        json={"username": _username, "password": _password},
+                                        timeout=5
+                                    )
+                                if response.status_code == 200:
+                                    data = response.json()
                                 
-                                # Check if 2FA is required
-                                if data.get("requires_2fa", False):
-                                    st.session_state.pending_2fa_username = username
-                                    st.info("🔐 Two-Factor Authentication required. Please enter your 2FA code.")
-                                    st.rerun()
+                                    # Check if 2FA is required
+                                    if data.get("requires_2fa", False):
+                                        st.session_state.pending_2fa_username = _username
+                                        st.session_state.pending_remember_me = remember_me
+                                        st.info("🔐 Two-Factor Authentication required. Please enter your 2FA code.")
+                                        st.rerun()
+                                    else:
+                                        st.session_state.authenticated = True
+                                        st.session_state.access_token = data["access_token"]
+                                        if "refresh_token" in data:
+                                            st.session_state.refresh_token = data["refresh_token"]
+                                        if "session_id" in data:
+                                            st.session_state.session_id = data["session_id"]
+                                        st.session_state.current_user = data["user"]
+                                        # Persist token only when the user opts in.
+                                        if remember_me:
+                                            st.query_params.token = data["access_token"]
+                                        else:
+                                            st.query_params.clear()
+                                        st.success("✅ Login successful!")
+                                        st.rerun()
+                                elif response.status_code == 423:  # Locked
+                                    try:
+                                        error_detail = response.json().get('detail', 'Account is locked')
+                                    except Exception:
+                                        error_detail = "Account is locked"
+                                    st.error(f"🔒 {error_detail}")
+                                    st.warning("💡 Contact an administrator to unlock your account, or wait for the lockout period to expire.")
                                 else:
+                                    try:
+                                        error_detail = response.json().get('detail', 'Unknown error')
+                                    except Exception:
+                                        error_detail = response.text or "Unknown error"
+                                    if response.status_code in (400, 401):
+                                        error_detail = error_detail or "Invalid username or password."
+                                    st.error(f"❌ {error_detail}")
+                                    # Show attempts remaining if mentioned in error
+                                    if "attempt" in error_detail.lower() and "remaining" in error_detail.lower():
+                                        st.warning("⚠️ Too many failed attempts will lock your account.")
+                            except requests.exceptions.ConnectionError:
+                                st.error(get_api_connection_error_message())
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                        else:
+                            st.error("Please enter both username and password.")
+                            if not _username:
+                                st.caption("Username is required.")
+                            if not _password:
+                                st.caption("Password is required.")
+    
+        # 2FA verification form (shown when 2FA is required)
+        if st.session_state.pending_2fa_username:
+            st.markdown("---")
+            st.markdown("### 🔐 Two-Factor Authentication")
+            st.info(f"Enter the 6-digit authenticator code (or backup code) for **{st.session_state.pending_2fa_username}**.")
+        
+            with st.form("2fa_verify_form"):
+                twofa_code = st.text_input(
+                    "2FA Code",
+                    key="2fa_code",
+                    placeholder="123456 or BACKUP-CODE",
+                    help="Paste-friendly: spaces and dashes are ignored."
+                )
+                normalized_code = (twofa_code or "").strip().replace(" ", "").replace("-", "")
+                st.caption("Tip: you can paste codes with spaces/dashes.")
+                if twofa_code and normalized_code != twofa_code.strip():
+                    st.caption(f"Using: `{normalized_code}`")
+                submit_2fa = st.form_submit_button("Verify", use_container_width=True, disabled=not bool(normalized_code))
+            
+                if submit_2fa:
+                    if normalized_code:
+                        code_is_numeric_otp = normalized_code.isdigit() and len(normalized_code) == 6
+                        code_is_backup = len(normalized_code) >= 8
+                        if not (code_is_numeric_otp or code_is_backup):
+                            st.warning("⚠️ Enter a valid 6-digit code or backup code.")
+                        else:
+                            try:
+                                response = requests.post(
+                                    f"{API_URL}/auth/2fa/verify-login",
+                                    json={"code": normalized_code},
+                                    params={"username": st.session_state.pending_2fa_username},
+                                    timeout=5
+                                )
+                                if response.status_code == 200:
+                                    data = response.json()
                                     st.session_state.authenticated = True
                                     st.session_state.access_token = data["access_token"]
                                     if "refresh_token" in data:
@@ -1687,255 +2693,40 @@ if not st.session_state.authenticated:
                                     if "session_id" in data:
                                         st.session_state.session_id = data["session_id"]
                                     st.session_state.current_user = data["user"]
-                                    # Store token in query params for persistence across page refreshes
-                                    st.query_params.token = data["access_token"]
+                                    st.session_state.pending_2fa_username = None
+                                    # Persist token only when opted-in on the previous step.
+                                    if st.session_state.pending_remember_me:
+                                        st.query_params.token = data["access_token"]
+                                    else:
+                                        st.query_params.clear()
                                     st.success("✅ Login successful!")
                                     st.rerun()
-                            elif response.status_code == 423:  # Locked
-                                error_detail = response.json().get('detail', 'Account is locked')
-                                st.error(f"🔒 {error_detail}")
-                                st.warning("💡 Contact an administrator to unlock your account, or wait for the lockout period to expire.")
-                            else:
-                                error_detail = response.json().get('detail', 'Unknown error')
-                                st.error(f"❌ {error_detail}")
-                                # Show attempts remaining if mentioned in error
-                                if "attempt" in error_detail.lower() and "remaining" in error_detail.lower():
-                                    st.warning("⚠️ Too many failed attempts will lock your account.")
-                        except requests.exceptions.ConnectionError:
-                            st.error(get_api_connection_error_message())
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                else:
-                    st.warning("⚠️ Please enter both username and password")
-        
-        # 2FA verification form (shown when 2FA is required)
-        if st.session_state.pending_2fa_username:
-            st.markdown("---")
-            st.markdown("### 🔐 Two-Factor Authentication")
-            st.info(f"Please enter the 6-digit code from your authenticator app for user: **{st.session_state.pending_2fa_username}**")
-            
-            with st.form("2fa_verify_form"):
-                twofa_code = st.text_input("2FA Code", key="2fa_code", help="Enter 6-digit code from your authenticator app or a backup code")
-                submit_2fa = st.form_submit_button("Verify", use_container_width=True)
-                
-                if submit_2fa:
-                    if twofa_code:
-                        try:
-                            response = requests.post(
-                                f"{API_URL}/auth/2fa/verify-login",
-                                json={"code": twofa_code},
-                                params={"username": st.session_state.pending_2fa_username},
-                                timeout=5
-                            )
-                            if response.status_code == 200:
-                                data = response.json()
-                                st.session_state.authenticated = True
-                                st.session_state.access_token = data["access_token"]
-                                if "refresh_token" in data:
-                                    st.session_state.refresh_token = data["refresh_token"]
-                                if "session_id" in data:
-                                    st.session_state.session_id = data["session_id"]
-                                st.session_state.current_user = data["user"]
-                                st.session_state.pending_2fa_username = None
-                                # Store token in query params for persistence
-                                st.query_params.token = data["access_token"]
-                                st.success("✅ Login successful!")
-                                st.rerun()
-                            else:
-                                error_detail = response.json().get('detail', 'Invalid 2FA code')
-                                st.error(f"❌ {error_detail}")
-                        except requests.exceptions.ConnectionError:
-                            st.error(get_api_connection_error_message())
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
+                                else:
+                                    try:
+                                        error_detail = response.json().get('detail', 'Invalid 2FA code')
+                                    except Exception:
+                                        error_detail = response.text or "Invalid 2FA code"
+                                    st.error(f"❌ {error_detail}")
+                            except requests.exceptions.ConnectionError:
+                                st.error(get_api_connection_error_message())
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
                     else:
                         st.warning("⚠️ Please enter your 2FA code")
-            
+        
             if st.button("❌ Cancel", key="cancel_2fa"):
                 st.session_state.pending_2fa_username = None
                 st.rerun()
     
-    with tab2:
-        st.markdown("### Register")
-        
-        # Dynamic password requirements with real-time validation
-        st.markdown("""
-        <div id="password-requirements-reg" style="margin-bottom: 1rem; padding: 0.75rem; background: #1e293b; border-radius: 8px; border: 1px solid #334155;">
-            <div style="font-weight: 600; margin-bottom: 0.75rem; color: #e2e8f0;">📋 Password Requirements:</div>
-            <div id="req-list-reg" style="font-size: 0.875rem;">
-                <div id="req-length-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ Minimum length: 8 characters</div>
-                <div id="req-upper-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one uppercase letter (A-Z)</div>
-                <div id="req-lower-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one lowercase letter (a-z)</div>
-                <div id="req-number-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one number (0-9)</div>
-                <div id="req-special-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)</div>
-            </div>
-        </div>
-        <script>
-        (function() {
-            function checkPasswordRequirements(password) {
-                const requirements = {
-                    length: password.length >= 8,
-                    upper: /[A-Z]/.test(password),
-                    lower: /[a-z]/.test(password),
-                    number: /[0-9]/.test(password),
-                    special: /[!@#$%^&*()_+\\-=\\[\\]{}|;:,.<>?]/.test(password)
-                };
-                
-                // Update UI
-                const updateReq = (id, met, text) => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        if (met) {
-                            el.innerHTML = '✅ ' + text;
-                            el.style.color = '#10b981';
-                        } else {
-                            el.innerHTML = '❌ ' + text;
-                            el.style.color = '#94a3b8';
-                        }
-                    }
-                };
-                
-                updateReq('req-length-reg', requirements.length, 'Minimum length: 8 characters');
-                updateReq('req-upper-reg', requirements.upper, 'At least one uppercase letter (A-Z)');
-                updateReq('req-lower-reg', requirements.lower, 'At least one lowercase letter (a-z)');
-                updateReq('req-number-reg', requirements.number, 'At least one number (0-9)');
-                updateReq('req-special-reg', requirements.special, 'At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)');
-            }
-            
-            // Monitor password input - find by label text
-            function setupPasswordValidation() {
-                const inputs = document.querySelectorAll('input[type="password"]');
-                
-                // Find the password input (not the confirm password)
-                // In Streamlit, inputs are in forms, and we can find by looking for the one before "Confirm Password"
-                let passwordInput = null;
-                
-                // Method 1: Find by looking for label containing "Password" but not "Confirm"
-                const allLabels = document.querySelectorAll('label, [data-testid*="stTextInput"]');
-                for (let label of allLabels) {
-                    const text = label.textContent || '';
-                    if (text.includes('Password') && !text.includes('Confirm')) {
-                        // Find the input near this label
-                        const form = label.closest('form') || label.closest('[data-testid*="stForm"]');
-                        if (form) {
-                            const formInputs = form.querySelectorAll('input[type="password"]');
-                            if (formInputs.length > 0) {
-                                passwordInput = formInputs[0];
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                // Method 2: If in register form, use first password input
-                if (!passwordInput) {
-                    const registerForm = document.querySelector('form');
-                    if (registerForm) {
-                        const formInputs = registerForm.querySelectorAll('input[type="password"]');
-                        if (formInputs.length >= 1) {
-                            passwordInput = formInputs[0];
-                        }
-                    }
-                }
-                
-                if (passwordInput) {
-                    // Store original value to detect changes
-                    let lastValue = passwordInput.value || '';
-                    
-                    const checkAndUpdate = function() {
-                        const currentValue = passwordInput.value || '';
-                        if (currentValue !== lastValue) {
-                            lastValue = currentValue;
-                            checkPasswordRequirements(currentValue);
-                        }
-                    };
-                    
-                    // Add event listeners
-                    passwordInput.addEventListener('input', checkAndUpdate);
-                    passwordInput.addEventListener('keyup', checkAndUpdate);
-                    passwordInput.addEventListener('change', checkAndUpdate);
-                    
-                    // Check initial value
-                    checkAndUpdate();
-                } else {
-                    // Retry after a delay if inputs aren't ready yet
-                    setTimeout(setupPasswordValidation, 300);
-                }
-            }
-            
-            // Run after page load
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', function() {
-                    setTimeout(setupPasswordValidation, 300);
-                });
-            } else {
-                setTimeout(setupPasswordValidation, 300);
-            }
-            
-            // Also monitor for Streamlit reruns
-            const observer = new MutationObserver(function(mutations) {
-                let shouldCheck = false;
-                mutations.forEach(function(mutation) {
-                    if (mutation.addedNodes.length > 0) {
-                        shouldCheck = true;
-                    }
-                });
-                if (shouldCheck) {
-                    setTimeout(setupPasswordValidation, 100);
-                }
-            });
-            
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-        })();
-        </script>
-        """, unsafe_allow_html=True)
-        
-        with st.form("register_form"):
-            reg_username = st.text_input("Username", key="reg_username", placeholder="Choose a username")
-            reg_email = st.text_input("Email", key="reg_email", placeholder="you@example.com")
-            reg_password = st.text_input("Password", type="password", key="reg_password", placeholder="••••••••", help="See password requirements above")
-            reg_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm", placeholder="••••••••")
-            reg_role = st.selectbox("Role", ["user", "admin"], key="reg_role", help="Note: Admin role creation may be restricted")
-            submit_reg = st.form_submit_button("Register", use_container_width=True)
-            
-            if submit_reg:
-                if reg_username and reg_email and reg_password:
-                    if reg_password != reg_password_confirm:
-                        st.error("❌ Passwords do not match")
-                    else:
-                        try:
-                            response = requests.post(
-                                f"{API_URL}/auth/register",
-                                json={
-                                    "username": reg_username,
-                                    "email": reg_email,
-                                    "password": reg_password,
-                                    "role": reg_role
-                                },
-                                timeout=5
-                            )
-                            if response.status_code == 200:
-                                st.success("✅ Registration successful! Please login.")
-                                st.info("💡 Default admin credentials: username: admin, password: REDACTED")
-                            else:
-                                st.error(f"❌ Registration failed: {response.json().get('detail', 'Unknown error')}")
-                        except requests.exceptions.ConnectionError:
-                            st.error(get_api_connection_error_message())
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                else:
-                    st.warning("⚠️ Please fill in all fields")
-    
-    with st.expander("🔑 Default credentials (for first-time setup)", expanded=False):
-        st.code("username: admin\npassword: REDACTED", language="text")
-        st.caption("Use these to sign in if the admin account was seeded during setup.")
+
     st.stop()
 
 # Main app (only shown if authenticated)
 # Deep linking: open view from URL (?view=documents etc.)
+st.markdown(
+    '<script>document.body.classList.remove("auth-screen")</script>',
+    unsafe_allow_html=True,
+)
 apply_view_from_query_params()
 
 # Sidebar - organized into clear sections
@@ -1949,38 +2740,48 @@ with st.sidebar:
             st.session_state.authenticated = False
             st.session_state.access_token = None
             st.session_state.current_user = None
+            st.session_state.auth_view = "login"
             st.session_state.chat_history = []
             st.session_state.pop("_last_processed_query", None)
             st.query_params.clear()
             st.rerun()
         st.markdown("---")
 
-    # --- Navigation (grouped with section headers) ---
-    nav_groups = [
-        ("Main", ["🏠 Chat", "📚 Documents"]),
-        ("Data", ["🕐 History", "💾 Saved Queries", "📋 Conversations"]),
-        ("Account", ["👤 Profile", "🔑 Change Password", "🔐 2FA", "📱 Sessions"]),
-        ("Admin", ["👥 Manage Users", "📋 Audit Logs", "💾 Export & Backup"]),
-        ("System", ["📈 Metrics"]),
-    ]
+    # --- Navigation (task-based) ---
     is_admin = st.session_state.current_user and st.session_state.current_user.get("role") == "admin"
     current_page = get_current_nav_page()
 
-    for cat, items in nav_groups:
-        if cat == "Admin" and not is_admin:
-            continue
-        st.caption(f"▸ {cat}")
-        for label in items:
-            if label not in NAV_LABEL_TO_KEY:
-                continue
-            key = NAV_LABEL_TO_KEY[label]
-            is_active = current_page == key
-            btn_type = "primary" if is_active else "secondary"
-            if st.button(label, key=f"side_nav_{key}", use_container_width=True, type=btn_type):
-                if key != current_page:
-                    navigate_to_page(key)
-                    st.query_params["view"] = key
-                    st.rerun()
+    def render_nav_button(label: str, page_key: str, btn_key: str):
+        is_active = current_page == page_key
+        btn_type = "primary" if is_active else "secondary"
+        if st.button(label, key=btn_key, use_container_width=True, type=btn_type):
+            if page_key != current_page:
+                navigate_to_page(page_key)
+                st.query_params["view"] = page_key
+                st.rerun()
+
+    st.caption("▸ Chat")
+    render_nav_button("💬 Chat", "chat", "side_nav_chat")
+    render_nav_button("🕐 History", "history", "side_nav_history")
+    render_nav_button("💾 Saved", "saved_queries", "side_nav_saved_queries")
+
+    st.caption("▸ Knowledge Base")
+    render_nav_button("📄 Docs", "documents", "side_nav_documents")
+    render_nav_button("📤 Upload", "upload", "side_nav_upload")
+
+    st.caption("▸ Admin / Settings")
+    render_nav_button("👤 Profile", "profile", "side_nav_profile")
+    render_nav_button("🔑 Password", "change_password", "side_nav_change_password")
+    render_nav_button("🔐 2FA", "2fa", "side_nav_2fa")
+
+    with st.expander("More", expanded=False):
+        render_nav_button("📱 Sessions", "sessions", "side_nav_more_sessions")
+        render_nav_button("💬 Threads", "conversations", "side_nav_more_conversations")
+        if is_admin:
+            render_nav_button("👥 Users", "user_management", "side_nav_more_user_management")
+            render_nav_button("📋 Audit", "audit_logs", "side_nav_more_audit_logs")
+            render_nav_button("💾 Backup", "export_backup", "side_nav_more_export_backup")
+            render_nav_button("📈 Metrics", "health", "side_nav_more_health")
 
     st.markdown("---")
 
@@ -3731,6 +4532,7 @@ if st.session_state.get("show_change_password", False):
                         st.session_state.authenticated = False
                         st.session_state.access_token = None
                         st.session_state.current_user = None
+                        st.session_state.auth_view = "login"
                         st.session_state.chat_history = []
                         st.rerun()
                     else:
@@ -4517,6 +5319,16 @@ def get_example_questions():
             return [q.strip() for q in raw.split(sep) if q.strip()]
     return [raw]
 
+
+def get_starter_prompts():
+    """Curated empty-state prompts with short descriptions."""
+    return [
+        ("Summarize a policy\nTurn a long document or procedure into a quick answer.", "Summarize a policy"),
+        ("Find the right source\nAsk for the exact document, section, or supporting evidence.", "Find the right source"),
+        ("Compare two processes\nSee differences between teams, workflows, or deadlines.", "Compare two processes"),
+        ("Draft a response\nGenerate a clear reply for a user, student, or teammate.", "Draft a response"),
+    ]
+
 # Zone-based layout: center (chat) + right (context panel) when on chat view
 suggestions_placeholder = st.empty()
 chat_empty = not st.session_state.chat_history
@@ -4538,6 +5350,15 @@ if st.session_state.chat_history:
         if len(item) >= 4 and item[0] == "assistant":
             last_sources = item[3] if isinstance(item[3], list) else []
             break
+
+if "selected_sources" not in st.session_state:
+    st.session_state.selected_sources = []
+if "selected_assistant_key" not in st.session_state:
+    st.session_state.selected_assistant_key = None
+if "selected_source_message" not in st.session_state:
+    st.session_state.selected_source_message = ""
+
+active_sources = st.session_state.selected_sources if st.session_state.selected_sources else last_sources
 
 # Create zone layout: when empty use centered layout [1,3,1]; when has content use [3,1] for chat+sources
 if use_zone_layout:
@@ -4568,42 +5389,32 @@ with col_chat:
                 user_name = user_name.split()[0] if " " in user_name else user_name  # First name only
         st.markdown(
             f'<div class="copilot-greeting"><h2>{time_greeting}, {user_name}</h2>'
-            '<p>What can I help you with today?</p></div>',
+            '<p>Search your knowledge base, compare answers, or draft a response in one place.</p></div>',
             unsafe_allow_html=True
         )
         # 2. Chat bar (rendered here for correct order when empty)
         if query is None:
-            query = st.chat_input("Ask anything", key="chat_input")
-        # 3. Suggested questions (below chat bar) - centered via spacer columns
-        example_questions = get_example_questions()
-        all_suggestions = list(example_questions)[:3]
-        try:
-            suggestions_resp = requests.get(f"{API_URL}/suggestions", params={"q": "", "limit": 2}, timeout=2)
-            if suggestions_resp.status_code == 200:
-                pop = suggestions_resp.json().get("suggestions", [])
-                for s in pop[:2]:
-                    q = s.get("query", "")
-                    if q and q not in all_suggestions:
-                        all_suggestions.append(q)
-        except:
-            pass
-        n_pills = min(5, len(all_suggestions))
-        pills_list = all_suggestions[:n_pills]
-        st.markdown('<div class="copilot-pills-marker"></div>', unsafe_allow_html=True)
-        # Two rows: 3 pills top, 2 pills bottom - wider columns so text fits
-        top_cols = st.columns([0.25, 4, 4, 4, 0.25], gap="medium")
-        for i, q in enumerate(pills_list[:3]):
-            with top_cols[i + 1]:
-                if st.button(q, key=f"copilot_pill_{i}", use_container_width=True):
-                    st.session_state.example_query = q
-                    st.rerun()
-        if len(pills_list) > 3:
-            bot_cols = st.columns([0.5, 4, 4, 0.5], gap="medium")
-            for i, q in enumerate(pills_list[3:5]):
-                with bot_cols[i + 1]:
-                    if st.button(q, key=f"copilot_pill_{i+3}", use_container_width=True):
-                        st.session_state.example_query = q
+            chat_val = st.chat_input("Ask anything", key="chat_input")
+            if chat_val:
+                st.session_state._pending_chat_query = chat_val  # Persist immediately so it can't be overwritten
+            query = chat_val if chat_val else query
+        st.markdown(
+            '<div class="composer-hint">Ask a question, then refine with sources, saved prompts, or document filters.</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown('<div class="starter-grid-title">Start with a focused task</div>', unsafe_allow_html=True)
+        starter_prompts = get_starter_prompts()
+        starter_rows = [starter_prompts[:2], starter_prompts[2:4]]
+        for row_idx, row in enumerate(starter_rows):
+            cols = st.columns(2, gap="medium")
+            for col_idx, prompt_data in enumerate(row):
+                button_text, prompt_value = prompt_data
+                with cols[col_idx]:
+                    st.markdown('<div class="starter-card">', unsafe_allow_html=True)
+                    if st.button(button_text, key=f"starter_card_{row_idx}_{col_idx}", use_container_width=True):
+                        st.session_state.example_query = prompt_value
                         st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
     # Center zone: suggestions placeholder, chat history, input
     suggestions_placeholder = st.empty()
     if "last_query_input" not in st.session_state:
@@ -4636,7 +5447,6 @@ with col_chat:
             pass
     # Chat history and input - continue in center zone
     if not show_copilot_empty:
-        st.markdown("---")
         col_conv_title, col_order = st.columns([3, 1])
         with col_conv_title:
             st.markdown("### 💬 Conversation")
@@ -4657,9 +5467,11 @@ with col_chat:
 if col_context is not None and not show_copilot_empty:
     with col_context:
         st.markdown('<div class="zone-context-panel context-panel">', unsafe_allow_html=True)
-        if last_sources:
+        if active_sources:
             st.markdown("**📚 Sources**")
-            for i, src in enumerate(last_sources[:5]):
+            if st.session_state.get("selected_assistant_key"):
+                st.caption("Selected answer")
+            for i, src in enumerate(active_sources[:5]):
                 title = src.get("title", src.get("filename", "Document")) if isinstance(src, dict) else str(src)
                 relevance = src.get("relevance", src.get("score")) if isinstance(src, dict) else None
                 rel_str = f" ({relevance:.0%})" if relevance is not None else ""
@@ -4689,12 +5501,213 @@ if col_context is not None and not show_copilot_empty:
                     pass
         st.markdown('</div>', unsafe_allow_html=True)
 
-# Handle example query
+# Handle example query (from pill click) - only overwrite if we have one; don't wipe chat_input value
 if "example_query" in st.session_state:
     query = st.session_state.example_query
     del st.session_state.example_query
-else:
-    query = None
+
+def render_user_message_block(message_idx: int, message: str, msg_time: str):
+    """Render a user message with save-query actions."""
+    col_msg, col_save = st.columns([5, 1])
+    with col_msg:
+        safe_message = html.escape(str(message)).replace("\n", "<br/>")
+        st.markdown(
+            textwrap.dedent(
+                f"""
+                <div class="message-user">
+                    <div class="message-meta">
+                        <span class="message-role">You</span>
+                        <span class="message-time">{html.escape(str(msg_time))}</span>
+                    </div>
+                    <div class="message-body">{safe_message}</div>
+                </div>
+                """
+            ).strip(),
+            unsafe_allow_html=True
+        )
+    with col_save:
+        is_saved = False
+        try:
+            saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=5)
+            if saved_resp.status_code == 200:
+                saved_queries = saved_resp.json().get("saved_queries", [])
+                is_saved = any(sq.get("query") == message for sq in saved_queries)
+        except Exception:
+            pass
+
+        save_key = f"save_query_{message_idx}"
+        if not is_saved:
+            if st.button("⭐", key=save_key, help="Save this query", use_container_width=True):
+                st.session_state[f"show_save_dialog_{message_idx}"] = True
+                st.rerun()
+        else:
+            st.button("⭐", key=f"saved_{save_key}", disabled=True, use_container_width=True)
+
+    if st.session_state.get(f"show_save_dialog_{message_idx}", False):
+        with st.form(f"save_form_{message_idx}"):
+            save_name = st.text_input("Name (optional)", value=message[:50], key=f"save_name_{message_idx}")
+            save_desc = st.text_area("Description (optional)", key=f"save_desc_{message_idx}")
+            col_save_btn, col_cancel_btn = st.columns(2)
+            with col_save_btn:
+                if st.form_submit_button("💾 Save"):
+                    try:
+                        save_resp = requests.post(
+                            f"{API_URL}/saved-queries",
+                            json={
+                                "query": message,
+                                "name": save_name,
+                                "description": save_desc
+                            },
+                            timeout=5
+                        )
+                        if save_resp.status_code == 200:
+                            st.success("✅ Saved!")
+                            st.session_state[f"show_save_dialog_{message_idx}"] = False
+                            time.sleep(0.5)
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+            with col_cancel_btn:
+                if st.form_submit_button("❌ Cancel"):
+                    st.session_state[f"show_save_dialog_{message_idx}"] = False
+                    st.rerun()
+
+
+def build_assistant_message_key(msg_time: str, message: str) -> str:
+    """Create a stable key for assistant-message-level UI actions."""
+    basis = f"{msg_time}|{message}"
+    return hashlib.sha1(basis.encode("utf-8", errors="ignore")).hexdigest()[:12]
+
+
+def render_assistant_message_block(message_idx: int, message: str, msg_time: str, sources: list, user_query: str, message_key: str):
+    """Render an assistant message with copy and feedback actions."""
+    _display_msg = str(message).strip()
+    col_msg, col_actions = st.columns([5, 1])
+    with col_msg:
+        safe_message = html.escape(_display_msg).replace("\n", "<br/>")
+        if _display_msg.strip().startswith("<"):
+            safe_message = "⚠️ An error occurred while displaying the response. Please try again."
+
+    sources_text = ""
+    if sources and len(sources) > 0:
+        parts = []
+        for source in sources:
+            name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
+            rel = source.get("relevance", 0) if isinstance(source, dict) else 0
+            rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
+            parts.append("📄 " + html.escape(str(name)) + " (" + rel_label + ", " + f"{rel:.0%}" + ")")
+        sources_text = "<div style='margin-top:0.5rem;'><strong>📚 Sources:</strong><br/>" + "<br/>".join(parts) + "</div>"
+
+    template = (
+        '<div class="message-bot" id="answer_' + str(message_idx) + '">'
+        "<strong>📚 Assistant</strong>"
+        '<div style="margin-top:0.5rem;">' + safe_message + "</div>"
+        + sources_text
+        + '<div class="message-time">' + html.escape(str(msg_time)) + "</div>"
+        "</div>"
+    )
+    st.markdown(template, unsafe_allow_html=True)
+
+    with col_actions:
+        is_selected = st.session_state.get("selected_assistant_key") == message_key
+        inspect_label = "✅" if is_selected else "🔎"
+        if st.button(inspect_label, key=f"inspect_{message_key}", help="Inspect sources for this answer", use_container_width=True):
+            st.session_state.selected_assistant_key = message_key
+            st.session_state.selected_sources = sources if isinstance(sources, list) else []
+            st.session_state.selected_source_message = (str(message)[:80] + "...") if len(str(message)) > 80 else str(message)
+            st.rerun()
+
+        with st.popover("⋮", help="Copy, Feedback"):
+            copy_key = f"copy_answer_{message_idx}"
+            escaped_message = message.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$').replace('\n', '\\n').replace('\r', '\\r')
+            copy_script = f"""
+            <script>
+                (function() {{
+                    const text = `{escaped_message}`;
+                    if (navigator.clipboard && navigator.clipboard.writeText) {{
+                        navigator.clipboard.writeText(text).then(function() {{
+                            const toast = document.createElement('div');
+                            toast.textContent = '✅ Copied to clipboard!';
+                            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
+                            document.body.appendChild(toast);
+                            setTimeout(() => toast.remove(), 2000);
+                        }}).catch(function(err) {{
+                            console.error('Copy failed:', err);
+                        }});
+                    }}
+                }})();
+            </script>
+            """
+            if st.button("📋 Copy", key=copy_key, use_container_width=True):
+                st.session_state[f"copy_text_{message_idx}"] = message
+                st.markdown(copy_script, unsafe_allow_html=True)
+
+        feedback_key = f"feedback_submitted_{message_idx}"
+        if not st.session_state.get(feedback_key, False):
+            st.markdown("---")
+            col_thumbs_up, col_thumbs_down = st.columns(2)
+            with col_thumbs_up:
+                if st.button("👍", key=f"thumbs_up_{message_idx}", help="Good answer", use_container_width=True):
+                    try:
+                        feedback_resp = requests.post(
+                            f"{API_URL}/feedback",
+                            json={
+                                "query": user_query,
+                                "response": message,
+                                "rating": 1,
+                                "feedback_type": "thumbs",
+                                "sources_count": len(sources)
+                            },
+                            timeout=5
+                        )
+                        if feedback_resp.status_code == 200:
+                            st.session_state[feedback_key] = True
+                            st.success("👍 Thanks!")
+                            time.sleep(1)
+                            st.rerun()
+                    except Exception:
+                        st.error("Failed to submit feedback")
+
+            with col_thumbs_down:
+                if st.button("👎", key=f"thumbs_down_{message_idx}", help="Poor answer", use_container_width=True):
+                    st.session_state[f"show_feedback_form_{message_idx}"] = True
+                    st.rerun()
+
+            if st.session_state.get(f"show_feedback_form_{message_idx}", False):
+                with st.form(f"feedback_form_{message_idx}"):
+                    st.write("**Help us improve:**")
+                    rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{message_idx}")
+                    comment = st.text_area("Comments (optional)", key=f"comment_{message_idx}")
+                    col_submit, col_cancel = st.columns(2)
+                    with col_submit:
+                        if st.form_submit_button("Submit"):
+                            try:
+                                feedback_resp = requests.post(
+                                    f"{API_URL}/feedback",
+                                    json={
+                                        "query": user_query,
+                                        "response": message,
+                                        "rating": rating,
+                                        "feedback_type": "detailed",
+                                        "comment": comment,
+                                        "sources_count": len(sources)
+                                    },
+                                    timeout=5
+                                )
+                                if feedback_resp.status_code == 200:
+                                    st.session_state[feedback_key] = True
+                                    st.session_state[f"show_feedback_form_{message_idx}"] = False
+                                    st.success("✅ Feedback submitted!")
+                                    time.sleep(1)
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                    with col_cancel:
+                        if st.form_submit_button("Cancel"):
+                            st.session_state[f"show_feedback_form_{message_idx}"] = False
+                            st.rerun()
+        else:
+            st.caption("✅ Feedback submitted")
 
 # Message loop and chat input - in center zone when using zone layout
 with col_chat:
@@ -4733,254 +5746,60 @@ with col_chat:
             else:
                 role, message, msg_time, sources = item
 
+            # Phase 2 routing: delegate rendering to focused helper functions.
+            prev_user_query = ""
+            if idx > 0 and len(items_to_show[idx - 1]) >= 2 and items_to_show[idx - 1][0] == "user":
+                prev_user_query = items_to_show[idx - 1][1]
             if role == "user":
-                col_msg, col_save = st.columns([5, 1])
-                with col_msg:
-                    safe_message = html.escape(str(message)).replace("\n", "<br/>")
-                    st.markdown(
-                        textwrap.dedent(
-                            f"""
-                            <div class="message-user">
-                                <strong>You</strong>
-                                <div style="margin-top: 0.5rem;">{safe_message}</div>
-                                <div class="message-time">{html.escape(str(msg_time))}</div>
-                            </div>
-                            """
-                        ).strip(),
-                        unsafe_allow_html=True
-                    )
-                with col_save:
-                    # Check if already saved
-                    is_saved = False
-                    try:
-                        saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=5)
-                        if saved_resp.status_code == 200:
-                            saved_queries = saved_resp.json().get("saved_queries", [])
-                            is_saved = any(sq.get("query") == message for sq in saved_queries)
-                    except:
-                        pass
-                
-                    save_key = f"save_query_{idx}"
-                    if not is_saved:
-                        if st.button("⭐", key=save_key, help="Save this query", use_container_width=True):
-                            st.session_state[f"show_save_dialog_{idx}"] = True
-                            st.rerun()
-                    else:
-                        st.button("⭐", key=f"saved_{save_key}", disabled=True, use_container_width=True)
-            
-                # Save dialog
-                if st.session_state.get(f"show_save_dialog_{idx}", False):
-                    with st.form(f"save_form_{idx}"):
-                        save_name = st.text_input("Name (optional)", value=message[:50], key=f"save_name_{idx}")
-                        save_desc = st.text_area("Description (optional)", key=f"save_desc_{idx}")
-                        col_save_btn, col_cancel_btn = st.columns(2)
-                        with col_save_btn:
-                            if st.form_submit_button("💾 Save"):
-                                try:
-                                    save_resp = requests.post(
-                                        f"{API_URL}/saved-queries",
-                                        json={
-                                            "query": message,
-                                            "name": save_name,
-                                            "description": save_desc
-                                        },
-                                        timeout=5
-                                    )
-                                    if save_resp.status_code == 200:
-                                        st.success("✅ Saved!")
-                                        st.session_state[f"show_save_dialog_{idx}"] = False
-                                        time.sleep(0.5)
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Error: {str(e)}")
-                        with col_cancel_btn:
-                            if st.form_submit_button("❌ Cancel"):
-                                st.session_state[f"show_save_dialog_{idx}"] = False
-                                st.rerun()
-                else:
-                    # Display assistant message - single HTML block with proper escaping (avoids raw HTML display bug)
-                    col_msg, col_actions = st.columns([5, 1])
-                    with col_msg:
-                        safe_message = html.escape(str(message)).replace("\n", "<br/>")
-                        if str(message).strip().startswith("<"):
-                            safe_message = "⚠️ An error occurred while displaying the response. Please try again."
-                    # Build sources as simple escaped text (no nested HTML that could break rendering)
-                    sources_text = ""
-                    if sources and len(sources) > 0:
-                        parts = []
-                        for source in sources:
-                            name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
-                            rel = source.get("relevance", 0) if isinstance(source, dict) else 0
-                            rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
-                            parts.append("📄 " + html.escape(str(name)) + " (" + rel_label + ", " + f"{rel:.0%}" + ")")
-                        sources_text = "<div style='margin-top:0.5rem;'><strong>📚 Sources:</strong><br/>" + "<br/>".join(parts) + "</div>"
-                    template = (
-                        '<div class="message-bot" id="answer_' + str(idx) + '">'
-                        "<strong>📚 Assistant</strong>"
-                        '<div style="margin-top:0.5rem;">' + safe_message + "</div>"
-                        + sources_text
-                        + '<div class="message-time">' + html.escape(str(msg_time)) + "</div>"
-                        "</div>"
-                    )
-                    st.markdown(template, unsafe_allow_html=True)
-                
-                    with col_actions:
-                        # Overflow menu (⋮) - Copy & Feedback; saves space on mobile
-                        with st.popover("⋮", help="Copy, Feedback"):
-                            copy_key = f"copy_answer_{idx}"
-                            if st.button("📋 Copy", key=copy_key, use_container_width=True):
-                                # Store message in session state for JavaScript access
-                                st.session_state[f"copy_text_{idx}"] = message
-                                # Use JavaScript to copy to clipboard
-                                # Escape the message for JavaScript
-                                escaped_message = message.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$').replace('\n', '\\n').replace('\r', '\\r')
-                                copy_script = f"""
-                            <script>
-                                (function() {{
-                                    const text = `{escaped_message}`;
-                                    if (navigator.clipboard && navigator.clipboard.writeText) {{
-                                        navigator.clipboard.writeText(text).then(function() {{
-                                            // Success - show toast notification
-                                            const toast = document.createElement('div');
-                                            toast.textContent = '✅ Copied to clipboard!';
-                                            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
-                                            document.body.appendChild(toast);
-                                            setTimeout(() => toast.remove(), 2000);
-                                        }}).catch(function(err) {{
-                                            console.error('Copy failed:', err);
-                                            fallbackCopy(text);
-                                        }});
-                                    }} else {{
-                                        fallbackCopy(text);
-                                    }}
-                                
-                                    function fallbackCopy(text) {{
-                                        const textArea = document.createElement('textarea');
-                                        textArea.value = text;
-                                        textArea.style.position = 'fixed';
-                                        textArea.style.left = '-999999px';
-                                        textArea.style.top = '-999999px';
-                                        document.body.appendChild(textArea);
-                                        textArea.focus();
-                                        textArea.select();
-                                        try {{
-                                            const successful = document.execCommand('copy');
-                                            if (successful) {{
-                                                const toast = document.createElement('div');
-                                                toast.textContent = '✅ Copied to clipboard!';
-                                                toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
-                                                document.body.appendChild(toast);
-                                                setTimeout(() => toast.remove(), 2000);
-                                            }} else {{
-                                                alert('❌ Failed to copy. Please select and copy manually.');
-                                            }}
-                                        }} catch (err) {{
-                                            console.error('Fallback copy failed:', err);
-                                            alert('❌ Failed to copy. Please select and copy manually.');
-                                        }}
-                                        document.body.removeChild(textArea);
-                                    }}
-                                }})();
-                            </script>
-                            """
-                            st.markdown(copy_script, unsafe_allow_html=True)
-                
-                        # Get the user query for this response (previous message in items_to_show)
-                        user_query = ""
-                        if idx > 0 and len(items_to_show[idx - 1]) >= 2 and items_to_show[idx - 1][0] == "user":
-                            user_query = items_to_show[idx - 1][1]
-                    
-                        # Check if feedback already submitted
-                        feedback_key = f"feedback_submitted_{idx}"
-                        if not st.session_state.get(feedback_key, False):
-                            st.markdown("---")
-                            col_thumbs_up, col_thumbs_down = st.columns(2)
-                            with col_thumbs_up:
-                                if st.button("👍", key=f"thumbs_up_{idx}", help="Good answer", use_container_width=True):
-                                    try:
-                                        feedback_resp = requests.post(
-                                            f"{API_URL}/feedback",
-                                            json={
-                                                "query": user_query,
-                                                "response": message,
-                                                "rating": 1,
-                                                "feedback_type": "thumbs",
-                                                "sources_count": len(sources)
-                                            },
-                                            timeout=5
-                                        )
-                                        if feedback_resp.status_code == 200:
-                                            st.session_state[feedback_key] = True
-                                            st.success("👍 Thanks!")
-                                            time.sleep(1)
-                                            st.rerun()
-                                    except:
-                                        st.error("Failed to submit feedback")
-                        
-                            with col_thumbs_down:
-                                if st.button("👎", key=f"thumbs_down_{idx}", help="Poor answer", use_container_width=True):
-                                    # Show feedback form
-                                    st.session_state[f"show_feedback_form_{idx}"] = True
-                                    st.rerun()
-                        
-                            # Detailed feedback form
-                            if st.session_state.get(f"show_feedback_form_{idx}", False):
-                                with st.form(f"feedback_form_{idx}"):
-                                    st.write("**Help us improve:**")
-                                    rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{idx}")
-                                    comment = st.text_area("Comments (optional)", key=f"comment_{idx}")
-                                    col_submit, col_cancel = st.columns(2)
-                                    with col_submit:
-                                        if st.form_submit_button("Submit"):
-                                            try:
-                                                feedback_resp = requests.post(
-                                                    f"{API_URL}/feedback",
-                                                    json={
-                                                        "query": user_query,
-                                                        "response": message,
-                                                        "rating": rating,
-                                                        "feedback_type": "detailed",
-                                                        "comment": comment,
-                                                        "sources_count": len(sources)
-                                                    },
-                                                    timeout=5
-                                                )
-                                                if feedback_resp.status_code == 200:
-                                                    st.session_state[feedback_key] = True
-                                                    st.session_state[f"show_feedback_form_{idx}"] = False
-                                                    st.success("✅ Feedback submitted!")
-                                                    time.sleep(1)
-                                                    st.rerun()
-                                            except Exception as e:
-                                                st.error(f"❌ Error: {str(e)}")
-                                    with col_cancel:
-                                        if st.form_submit_button("Cancel"):
-                                            st.session_state[f"show_feedback_form_{idx}"] = False
-                                            st.rerun()
-                        else:
-                            st.caption("✅ Feedback submitted")
+                render_user_message_block(idx, message, msg_time)
+                continue
+            msg_key = build_assistant_message_key(str(msg_time), str(message))
+            render_assistant_message_block(idx, message, msg_time, sources, prev_user_query, msg_key)
+            continue
 
+    # Chat input - inside col_chat so it appears right below messages (responses above input)
+    if not show_copilot_empty and query is None:
+        chat_val = st.chat_input("Ask anything", key="chat_input")
+        if chat_val:
+            st.session_state._pending_chat_query = chat_val
+        query = chat_val if chat_val else query
+        st.markdown(
+            '<div class="composer-hint">Press Enter to send. Use the source panel to inspect evidence for the selected answer.</div>',
+            unsafe_allow_html=True
+        )
 
-    # Chat input - when not in copilot empty state, render below messages
-if not show_copilot_empty and query is None:
-    st.markdown("---")
-    query = st.chat_input("Ask anything", key="chat_input")
-elif query is None:
-    query = None  # Already rendered in empty-state block above
+# Restore query from session if it was captured by chat_input but overwritten
+if query is None and st.session_state.get("_pending_chat_query"):
+    query = st.session_state.pop("_pending_chat_query", None)
 
 if query:
     if query.strip():
+        st.session_state.pop("_pending_chat_query", None)  # Clear so we don't re-use on next run
         # Guard: avoid double-processing when st.rerun() causes chat_input to resubmit
         # Use both session-state flag and history check for robustness
         hist = st.session_state.chat_history
+        def _normalize_for_compare(s: str) -> str:
+            # Normalize whitespace/casing to reliably detect "echo of the question".
+            return " ".join((s or "").strip().split()).casefold()
+
+        normalized_query = _normalize_for_compare(query.strip())
         already_responded = (
             st.session_state.get("_last_processed_query") == query.strip()
-            or (len(hist) >= 2 and hist[-2][0] == "user" and hist[-2][1] == query.strip() and hist[-1][0] == "assistant")
+            or (
+                len(hist) >= 2
+                and hist[-2][0] == "user"
+                and (hist[-2][1] if len(hist[-2]) > 1 else "") == query.strip()
+                and hist[-1][0] == "assistant"
+                # If the assistant message is blank or an echo of the question, don't treat as "already processed".
+                and _normalize_for_compare(hist[-1][1] if len(hist[-1]) > 1 else "") not in ("", normalized_query)
+            )
         )
         if already_responded:
             pass  # Skip - already responded to this query
         else:
+            st.session_state.pop("_pending_chat_query", None)  # Clear so we don't re-use on next run
             logger.info(f"Query: {query}")
+            
             # Auto-create conversation if none exists
             if not st.session_state.current_conversation_id:
                 try:
@@ -4988,15 +5807,16 @@ if query:
                     if resp.status_code == 200:
                         conv = resp.json()
                         st.session_state.current_conversation_id = conv.get("id")
-                except:
-                    pass  # Continue without conversation if creation fails
+                except Exception:
+                    pass
             
             # Add user message to history
             timestamp = datetime.now().strftime("%H:%M")
             st.session_state.chat_history.append(("user", query.strip(), timestamp))
-            
+
             # Get response (streaming or regular)
-            if st.session_state.enable_streaming:
+            _use_streaming = st.session_state.enable_streaming
+            if _use_streaming:
                 # Streaming response (note: advanced filters not yet supported in streaming)
                 try:
                     start_time = time.time()
@@ -5004,8 +5824,7 @@ if query:
                     payload = {"query": query}
                     if st.session_state.selected_documents:
                         payload["document_filters"] = st.session_state.selected_documents
-                    if st.session_state.current_conversation_id:
-                        payload["conversation_id"] = st.session_state.current_conversation_id
+                    # Intentionally do not send conversation_id in reliability mode.
                     # Add language preference (default to "en" to avoid wrong auto-detection)
                     if st.session_state.get("user_language"):
                         payload["language"] = st.session_state.user_language
@@ -5015,11 +5834,14 @@ if query:
                         payload["language"] = "en"
                     endpoint = f"{API_URL}/ask/stream"
                     
-                    # Create placeholder for streaming response
-                    answer_placeholder = st.empty()
+                    # Create placeholder in chat column so response appears right under input area
+                    with col_chat:
+                        answer_placeholder = st.empty()
                     answer_text = ""
                     sources = []
                     status_text = ""
+                    received_any_chunk = False
+                    received_done = False
                     # Show typing indicator (animated dots) while waiting for first token
                     answer_placeholder.markdown(
                         '**📚 Assistant**\n\n'
@@ -5040,9 +5862,13 @@ if query:
                                         line_str = line
                                         if isinstance(line_str, bytes):
                                             line_str = line_str.decode("utf-8", errors="ignore")
-                                        if line_str.startswith("data: "):
+                                        # Accept both `data: {...}` and `data: {...}` (with/without space)
+                                        if isinstance(line_str, str) and line_str.startswith("data:"):
                                             try:
-                                                data = json.loads(line_str[6:])  # Remove 'data: ' prefix
+                                                json_str = line_str[5:]  # Remove `data:` prefix
+                                                if json_str.startswith(" "):
+                                                    json_str = json_str[1:]
+                                                data = json.loads(json_str)
                                                 event_type = data.get("type")
                                             
                                                 if event_type == "status":
@@ -5058,6 +5884,8 @@ if query:
                                                     sources = data.get("sources", [])
                                                 elif event_type == "chunk":
                                                     chunk = data.get("content", "")
+                                                    if chunk:
+                                                        received_any_chunk = True
                                                     answer_text += chunk
                                                     # Update placeholder - use message-bot.streaming for subtle pulse
                                                     safe_text = html.escape(answer_text).replace("\n", "<br/>")
@@ -5067,15 +5895,37 @@ if query:
                                                         unsafe_allow_html=True
                                                     )
                                                 elif event_type == "done":
+                                                    received_done = True
                                                     full_response = data.get("full_response", answer_text)
-                                                    answer_text = full_response
-                                                    answer_placeholder.empty()  # Clear placeholder
+                                                    if full_response and str(full_response).strip():
+                                                        answer_text = str(full_response)
+                                                    # Re-render final answer in placeholder (avoid flash of empty)
+                                                    _safe_final = html.escape(answer_text).replace("\n", "<br/>")
+                                                    answer_placeholder.markdown(
+                                                        f'<div class="message-bot"><strong>📚 Assistant</strong>'
+                                                        f'<div style="margin-top:0.5rem;">{_safe_final}</div></div>',
+                                                        unsafe_allow_html=True
+                                                    )
                                                 elif event_type == "error":
                                                     error_msg = data.get("content", "Unknown error")
                                                     answer_text = error_msg
                                                     answer_placeholder.empty()
                                             except json.JSONDecodeError:
                                                 continue
+                                
+                                # If the stream ends without any chunks (or never receives `done`),
+                                # retry once using the non-streaming endpoint.
+                                # If we only got an "echo" of the question (common failure mode),
+                                # retry using non-streaming to force a full regenerated answer.
+                                if (not received_any_chunk) or (not received_done) or (_normalize_for_compare(answer_text) == normalized_query):
+                                    try:
+                                        fallback = requests.post(f"{API_URL}/ask", json=payload, timeout=180)
+                                        if fallback.status_code == 200:
+                                            rd = fallback.json()
+                                            answer_text = rd.get("response", "No answer received")
+                                            sources = rd.get("sources", [])
+                                    except Exception:
+                                        pass
                             else:
                                 # Fall back to non-streaming on server error
                                 try:
@@ -5112,13 +5962,26 @@ if query:
                     # Validate response before storing - prevent empty or corrupted responses
                     if not answer_text or not answer_text.strip():
                         answer_text = "⚠️ No response received. Please try again."
-                    elif answer_text.strip().startswith("<div") or answer_text.strip().startswith("<span"):
+                    if answer_text.strip().startswith("<div") or answer_text.strip().startswith("<span"):
                         # Detect accidentally captured HTML (should never happen, but safeguard)
                         logger.warning(f"Detected HTML in response, this indicates a bug: {answer_text[:100]}")
                         answer_text = "⚠️ An error occurred while processing the response. Please try again."
                 
+                    try:
+                        _safe_final = html.escape(answer_text).replace("\n", "<br/>")
+                        answer_placeholder.markdown(
+                            f'<div class="message-bot"><strong>📚 Assistant</strong>'
+                            f'<div style="margin-top:0.5rem;">{_safe_final}</div></div>',
+                            unsafe_allow_html=True
+                        )
+                    except Exception:
+                        pass
                     st.session_state.chat_history.append(("assistant", answer_text, answer_timestamp, sources))
                     logger.info(f"Streaming response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
+                    # Mark as processed only when we actually got a non-echo answer.
+                    normalized_answer = _normalize_for_compare(answer_text)
+                    if normalized_answer and normalized_answer != normalized_query:
+                        st.session_state._last_processed_query = query.strip()
                 except requests.exceptions.ConnectionError:
                     error_msg = "Cannot connect to API. Please ensure the server is running."
                     st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
@@ -5147,7 +6010,6 @@ if query:
                             start_time = time.time()
                             # Prepare request payload with filters and conversation
                             if st.session_state.show_advanced_filters and st.session_state.get("advanced_filters"):
-                                # Use advanced search endpoint
                                 payload = {
                                     "query": query,
                                     "filters": st.session_state.advanced_filters
@@ -5156,13 +6018,11 @@ if query:
                                     payload["conversation_id"] = st.session_state.current_conversation_id
                                 endpoint = f"{API_URL}/ask/advanced"
                             else:
-                                # Use regular endpoint
                                 payload = {"query": query}
                                 if st.session_state.selected_documents:
                                     payload["document_filters"] = st.session_state.selected_documents
                                 if st.session_state.current_conversation_id:
                                     payload["conversation_id"] = st.session_state.current_conversation_id
-                                # Add language preference (default to "en" to avoid wrong auto-detection)
                                 if st.session_state.get("user_language"):
                                     payload["language"] = st.session_state.user_language
                                 elif st.session_state.get("user_preferences", {}).get("language"):
@@ -5184,7 +6044,8 @@ if query:
                                 # Validate response before storing
                                 if not answer or not answer.strip():
                                     answer = "⚠️ No response received. Please try again."
-                                elif answer.strip().startswith("<div") or answer.strip().startswith("<span"):
+                                # Keep model output unchanged; only handle true transport/execution errors.
+                                if answer.strip().startswith("<div") or answer.strip().startswith("<span"):
                                     logger.warning(f"Detected HTML in response: {answer[:100]}")
                                     answer = "⚠️ An error occurred while processing the response. Please try again."
                                 
@@ -5207,6 +6068,9 @@ if query:
                             st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
                             log_error_to_console(error_msg, "Exception", e)
 
-                        st.session_state._last_processed_query = query.strip()  # Mark as processed before rerun
+                        # Mark as processed only when we actually got a non-echo answer.
+                        normalized_answer = _normalize_for_compare(answer)
+                        if normalized_answer and normalized_answer != normalized_query:
+                            st.session_state._last_processed_query = query.strip()
         st.rerun()
 

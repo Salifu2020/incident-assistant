@@ -9,6 +9,26 @@ from collections import Counter
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
+# Windows console encoding can crash on emoji-containing print() output
+# (e.g. 'UnicodeEncodeError: charmap' on cp1252). Make print() safe in this module.
+_real_print = print
+def _to_ascii_safe(v) -> str:
+    try:
+        s = str(v)
+    except Exception:
+        s = repr(v)
+    # Force ASCII-safe rendering so stdout encoding never throws.
+    return s.encode("utf-8", errors="backslashreplace").decode("ascii", errors="backslashreplace")
+
+def _safe_print(*args, **kwargs):
+    try:
+        return _real_print(*args, **kwargs)
+    except UnicodeEncodeError:
+        safe_args = [_to_ascii_safe(a) for a in args]
+        return _real_print(*safe_args, **kwargs)
+
+print = _safe_print
+
 # Keep ollama import for backward compatibility (will be used if LLM provider fallback is needed)
 try:
     import ollama
@@ -412,6 +432,8 @@ class KnowledgeAssistant:
 
         return text.strip()
 
+    
+
     def reset_history(self):
         self.chat_history = [
             {
@@ -433,7 +455,7 @@ class KnowledgeAssistant:
             }
         ]
 
-    def retrieve_context(self, query, k=4, document_filters=None, advanced_filters=None):
+    def retrieve_context(self, query, k=8, document_filters=None, advanced_filters=None):
         """Retrieve context from the knowledge base with source information.
         
         Args:
@@ -461,8 +483,8 @@ class KnowledgeAssistant:
             except Exception:
                 return "", []
             
-            # Adaptive k: use fewer results for faster retrieval, but ensure we have enough
-            n_results = min(k, max(3, collection_count // 10)) if collection_count else k
+            # Adaptive k: fetch enough chunks for document summaries; favor recall over speed
+            n_results = min(k, max(6, collection_count // 5)) if collection_count else k
             
             # Update max_results if specified in advanced_filters
             if advanced_filters and advanced_filters.max_results:
@@ -672,12 +694,10 @@ class KnowledgeAssistant:
                     print(f"⚠️ Re-ranking failed: {e}, using original order")
                     # Continue with original order if re-ranking fails
             
-            # Smart filtering: use adaptive threshold based on result quality
-            # If top result is very good (distance < 0.3), be more selective
-            # If top result is mediocre, include more results
-            # Lower threshold to be more inclusive
+            # Smart filtering: use adaptive threshold - prioritize recall for weak semantic matches
+            # (e.g. "summarize the resume" may not match "experience, skills" chunks closely)
             top_distance = distances[0] if distances else 1.0
-            threshold = 0.5 if top_distance < 0.3 else 0.85  # More lenient threshold
+            threshold = 0.5 if top_distance < 0.3 else 1.0  # Include more results when top match is weak
             
             filtered_docs = []
             filtered_sources = []  # Track sources for each chunk
@@ -1180,6 +1200,14 @@ class KnowledgeAssistant:
         Returns:
             List of query strings (original + variations)
         """
+        # Rule-based expansion for summarization queries (no LLM, always runs)
+        # "Summarize X" rarely matches document content; add content-focused terms
+        q_lower = query.lower().strip()
+        summarization_words = ("summarize", "summary", "overview", "sum up", "recap", "summarise")
+        if any(w in q_lower for w in summarization_words):
+            content_query = "contents overview key sections experience skills education qualifications main points"
+            return [query, content_query]
+
         if not self.enable_query_expansion:
             return [query]
         
@@ -1384,6 +1412,7 @@ class KnowledgeAssistant:
             "- Provide ONLY the answer.\n"
             "- Do NOT say phrases like 'as mentioned in the context', 'as mentioned in your context', 'based on the context', or similar.\n"
             "- Do NOT mention that you used the context.\n"
+            "- If context is empty, answer using general knowledge.\n"
         )
 
         if is_followup:
@@ -1408,7 +1437,7 @@ class KnowledgeAssistant:
                 messages=messages,
                 stream=self.enable_streaming,
                 temperature=0.3,
-                max_tokens=500
+                max_tokens=180
             )
 
             # Clean up style boilerplate (user does not want it)
@@ -1434,6 +1463,7 @@ class KnowledgeAssistant:
             "- Provide ONLY the answer.\n"
             "- Do NOT say phrases like 'as mentioned in the context', 'as mentioned in your context', 'based on the context', or similar.\n"
             "- Do NOT mention that you used the context.\n"
+            "- If context is empty, answer using general knowledge.\n"
         )
 
         if is_followup:
@@ -1459,7 +1489,7 @@ class KnowledgeAssistant:
             started = False
             
             # Use unified LLM streaming method (supports Groq, OpenAI, Ollama)
-            for content in self._llm_chat_stream(messages=messages, temperature=0.3, max_tokens=500):
+            for content in self._llm_chat_stream(messages=messages, temperature=0.3, max_tokens=180):
                 response_text += content
 
                 if not started:
@@ -1475,6 +1505,12 @@ class KnowledgeAssistant:
                     continue
 
                 yield content
+            
+            # Flush any remaining buffer if stream ended early
+            if not started and prefix_buffer:
+                cleaned = self._clean_answer_style(prefix_buffer)
+                if cleaned.strip():
+                    yield cleaned
             
             # Clean up common prefixes after streaming completes
             answer = response_text.strip()
@@ -1711,7 +1747,7 @@ class KnowledgeAssistant:
             )
             
             if not sub_context:
-                sub_answers.append(f"No relevant information found for: {sub_q}")
+                sub_answers.append(self.generate_response(sub_q, "", is_followup=False))
                 continue
             
             # Generate answer for sub-question
@@ -2486,21 +2522,7 @@ class KnowledgeAssistant:
         )
 
         if not context:
-            # Provide more helpful error message
-            try:
-                kb_count = self.processor.collection.count()
-                if kb_count > 0:
-                    confidence_info = {"confidence": 0.2, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-                    verification_info = {"status": "not_verified", "supported": False, "details": "No relevant context found", "has_hallucinations": False} if self.enable_answer_verification else None
-                    return f"⚠️ No relevant information found for your query. The knowledge base has {kb_count} chunks, but they don't match your question. Try:\n- Rephrasing your question\n- Using different keywords\n- Asking a more general question", [], intent_info, confidence_info, verification_info
-                else:
-                    confidence_info = {"confidence": 0.0, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-                    verification_info = {"status": "not_verified", "supported": False, "details": "Empty knowledge base", "has_hallucinations": False} if self.enable_answer_verification else None
-                    return "⚠️ Knowledge base is empty. Please upload documents and wait for processing to complete.", [], intent_info, confidence_info, verification_info
-            except:
-                confidence_info = {"confidence": 0.2, "level": "very_low", "factors": {}} if self.enable_confidence_scoring else None
-                verification_info = {"status": "error", "supported": False, "details": "Error retrieving context", "has_hallucinations": False} if self.enable_answer_verification else None
-                return "⚠️ No relevant information found. Please ensure documents have been uploaded and processed, then try rephrasing your question.", [], intent_info, confidence_info, verification_info
+            context = ""
         
         # Generate response with follow-up awareness and intent guidance
         # Use original query for response generation to maintain context
