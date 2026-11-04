@@ -11,6 +11,21 @@ Community Cloud cannot run FastAPI for you. If the UI has no public `API_URL`, l
 
 Deploy this repo as an API service (Docker / Railway / Render) using **`requirements-api.txt`**.
 
+### Render (recommended free option)
+
+Root `requirements.txt` is **Streamlit-only**. If Render uses it, you get `ModuleNotFoundError: No module named 'fastapi'`.
+
+In the Render service → **Settings**:
+
+| Field | Value |
+|--------|--------|
+| Build Command | `pip install -r requirements-api.txt` |
+| Start Command | `python run.py api` |
+
+Or use the repo `render.yaml` Blueprint. Set env vars: `GROQ_API_KEY`, `JWT_SECRET_KEY`, and optionally `LLM_PROVIDER` / `LLM_MODEL`.
+
+Free instances are small — first boot can be slow while embeddings/torch load. If the service OOMs, upgrade the plan or use Docker on a larger host.
+
 Confirm:
 
 ```bash

@@ -1,0 +1,17 @@
+# Render Blueprint — FastAPI backend only (not Streamlit).
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: incident-assistant-api
+    runtime: python
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements-api.txt
+    startCommand: python run.py api
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: HOST
+        value: "0.0.0.0"
+      # Set these in the Render dashboard (do not commit real values):
+      # GROQ_API_KEY, JWT_SECRET_KEY, LLM_PROVIDER, LLM_MODEL
