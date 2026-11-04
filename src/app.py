@@ -15,16 +15,44 @@ from requests.exceptions import ChunkedEncodingError
 
 os.environ["PYTORCH_NO_LIBRARY_FALLBACK"] = "1"
 
-# API URL - can be configured via environment variable
-API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
+
+def _is_streamlit_cloud() -> bool:
+    """True when running on Streamlit Community Cloud (or similarly hosted)."""
+    cwd = os.getcwd().replace("\\", "/")
+    return bool(
+        os.environ.get("STREAMLIT_SHARING_MODE")
+        or cwd.startswith("/mount/src")
+    )
+
+
+def _apply_streamlit_secrets_to_environ() -> None:
+    """Copy st.secrets into os.environ so API_URL and friends work on Cloud."""
+    try:
+        secrets = st.secrets
+    except Exception:
+        return
+    try:
+        items = dict(secrets)
+    except Exception:
+        return
+    for key, value in items.items():
+        if isinstance(value, (dict, list)):
+            continue
+        os.environ.setdefault(str(key), str(value))
+
+
+_apply_streamlit_secrets_to_environ()
+
+# API URL: Streamlit Cloud secrets → env → local default
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000").rstrip("/")
+
 
 def get_api_connection_error_message() -> str:
     """Get a helpful error message when API connection fails."""
-    api_url = os.environ.get("API_URL", "http://127.0.0.1:8000")
-    # Only show Streamlit Cloud guidance when actually running on Streamlit Cloud.
-    is_streamlit_cloud = bool(os.environ.get("STREAMLIT_SHARING_MODE"))
+    api_url = API_URL
+    on_cloud = _is_streamlit_cloud()
 
-    if (api_url.startswith("http://127.0.0.1") or api_url.startswith("http://localhost")) and is_streamlit_cloud:
+    if (api_url.startswith("http://127.0.0.1") or api_url.startswith("http://localhost")) and on_cloud:
         return (
             "❌ Cannot connect to API.\n\n"
             "**The API URL is set to localhost, which won't work on Streamlit Cloud.**\n\n"
@@ -32,8 +60,8 @@ def get_api_connection_error_message() -> str:
             "1. Deploy your FastAPI backend to Railway, Render, Fly.io, or another platform\n"
             "2. In Streamlit Cloud, go to: Settings → Secrets\n"
             "3. Add: `API_URL = \"https://your-backend-url.com\"`\n"
-            "4. Redeploy your app\n\n"
-            "See `STREAMLIT_CLOUD_DEPLOYMENT.md` for detailed instructions."
+            "4. Reboot the app\n\n"
+            "See `docs/STREAMLIT_CLOUD_DEPLOYMENT.md` for detailed instructions."
         )
     elif api_url.startswith("http://127.0.0.1") or api_url.startswith("http://localhost"):
         return (
@@ -43,7 +71,7 @@ def get_api_connection_error_message() -> str:
             "1. Is FastAPI running on that exact port?\n"
             "2. Are Streamlit and API using the same `API_URL` / `PORT` values?\n"
             "3. Restart Streamlit after changing environment variables.\n\n"
-            "Tip: run `python run_api.py` and `python run_app.py` from fresh terminals."
+            "Tip: run `python run.py api` and `python run.py app` from fresh terminals."
         )
     else:
         return (
@@ -52,24 +80,25 @@ def get_api_connection_error_message() -> str:
             "1. Is the backend server running?\n"
             "2. Is the API URL correct in Streamlit Cloud secrets?\n"
             "3. Can you access the backend directly? Try: `curl {api_url}/health`\n\n"
-            "See `STREAMLIT_CLOUD_DEPLOYMENT.md` for troubleshooting."
+            "See `docs/STREAMLIT_CLOUD_DEPLOYMENT.md` for troubleshooting."
         )
 
 # Get project root directory (parent of src)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Configure logging
+# Configure logging (file handler is best-effort — Cloud filesystems can be picky)
 log_dir = os.path.join(PROJECT_ROOT, "logs")
-os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, "streamlit.log")
+_log_handlers = [logging.StreamHandler()]
+try:
+    os.makedirs(log_dir, exist_ok=True)
+    _log_handlers.insert(0, logging.FileHandler(os.path.join(log_dir, "streamlit.log")))
+except OSError:
+    pass
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
+    handlers=_log_handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -2106,20 +2135,14 @@ if not st.session_state.authenticated:
 
 # Login/Register UI
 if not st.session_state.authenticated:
-    def _is_streamlit_cloud_host() -> bool:
-        cwd = os.getcwd().replace("\\", "/")
-        return bool(
-            os.environ.get("STREAMLIT_SHARING_MODE")
-            or cwd.startswith("/mount/src")
-        )
-
     # Only warn when localhost API_URL would actually break (hosted Streamlit Cloud)
-    if _is_streamlit_cloud_host() and (
+    if _is_streamlit_cloud() and (
         API_URL.startswith("http://127.0.0.1") or API_URL.startswith("http://localhost")
     ):
         st.warning(
             "API URL is set to localhost, which won't work on Streamlit Cloud. "
-            "Set `API_URL` in Streamlit Cloud secrets to your backend URL."
+            "Set `API_URL` in Streamlit Cloud secrets to your public backend URL. "
+            "See docs/STREAMLIT_CLOUD_DEPLOYMENT.md."
         )
 
     # Check for reset token in query parameters (for email links)

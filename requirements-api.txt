@@ -1,0 +1,34 @@
+# Backend / full local install (FastAPI + RAG + embeddings).
+# Streamlit Community Cloud should NOT install this file — use requirements.txt.
+
+# Install CPU-only PyTorch first (much smaller than CUDA version - saves ~5GB)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+
+fastapi
+uvicorn
+python-multipart
+chromadb
+pymupdf
+sentence-transformers
+streamlit
+python-docx
+python-jose[cryptography]
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.0
+aiosmtplib
+email-validator
+jinja2
+pyotp
+qrcode[pil]
+numpy
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+alembic>=1.12.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# LLM Providers (install one or more based on your setup)
+groq>=0.4.0              # Recommended: Fast, free tier available
+ollama                   # Optional: Self-hosted Ollama (fallback)
+# openai>=1.0.0          # Optional: OpenAI GPT models

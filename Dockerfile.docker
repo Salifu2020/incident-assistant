@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
+# Copy requirements (full backend stack — not the Streamlit Cloud slim file)
+COPY requirements-api.txt .
 
 # Install Python dependencies to a virtual environment
 RUN python -m venv /opt/venv
@@ -26,7 +26,7 @@ ENV HF_HUB_OFFLINE=1
 ENV SENTENCE_TRANSFORMERS_HOME=/tmp
 # Install dependencies and clean up any accidentally downloaded models
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements-api.txt && \
     rm -rf /root/.cache/huggingface /root/.cache/torch /tmp/.cache 2>/dev/null || true
 
 # Stage 2: Runtime image (much smaller)

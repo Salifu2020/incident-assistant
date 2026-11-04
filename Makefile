@@ -13,7 +13,7 @@ cli:
 	python run.py cli
 
 install:
-	pip install -r requirements.txt
+	pip install -r requirements-api.txt
 
 dev: install
 	@echo "Starting API and App in background..."

@@ -34,8 +34,11 @@ git clone https://github.com/Salifu2020/incident-assistant
 cd incident-assistant
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+# Full local stack (API + embeddings + Streamlit)
+pip install -r requirements-api.txt
 ```
+
+Streamlit Community Cloud uses root `requirements.txt` (UI-only). See [docs/STREAMLIT_CLOUD_DEPLOYMENT.md](docs/STREAMLIT_CLOUD_DEPLOYMENT.md).
 
 ---
 
@@ -129,6 +132,17 @@ incident-assistant/
 3. The system automatically chunks and stores them in ChromaDB.  
 4. Ask questions via the frontend or `/ask` endpoint.  
 5. Logs are recorded in both **`api.log`** and **`streamlit.log`**.
+
+---
+
+## **Streamlit Cloud**
+Deploy **only** `src/app.py` on Community Cloud, with a **separate** public FastAPI host. Set secrets:
+
+```toml
+API_URL = "https://your-api-host.example.com"
+```
+
+If the Cloud app spins forever, it was usually installing `torch`/ChromaDB from the old monolithic `requirements.txt`. That file is now UI-only; reboot after pulling this change. Full steps: [docs/STREAMLIT_CLOUD_DEPLOYMENT.md](docs/STREAMLIT_CLOUD_DEPLOYMENT.md).
 
 ---
 

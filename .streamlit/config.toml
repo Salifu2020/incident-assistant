@@ -4,3 +4,19 @@ backgroundColor = "#0a1018"
 secondaryBackgroundColor = "#0f172a"
 textColor = "#e2e8f0"
 font = "sans serif"
+
+[server]
+# Auto-apply code changes instead of blocking on the "Source file changed" dialog
+runOnSave = true
+# Don't watch data/runtime dirs — their writes look like source changes and can loop reloads
+folderWatchBlacklist = [
+    "*/.chromadb",
+    "*/logs",
+    "*/venv",
+    "*/__pycache__",
+    "*/ingested_files",
+    "*/exports",
+    "*/backups",
+    "*/data",
+    "*/source_files",
+]
