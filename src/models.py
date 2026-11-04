@@ -214,17 +214,6 @@ class UpdateSavedQueryRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
 
-class QuerySuggestion(BaseModel):
-    query: str
-    type: str  # "saved", "history", or "popular"
-    score: float
-    name: Optional[str] = None
-    usage_count: Optional[int] = None
-
-class SuggestionsResponse(BaseModel):
-    suggestions: List[QuerySuggestion]
-    total: int
-
 class FeedbackRequest(BaseModel):
     query: str
     response: str

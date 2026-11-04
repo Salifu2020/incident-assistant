@@ -240,7 +240,7 @@ class QueryCache:
 
 
 class KnowledgeAssistant:
-    def __init__(self, processor, model_name: str = "mistral", max_context_chars=2500, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2, enable_confidence_scoring=True, enable_answer_verification=True, enable_query_caching=True, cache_ttl=3600, cache_max_size=1000):
+    def __init__(self, processor, model_name: str = "mistral", max_context_chars=4000, enable_streaming=True, enable_query_expansion=True, enable_hybrid_search=True, enable_reranking=True, enable_intent_classification=True, enable_multi_step_reasoning=True, enable_learning_from_feedback=True, enable_context_summarization=True, summarization_threshold=1.2, enable_confidence_scoring=True, enable_answer_verification=True, enable_query_caching=True, cache_ttl=3600, cache_max_size=1000):
         self.processor = processor
         self.llm_model = model_name
         self.max_context_chars = max_context_chars
@@ -276,11 +276,7 @@ class KnowledgeAssistant:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.learning_data_file = os.path.join(project_root, "data", "learning_patterns.json")
         
-        # Cache for document-based query suggestions
-        self._document_suggestions_cache = None
-        self._document_suggestions_cache_time = None
-        self._document_suggestions_cache_ttl = 3600  # Cache for 1 hour
-        
+
         # Multi-language support
         self.enable_multilanguage = True  # Enable multi-language support
         self.default_language = "en"  # Default language (English)
@@ -493,21 +489,29 @@ class KnowledgeAssistant:
             {
                 "role": "system",
                 "content": (
-                    "You are a helpful, knowledgeable assistant. Answer questions concisely and accurately "
-                    "using only the information provided in the context.\n\n"
+                    "You are a careful knowledge assistant for private documents. "
+                    "Your job is to give useful, accurate answers grounded in the provided context.\n\n"
                     "Guidelines:\n"
-                    "- Answer directly and confidently, as if you know the information\n"
-                    "- Be specific and cite relevant details from the context\n"
-                    "- If the context doesn't contain the answer, say so briefly\n"
-                    "- Never make up information or use knowledge outside the context\n"
-                    "- Keep answers concise but complete\n"
-                    "- When answering follow-up questions, use the conversation history to understand context\n"
-                    "- If a question refers to something mentioned earlier (like 'it', 'that', 'this', 'they'), "
-                    "use the previous conversation to understand what is being referenced\n"
-                    "- Maintain consistency with previous answers in the conversation"
+                    "- Prefer the provided context over general knowledge.\n"
+                    "- Be specific: include names, roles, skills, dates, tools, and numbers when present.\n"
+                    "- Write in clear prose. Use short bullets only when they improve readability.\n"
+                    "- If the context partially answers the question, answer what you can and state what is missing.\n"
+                    "- If the context does not contain the answer, say that plainly. Do not invent facts.\n"
+                    "- Do not mention 'the context', 'the documents', or that you are an AI unless asked.\n"
+                    "- For follow-ups, resolve pronouns using conversation history and stay consistent."
                 )
             }
         ]
+
+    def _answer_style_rules(self) -> str:
+        return (
+            "\n\nAnswer rules:\n"
+            "- Answer the user's question directly.\n"
+            "- Use only facts supported by the context (and conversation history for follow-ups).\n"
+            "- Be concrete and useful, not vague.\n"
+            "- Do not say 'as mentioned in the context', 'based on the documents', or similar.\n"
+            "- If evidence is weak or missing, say what you cannot confirm.\n"
+        )
 
     def retrieve_context(self, query, k=8, document_filters=None, advanced_filters=None):
         """Retrieve context from the knowledge base with source information.
@@ -1461,24 +1465,23 @@ class KnowledgeAssistant:
             elif intent_type == "verification":
                 intent_guidance = "\n\nNote: This is a verification question. Provide a clear yes/no answer with supporting evidence."
         
-        style_rules = (
-            "\n\nStyle rules:\n"
-            "- Provide ONLY the answer.\n"
-            "- Do NOT say phrases like 'as mentioned in the context', 'as mentioned in your context', 'based on the context', or similar.\n"
-            "- Do NOT mention that you used the context.\n"
-            "- If context is empty, answer using general knowledge.\n"
-        )
+        style_rules = self._answer_style_rules()
+        context_block = (context or "").strip() or "(No relevant context was retrieved.)"
 
         if is_followup:
             user_message = (
-                f"Context from knowledge base:\n{context}\n\n"
+                f"Context from knowledge base:\n{context_block}\n\n"
                 f"Current question: {query}\n\n"
-                f"Note: This is a follow-up question. Use the conversation history above to understand "
-                f"what the user is referring to. Answer the question using both the provided context "
-                f"and the conversation history.{intent_guidance}{style_rules}\n\nAnswer:"
+                f"This is a follow-up. Resolve references using conversation history, "
+                f"then answer with the best evidence available."
+                f"{intent_guidance}{style_rules}\n\nAnswer:"
             )
         else:
-            user_message = f"Context:\n{context}\n\nQuestion: {query}{intent_guidance}{style_rules}\n\nAnswer:"
+            user_message = (
+                f"Context:\n{context_block}\n\n"
+                f"Question: {query}"
+                f"{intent_guidance}{style_rules}\n\nAnswer:"
+            )
         
         # Use conversation history (up to last 4 exchanges for follow-ups, 2 for new questions)
         max_history = 8 if is_followup else 4
@@ -1490,8 +1493,8 @@ class KnowledgeAssistant:
             answer = self._llm_chat(
                 messages=messages,
                 stream=self.enable_streaming,
-                temperature=0.3,
-                max_tokens=180
+                temperature=0.2,
+                max_tokens=700
             )
 
             # Clean up style boilerplate (user does not want it)
@@ -1511,25 +1514,23 @@ class KnowledgeAssistant:
     
     def generate_response_stream(self, query, context, is_followup=False):
         """Generate response as a stream of chunks (generator)."""
-        # Build prompt with follow-up awareness
-        style_rules = (
-            "\n\nStyle rules:\n"
-            "- Provide ONLY the answer.\n"
-            "- Do NOT say phrases like 'as mentioned in the context', 'as mentioned in your context', 'based on the context', or similar.\n"
-            "- Do NOT mention that you used the context.\n"
-            "- If context is empty, answer using general knowledge.\n"
-        )
+        style_rules = self._answer_style_rules()
+        context_block = (context or "").strip() or "(No relevant context was retrieved.)"
 
         if is_followup:
             user_message = (
-                f"Context from knowledge base:\n{context}\n\n"
+                f"Context from knowledge base:\n{context_block}\n\n"
                 f"Current question: {query}\n\n"
-                f"Note: This is a follow-up question. Use the conversation history above to understand "
-                f"what the user is referring to. Answer the question using both the provided context "
-                f"and the conversation history.{style_rules}\n\nAnswer:"
+                f"This is a follow-up. Resolve references using conversation history, "
+                f"then answer with the best evidence available."
+                f"{style_rules}\n\nAnswer:"
             )
         else:
-            user_message = f"Context:\n{context}\n\nQuestion: {query}{style_rules}\n\nAnswer:"
+            user_message = (
+                f"Context:\n{context_block}\n\n"
+                f"Question: {query}"
+                f"{style_rules}\n\nAnswer:"
+            )
         
         # Use conversation history (up to last 4 exchanges for follow-ups, 2 for new questions)
         max_history = 8 if is_followup else 4
@@ -1543,7 +1544,7 @@ class KnowledgeAssistant:
             started = False
             
             # Use unified LLM streaming method (supports Groq, OpenAI, Ollama)
-            for content in self._llm_chat_stream(messages=messages, temperature=0.3, max_tokens=180):
+            for content in self._llm_chat_stream(messages=messages, temperature=0.2, max_tokens=700):
                 response_text += content
 
                 if not started:
@@ -2885,185 +2886,3 @@ class KnowledgeAssistant:
         except Exception as e:
             print(f"⚠️ Error calculating confidence score: {e}")
             return {"confidence": 0.5, "level": "unknown", "factors": {}}
-    
-    def generate_document_suggestions(self, limit: int = 10, force_refresh: bool = False) -> List[Dict]:
-        """Generate query suggestions based on document content in the knowledge base.
-        
-        This method:
-        1. Samples diverse chunks from the knowledge base
-        2. Extracts key topics and concepts
-        3. Uses LLM to generate natural, relevant questions
-        4. Caches results for performance
-        
-        Args:
-            limit: Maximum number of suggestions to return
-            force_refresh: If True, bypass cache and regenerate suggestions
-            
-        Returns:
-            List of suggestion dictionaries with 'query', 'type', 'score', and 'source'
-        """
-        # Check cache first
-        if not force_refresh and self._document_suggestions_cache is not None:
-            import time
-            if self._document_suggestions_cache_time and \
-               (time.time() - self._document_suggestions_cache_time) < self._document_suggestions_cache_ttl:
-                return self._document_suggestions_cache[:limit]
-        
-        try:
-            # Check if knowledge base has content
-            total_chunks = self.processor.collection.count()
-            if total_chunks == 0:
-                return []
-            
-            # Sample diverse chunks from the knowledge base
-            # Get chunks from different documents to ensure diversity
-            sample_size = min(50, total_chunks)  # Sample up to 50 chunks
-            
-            try:
-                # Get a diverse sample of chunks
-                all_results = self.processor.collection.get(
-                    limit=sample_size,
-                    include=['documents', 'metadatas']
-                )
-            except Exception as e:
-                print(f"⚠️ Error sampling chunks for suggestions: {e}")
-                return []
-            
-            if not all_results or not all_results.get('documents'):
-                return []
-            
-            documents = all_results.get('documents', [])
-            metadatas = all_results.get('metadatas', [])
-            
-            # Group chunks by document to ensure diversity
-            doc_chunks = {}
-            for i, (doc, meta) in enumerate(zip(documents, metadatas)):
-                source = meta.get('source', 'unknown') if meta else 'unknown'
-                if source not in doc_chunks:
-                    doc_chunks[source] = []
-                # Limit chunks per document to ensure diversity
-                if len(doc_chunks[source]) < 5:
-                    doc_chunks[source].append(doc[:500])  # Use first 500 chars per chunk
-            
-            # Combine chunks from different documents
-            diverse_chunks = []
-            for source, chunks in doc_chunks.items():
-                diverse_chunks.extend(chunks[:3])  # Max 3 chunks per document
-            
-            if not diverse_chunks:
-                return []
-            
-            # Create a summary of content for LLM
-            content_summary = "\n\n---\n\n".join(diverse_chunks[:20])  # Use up to 20 chunks
-            if len(content_summary) > 3000:
-                content_summary = content_summary[:3000] + "..."
-            
-            # Use LLM to generate questions based on content
-            suggestion_prompt = (
-                f"Based on the following content from a knowledge base, generate {limit} diverse, "
-                f"natural questions that users might ask about this content.\n\n"
-                f"Content samples:\n{content_summary}\n\n"
-                "Requirements:\n"
-                "1. Questions should be natural and conversational\n"
-                "2. Cover different topics and aspects\n"
-                "3. Include various question types (what, how, why, when, where, who)\n"
-                "4. Questions should be answerable from the provided content\n"
-                "5. Make questions specific and actionable\n\n"
-                "Generate exactly {limit} questions, one per line, without numbering or bullets."
-            ).format(limit=limit)
-            
-            try:
-                suggestions_text = self._llm_chat(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a query suggestion generator. Create natural, diverse questions based on document content."
-                        },
-                        {
-                            "role": "user",
-                            "content": suggestion_prompt
-                        }
-                    ],
-                    temperature=0.7,
-                    max_tokens=limit * 50
-                )
-                
-                # Parse suggestions (one per line)
-                suggestions = []
-                for line in suggestions_text.split('\n'):
-                    line = line.strip()
-                    # Remove numbering, bullets, dashes
-                    line = re.sub(r'^[\d\.\-\*\•\)\s]+', '', line)
-                    line = line.strip()
-                    
-                    # Validate question
-                    if line and len(line) > 10 and len(line) < 200:
-                        # Check if it looks like a question
-                        if any(line.strip().startswith(qword) for qword in ['What', 'How', 'Why', 'When', 'Where', 'Who', 'Which', 'Can', 'Should', 'Is', 'Are', 'Does', 'Do']):
-                            suggestions.append({
-                                "query": line,
-                                "type": "document",
-                                "score": 0.9,  # High score for document-based suggestions
-                                "source": "knowledge_base"
-                            })
-                        elif '?' in line:
-                            # Also accept questions ending with ?
-                            suggestions.append({
-                                "query": line,
-                                "type": "document",
-                                "score": 0.85,
-                                "source": "knowledge_base"
-                            })
-                
-                # If we got fewer suggestions than requested, try to generate more
-                if len(suggestions) < limit and len(diverse_chunks) > 10:
-                    # Try with more chunks
-                    additional_content = "\n\n---\n\n".join(diverse_chunks[10:30])
-                    if len(additional_content) > 2000:
-                        additional_content = additional_content[:2000] + "..."
-                    
-                    additional_prompt = (
-                        f"Generate {limit - len(suggestions)} more diverse questions based on this additional content:\n\n"
-                        f"{additional_content}\n\n"
-                        "Generate natural questions, one per line."
-                    )
-                    
-                    try:
-                        additional_text = self._llm_chat(
-                            messages=[
-                                {"role": "user", "content": additional_prompt}
-                            ],
-                            temperature=0.7,
-                            max_tokens=(limit - len(suggestions)) * 50
-                        )
-                        for line in additional_text.split('\n'):
-                            line = re.sub(r'^[\d\.\-\*\•\)\s]+', '', line.strip())
-                            if line and len(line) > 10 and len(line) < 200 and line not in [s["query"] for s in suggestions]:
-                                if '?' in line or any(line.strip().startswith(qword) for qword in ['What', 'How', 'Why', 'When', 'Where', 'Who', 'Which', 'Can', 'Should', 'Is', 'Are']):
-                                    suggestions.append({
-                                        "query": line,
-                                        "type": "document",
-                                        "score": 0.8,
-                                        "source": "knowledge_base"
-                                    })
-                                if len(suggestions) >= limit:
-                                    break
-                    except Exception as e:
-                        print(f"⚠️ Error generating additional suggestions: {e}")
-                
-                # Cache the results
-                import time
-                self._document_suggestions_cache = suggestions[:limit]
-                self._document_suggestions_cache_time = time.time()
-                
-                return suggestions[:limit]
-                
-            except Exception as e:
-                print(f"⚠️ Error generating document suggestions: {e}")
-                return []
-                
-        except Exception as e:
-            print(f"⚠️ Error in generate_document_suggestions: {e}")
-            import traceback
-            traceback.print_exc()
-            return []

@@ -302,134 +302,7 @@ st.markdown(
         object-fit: cover !important;
     }
     
-    /* Right context panel - zone C layout */
-    .zone-context-panel {
-        background: rgba(30, 41, 59, 0.4);
-        border-radius: 12px;
-        padding: 1rem;
-        border: 1px solid rgba(71, 85, 105, 0.4);
-        min-height: 200px;
-    }
-    .zone-context-panel h4 {
-        font-size: 0.9rem;
-        color: #94a3b8;
-        margin: 0 0 0.75rem 0;
-    }
     
-    /* Header - legacy, kept for non-chat views */
-    .header-container {
-        text-align: center;
-        padding: 0.75rem 2rem;
-        background: rgba(15, 23, 42, 0.7);
-        backdrop-filter: blur(12px);
-        border-bottom: 1px solid rgba(51, 65, 85, 0.4);
-        margin-bottom: 0;
-        transition: all 0.3s ease;
-    }
-    .header-title {
-        font-size: 1.2rem;
-        font-weight: 600;
-        color: #94a3b8;
-        margin: 0;
-        letter-spacing: -0.02em;
-        line-height: 1.3;
-    }
-    .header-subtitle {
-        font-size: 0.8rem;
-        color: #64748b;
-        margin-top: 0.2rem;
-        font-weight: 400;
-        opacity: 0.9;
-    }
-    
-    /* Copilot-style empty state: centered greeting */
-    .copilot-greeting {
-        text-align: center;
-        padding: 3rem 2rem 2rem;
-        margin-bottom: 1rem;
-    }
-    .copilot-greeting h2 {
-        font-size: 1.75rem;
-        font-weight: 600;
-        color: #f8fafc;
-        margin: 0 0 0.5rem 0;
-        letter-spacing: -0.02em;
-    }
-    .copilot-greeting p {
-        font-size: 1.1rem;
-        color: #94a3b8;
-        margin: 0;
-    }
-    /* Suggestion pills - row of buttons below chat bar */
-    .copilot-pills {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        justify-content: center;
-        margin-top: 1.5rem;
-        padding: 0 1rem;
-    }
-    /* Constrain pill parent so overflow is clipped */
-    [data-testid="stMarkdown"]:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton,
-    div:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton {
-        overflow: hidden !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-    }
-    .copilot-pills .stButton>button,
-    div:has(.copilot-pills-marker) .stButton > button,
-    div:has(.copilot-pills-marker) ~ div .stButton > button,
-    div:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton > button,
-    [data-testid="stMarkdown"]:has(.copilot-pills-marker) ~ [data-testid="stHorizontalBlock"] .stButton > button,
-    div.copilot-pills-marker ~ div .stButton > button {
-        border-radius: 12px !important;
-        padding: 0.5rem 1rem !important;
-        font-size: 0.875rem !important;
-        background: rgba(55, 65, 81, 0.9) !important;
-        border: 1px solid rgba(71, 85, 105, 0.5) !important;
-        color: #e5e7eb !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        width: 100% !important;
-        height: auto !important;
-        overflow: hidden !important;
-        box-sizing: border-box !important;
-        margin: 0 0.25rem 0.5rem 0.25rem !important;
-        white-space: normal !important;
-        text-overflow: unset !important;
-        text-align: center !important;
-        direction: ltr !important;
-        display: block !important;
-    }
-    .copilot-pills .stButton>button:hover,
-    div:has(.copilot-pills-marker) .stButton > button:hover {
-        background: rgba(71, 85, 105, 0.8) !important;
-        border-color: rgba(100, 116, 139, 0.6) !important;
-    }
-    /* Override blue - pills must stay dark grey (revert from primary) */
-    div:has(.copilot-pills-marker) .stButton > button[kind="primary"],
-    div:has(.copilot-pills-marker) .stButton > button {
-        background: rgba(51, 65, 85, 0.6) !important;
-        border-color: rgba(71, 85, 105, 0.5) !important;
-        color: #e2e8f0 !important;
-    }
-    /* Nav bar - modern pill shape, full text, uniform height */
-    .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:first-child .stButton > button {
-        border-radius: 10px !important;
-        width: 100% !important;
-        min-width: unset !important;
-        max-width: none !important;
-        min-height: 38px !important;
-        height: 38px !important;
-        max-height: 38px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        padding: 0.5rem 1rem !important;
-        font-size: 0.9rem !important;
-        line-height: 1 !important;
-        overflow: hidden !important;
-    }
     .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:first-child .stButton > button[kind="secondary"] {
         background: rgba(30, 41, 59, 0.8) !important;
         border: 1px solid rgba(71, 85, 105, 0.5) !important;
@@ -983,11 +856,6 @@ st.markdown(
         background: #64748b;
     }
     
-    /* Help banner */
-    .help-banner {
-        display: none;
-    }
-    
     /* Input container for chat */
     .chat-input-container {
         position: sticky;
@@ -1130,103 +998,14 @@ st.markdown(
         color: #9ca3af !important;
     }
     
-    /* Copilot-style empty state: greeting, centered layout */
-    .copilot-greeting {
-        text-align: center;
-        padding: 2rem 0 1.5rem;
-    }
-    .copilot-greeting h2 {
-        font-size: 1.5rem;
-        font-weight: 600;
-        color: #f8fafc;
-        margin: 0 0 0.25rem 0;
-    }
-    .copilot-greeting p {
-        font-size: 1rem;
-        color: #94a3b8;
-        margin: 0;
-    }
-    .copilot-pills {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        justify-content: center;
-        margin-top: 1.5rem;
-    }
-    .copilot-pill {
-        background: rgba(30, 41, 59, 0.6);
-        border: 1px solid rgba(71, 85, 105, 0.4);
-        border-radius: 16px;
-        padding: 0.35rem 0.75rem;
-        font-size: 0.8rem;
-        color: #94a3b8;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    .copilot-pill:hover {
-        background: rgba(51, 65, 85, 0.9);
-        border-color: rgba(59, 130, 246, 0.5);
-    }
-    
-    /* Copilot-style: greeting and centered empty state */
-    .copilot-greeting {
-        text-align: center;
-        padding: 2rem 0 1.5rem;
-        margin: 0 auto;
-        max-width: 640px;
-    }
-    .copilot-greeting h2 {
-        font-size: 1.75rem;
-        font-weight: 600;
-        color: #f8fafc;
-        margin: 0 0 0.25rem;
-        letter-spacing: -0.02em;
-    }
-    .copilot-greeting p {
-        font-size: 1rem;
-        color: #94a3b8;
-        margin: 0;
-    }
+
+
     /* Suggestion pills - row of buttons below chat bar, small & secondary */
-    .copilot-pills {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        justify-content: center;
-        margin-top: 1rem;
-    }
     
     /* De-emphasize expander (filters/options) - subtle so chat bar stands out */
     .streamlit-expanderHeader {
         font-size: 0.85rem !important;
         color: #94a3b8 !important;
-    }
-    
-    /* Input bar DOMINANT - suggestions secondary: de-emphasize Example Questions & Popular queries */
-    div[data-testid="stVerticalBlock"] > div:has(button) {
-        opacity: 0.92;
-    }
-    /* Make suggestion headings smaller and muted */
-    .stMarkdown h3 {
-        font-size: 0.95rem !important;
-        color: #94a3b8 !important;
-        font-weight: 500 !important;
-    }
-    /* Empty-state message - subtle, don't compete with input */
-    .stAlert {
-        font-size: 0.875rem !important;
-        opacity: 0.9;
-    }
-    /* Conversation header - compact */
-    .stMarkdown h3:has(+ div) {
-        font-size: 0.9rem !important;
-        color: #64748b !important;
-    }
-    
-    /* Secondary content - de-emphasized, compact */
-    .chat-secondary-section {
-        opacity: 0.9;
-        font-size: 0.9rem;
     }
     
     /* Selectbox dropdown */
@@ -1257,40 +1036,6 @@ st.markdown(
         50% { box-shadow: 0 2px 12px rgba(0,0,0,0.25), 0 0 0 2px rgba(59, 130, 246, 0.4); }
     }
     
-    /* Copilot-style empty state: greeting, centered layout, pill suggestions */
-    .copilot-greeting {
-        text-align: center;
-        padding: 3rem 0 2rem 0;
-    }
-    .copilot-greeting h2 {
-        font-size: 1.75rem;
-        font-weight: 600;
-        color: #f8fafc;
-        margin: 0;
-        letter-spacing: -0.02em;
-    }
-    .copilot-greeting p {
-        font-size: 1rem;
-        color: #94a3b8;
-        margin-top: 0.5rem;
-    }
-    .copilot-pills {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        justify-content: center;
-        margin: 1rem 0;
-    }
-    .copilot-pills .stButton {
-        flex: 0 0 auto;
-    }
-    .copilot-pills .stButton > button {
-        border-radius: 16px;
-        padding: 0.35rem 0.75rem;
-        font-size: 0.8rem;
-        background: rgba(30, 41, 59, 0.6);
-        border: 1px solid rgba(71, 85, 105, 0.4);
-    }
 
     /* Login / signup only — toggled via body:has(.auth-hero) in app */
     body:has(.auth-hero) section[data-testid="stSidebar"] {
@@ -1635,10 +1380,6 @@ st.markdown(
         box-shadow: none !important;
     }
 
-    .zone-context-panel {
-        display: none !important;
-    }
-
     /* Modern composer shell */
     [data-testid="stChatInputContainer"] {
         max-width: 860px !important;
@@ -1679,65 +1420,28 @@ st.markdown(
         text-align: center;
     }
 
-    .conversation-toolbar {
-        margin: 0.35rem 0 0.9rem;
-    }
 
-    .section-kicker {
-        color: var(--ia-text-subtle);
-        font-size: 0.76rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        margin-bottom: 0.2rem;
-    }
 
-    .conversation-title {
-        color: var(--ia-text-strong);
-        font-size: 1.05rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-    }
-
-    .conversation-subtitle {
-        color: var(--ia-text-muted);
-        font-size: 0.85rem;
-        margin-top: 0.2rem;
-    }
-
-    .starter-grid-title {
-        margin: 1rem 0 0.8rem;
+    /* Fallback greeting (non Knowledge Home empty states) */
+    .copilot-greeting {
         text-align: center;
-        color: var(--ia-text-muted);
-        font-size: 0.84rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        padding: 2rem 0 1.25rem;
+        max-width: 640px;
+        margin: 0 auto;
     }
-
-    .starter-card .stButton > button {
-        min-height: 112px !important;
-        height: 112px !important;
-        padding: 0.9rem 1rem !important;
-        border-radius: 18px !important;
-        background: linear-gradient(180deg, rgba(17, 25, 40, 0.88) 0%, rgba(17, 25, 40, 0.72) 100%) !important;
-        border: 1px solid rgba(130, 153, 187, 0.18) !important;
-        box-shadow: var(--ia-shadow-soft) !important;
-        text-align: left !important;
-        white-space: pre-line !important;
-        line-height: 1.35 !important;
-    }
-
-    .starter-card .stButton > button:hover {
-        border-color: rgba(108, 160, 255, 0.42) !important;
-        transform: translateY(-2px);
-    }
-
     .copilot-greeting h2 {
-        font-weight: 700 !important;
-        letter-spacing: -0.03em !important;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 1.55rem;
+        font-weight: 700;
+        color: #f8fafc;
+        margin: 0 0 0.35rem 0;
+        letter-spacing: -0.03em;
     }
-
     .copilot-greeting p {
-        color: #9fb2cb !important;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.98rem;
+        color: #94a3b8;
+        margin: 0;
     }
 
     /* ===== Knowledge Home ===== */
@@ -1854,6 +1558,226 @@ st.markdown(
         font-size: 0.8rem;
         margin: 0.55rem 0 0.85rem;
         font-family: 'DM Sans', sans-serif;
+    }
+
+    /* ===== Library ===== */
+    .lib-shell {
+        max-width: 820px;
+        margin: 0.35rem auto 1.25rem;
+        animation: authFadeUp 0.4s ease both;
+    }
+    .lib-header {
+        text-align: center;
+        margin-bottom: 1.15rem;
+    }
+    .lib-eyebrow {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin: 0 0 0.45rem 0;
+    }
+    .lib-title {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: clamp(1.45rem, 2.8vw, 1.85rem);
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        color: #f8fafc;
+        margin: 0 0 0.4rem 0;
+        line-height: 1.2;
+    }
+    .lib-subtitle {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.95rem;
+        color: #94a3b8;
+        margin: 0 0 1rem 0;
+        line-height: 1.4;
+    }
+    .lib-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.95rem 0.15rem;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+    .lib-row-main {
+        min-width: 0;
+        flex: 1;
+    }
+    .lib-name {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 0.98rem;
+        font-weight: 600;
+        color: #f1f5f9;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.3rem 0;
+        word-break: break-word;
+    }
+    .lib-meta {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.8rem;
+        color: #64748b;
+        margin: 0;
+        line-height: 1.4;
+    }
+    .lib-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.74rem;
+        font-weight: 550;
+        color: #94a3b8;
+        white-space: nowrap;
+        margin-top: 0.15rem;
+    }
+    .lib-status-dot {
+        width: 0.4rem;
+        height: 0.4rem;
+        border-radius: 50%;
+        background: #14b8a6;
+        display: inline-block;
+    }
+    .lib-status-dot.warn {
+        background: #f59e0b;
+    }
+    .lib-status-dot.muted {
+        background: #64748b;
+    }
+    .lib-toolbar-marker + div [data-testid="stHorizontalBlock"] {
+        max-width: 820px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        gap: 0.55rem !important;
+        margin-bottom: 0.85rem !important;
+    }
+    .lib-toolbar-marker + div .stButton > button {
+        border-radius: 10px !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-weight: 600 !important;
+        min-height: 2.5rem;
+        background: transparent !important;
+        border: 1px solid rgba(148, 163, 184, 0.22) !important;
+        color: #cbd5e1 !important;
+        box-shadow: none !important;
+    }
+    .lib-toolbar-marker + div .stButton > button:hover {
+        border-color: rgba(45, 212, 191, 0.35) !important;
+        color: #f1f5f9 !important;
+        background: rgba(13, 148, 136, 0.1) !important;
+        transform: none !important;
+    }
+    .lib-toolbar-marker + div .stButton > button[kind="primary"] {
+        background: #0d9488 !important;
+        border: none !important;
+        color: #fff !important;
+    }
+    .lib-list-marker + div {
+        max-width: 820px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+    .lib-bulk-marker + div {
+        max-width: 820px;
+        margin: 0.35rem auto 0.85rem !important;
+    }
+    .lib-bulk-marker + div .stButton > button {
+        border-radius: 10px !important;
+        font-family: 'DM Sans', sans-serif !important;
+        font-size: 0.85rem !important;
+        min-height: 2.4rem;
+    }
+
+    /* ===== Upload ===== */
+    .up-shell {
+        max-width: 640px;
+        margin: 0.35rem auto 1.1rem;
+        animation: authFadeUp 0.4s ease both;
+    }
+    .up-header { text-align: center; margin-bottom: 1.1rem; }
+    .up-eyebrow {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin: 0 0 0.45rem 0;
+    }
+    .up-title {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: clamp(1.45rem, 2.8vw, 1.85rem);
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        color: #f8fafc;
+        margin: 0 0 0.4rem 0;
+        line-height: 1.2;
+    }
+    .up-subtitle {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.95rem;
+        color: #94a3b8;
+        margin: 0;
+        line-height: 1.45;
+    }
+    .up-panel-marker + div {
+        max-width: 640px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+    .up-panel-marker + div [data-testid="stFileUploader"] {
+        border: 1px dashed rgba(148, 163, 184, 0.28) !important;
+        border-radius: 14px !important;
+        background: rgba(12, 20, 32, 0.45) !important;
+        padding: 0.65rem !important;
+    }
+    .up-actions-marker + div [data-testid="stHorizontalBlock"] {
+        max-width: 640px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        gap: 0.55rem !important;
+    }
+    .up-actions-marker + div .stButton > button {
+        border-radius: 10px !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-weight: 600 !important;
+        min-height: 2.55rem;
+    }
+    .up-actions-marker + div .stButton > button[kind="primary"] {
+        background: #0d9488 !important;
+        border: none !important;
+        color: #fff !important;
+    }
+    .up-result {
+        max-width: 640px;
+        margin: 1rem auto 0;
+        padding: 1rem 1.1rem;
+        border-radius: 14px;
+        border: 1px solid rgba(45, 212, 191, 0.22);
+        background: rgba(13, 148, 136, 0.1);
+    }
+    .up-result h3 {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 1.02rem;
+        color: #f1f5f9;
+        margin: 0 0 0.35rem 0;
+        letter-spacing: -0.02em;
+    }
+    .up-result p {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.88rem;
+        color: #94a3b8;
+        margin: 0;
+        line-height: 1.45;
+    }
+    .up-formats {
+        max-width: 640px;
+        margin: 0.75rem auto 0;
+        text-align: center;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.8rem;
+        color: #64748b;
     }
     </style>
     """,
@@ -2026,8 +1950,6 @@ if "show_saved_queries" not in st.session_state:
     st.session_state.show_saved_queries = False
 if "show_conversations" not in st.session_state:
     st.session_state.show_conversations = False
-if "conversation_order" not in st.session_state:
-    st.session_state.conversation_order = "oldest_first"  # Chronological default; "newest_first" for reverse
 
 MAX_HISTORY = 50
 
@@ -2048,8 +1970,6 @@ NAV_OPTIONS = [
     ("💾 Export & Backup", "export_backup"),
     ("📈 Metrics", "health"),
 ]
-NAV_LABEL_TO_KEY = {label: key for label, key in NAV_OPTIONS}
-NAV_KEY_TO_LABEL = {key: label for label, key in NAV_OPTIONS}
 VALID_VIEW_KEYS = {key for _, key in NAV_OPTIONS}
 
 
@@ -2595,7 +2515,7 @@ def _sidebar_load_conversation(conversation_id: str) -> bool:
         return False
 
 
-# Sidebar - Knowledge Home rail
+# Sidebar — slim Knowledge Home rail
 with st.sidebar:
     is_admin = st.session_state.current_user and st.session_state.current_user.get("role") == "admin"
     current_page = get_current_nav_page()
@@ -2613,25 +2533,15 @@ with st.sidebar:
         user = st.session_state.current_user
         _display = user.get("display_name") or user.get("first_name") or user.get("username", "User")
         _email = user.get("email") or ""
-        _role = "Admin" if user.get("role") == "admin" else "Member"
         st.markdown(
             f"""
             <div class="sb-user">
                 <p class="sb-user-name">{html.escape(str(_display))}</p>
-                <p class="sb-user-meta">{html.escape(str(_email))}<br/>{_role}</p>
+                <p class="sb-user-meta">{html.escape(str(_email))}</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        if st.button("Log out", key="sidebar_logout", type="tertiary", use_container_width=True):
-            st.session_state.authenticated = False
-            st.session_state.access_token = None
-            st.session_state.current_user = None
-            st.session_state.auth_view = "login"
-            st.session_state.chat_history = []
-            st.session_state.pop("_last_processed_query", None)
-            st.query_params.clear()
-            st.rerun()
 
     st.markdown('<div class="sb-cta-marker"></div>', unsafe_allow_html=True)
     if st.button("New chat", key="side_start_new_chat", use_container_width=True, type="primary"):
@@ -2647,14 +2557,12 @@ with st.sidebar:
         st.query_params["view"] = "chat"
         st.rerun()
 
-    st.markdown('<p class="sb-section-label">Navigate</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sb-section-label">Workspace</p>', unsafe_allow_html=True)
     render_nav_button("Home", "chat", "side_nav_chat")
     render_nav_button("Library", "documents", "side_nav_documents")
     render_nav_button("Upload", "upload", "side_nav_upload")
-    render_nav_button("History", "history", "side_nav_history")
-    render_nav_button("Saved", "saved_queries", "side_nav_saved_queries")
 
-    st.markdown('<p class="sb-section-label">Recent chats</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sb-section-label">Recent</p>', unsafe_allow_html=True)
     recent_conversations = []
     try:
         conv_resp = requests.get(f"{API_URL}/conversations", timeout=3)
@@ -2664,31 +2572,95 @@ with st.sidebar:
                 all_convs,
                 key=lambda c: c.get("updated_at") or c.get("created_at") or "",
                 reverse=True,
-            )[:5]
+            )[:6]
     except Exception:
         recent_conversations = []
 
     if recent_conversations:
         for idx, conv in enumerate(recent_conversations):
             title = (conv.get("title") or "Untitled chat").strip() or "Untitled chat"
-            if len(title) > 34:
-                title = title[:31] + "…"
+            if len(title) > 36:
+                title = title[:33] + "…"
             is_current = conv.get("id") == st.session_state.current_conversation_id
-            label = f"• {title}" if not is_current else f"• {title} (open)"
+            label = f"{title} · open" if is_current else title
             if st.button(label, key=f"side_recent_conv_{idx}", use_container_width=True, type="tertiary"):
                 if _sidebar_load_conversation(conv.get("id")):
                     navigate_to_page("chat")
                     st.query_params["view"] = "chat"
                     st.rerun()
     else:
-        st.markdown('<p class="sb-thread">No chats yet. Start one from Home.</p>', unsafe_allow_html=True)
+        st.markdown('<p class="sb-thread">No chats yet</p>', unsafe_allow_html=True)
 
-    with st.expander("Account", expanded=False):
+    if st.session_state.chat_history:
+        st.markdown('<p class="sb-section-label">This chat</p>', unsafe_allow_html=True)
+        if st.button("Clear chat", use_container_width=True, key="side_clear_chat"):
+            st.session_state.chat_history = []
+            st.session_state.pop("_last_processed_query", None)
+            if st.session_state.current_conversation_id:
+                try:
+                    requests.post(
+                        f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear",
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+            st.rerun()
+        export_lines = []
+        for msg in st.session_state.chat_history:
+            role = msg[0]
+            content = msg[1] if len(msg) > 1 else ""
+            timestamp = msg[2] if len(msg) > 2 else ""
+            if role == "user":
+                export_lines.append(f"**You** [{timestamp}]:\n{content}")
+            else:
+                export_lines.append(f"**Assistant** [{timestamp}]:\n{content}")
+        st.download_button(
+            "Export",
+            "\n\n---\n\n".join(export_lines),
+            file_name=f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            key="sidebar_export_chat",
+        )
+
+    with st.expander("More", expanded=False):
+        st.checkbox(
+            "Stream answers",
+            key="enable_streaming",
+            help="Show answers as they are generated",
+        )
+        try:
+            docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=5)
+            if docs_resp.status_code == 200:
+                available_docs = docs_resp.json().get("documents", []) or []
+                if available_docs:
+                    doc_names = [doc.get("filename", "") for doc in available_docs if doc.get("filename")]
+                    selected = st.multiselect(
+                        "Search only these docs",
+                        options=doc_names,
+                        default=[d for d in st.session_state.selected_documents if d in doc_names],
+                        key="document_filter_select",
+                    )
+                    st.session_state.selected_documents = selected
+        except Exception:
+            pass
+        st.markdown('<p class="sb-section-label">Account</p>', unsafe_allow_html=True)
         render_nav_button("Profile", "profile", "side_nav_profile")
         render_nav_button("Password", "change_password", "side_nav_change_password")
         render_nav_button("Two-factor auth", "2fa", "side_nav_2fa")
         render_nav_button("Sessions", "sessions", "side_nav_more_sessions")
-        render_nav_button("All threads", "conversations", "side_nav_more_conversations")
+        render_nav_button("History", "history", "side_nav_history")
+        render_nav_button("Saved questions", "saved_queries", "side_nav_saved_queries")
+        render_nav_button("All chats", "conversations", "side_nav_more_conversations")
+        if st.button("Log out", key="sidebar_logout", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.access_token = None
+            st.session_state.current_user = None
+            st.session_state.auth_view = "login"
+            st.session_state.chat_history = []
+            st.session_state.pop("_last_processed_query", None)
+            st.query_params.clear()
+            st.rerun()
 
     if is_admin:
         with st.expander("Admin", expanded=False):
@@ -2696,263 +2668,6 @@ with st.sidebar:
             render_nav_button("Audit", "audit_logs", "side_nav_more_audit_logs")
             render_nav_button("Backup", "export_backup", "side_nav_more_export_backup")
             render_nav_button("Metrics", "health", "side_nav_more_health")
-
-    uploaded_file = None
-    uploaded_files = None
-    with st.expander("Tools", expanded=False):
-        st.caption("Search scope and preferences")
-        st.session_state.show_advanced_filters = st.checkbox(
-            "Enable advanced filters",
-            value=st.session_state.show_advanced_filters,
-            key="advanced_filters_toggle",
-        )
-
-        if st.session_state.show_advanced_filters:
-            try:
-                docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=5)
-                if docs_resp.status_code == 200:
-                    available_docs = docs_resp.json().get("documents", [])
-                    if available_docs:
-                        doc_names = [doc.get("filename", "") for doc in available_docs]
-                        file_types = list({
-                            doc.get("file_type", "").upper()
-                            for doc in available_docs
-                            if doc.get("file_type")
-                        })
-                        selected_docs = st.multiselect(
-                            "Include documents",
-                            options=doc_names,
-                            default=st.session_state.selected_documents,
-                            help="Leave empty to search all.",
-                        )
-                        st.session_state.selected_documents = selected_docs
-                        selected_types = st.multiselect("File types", options=file_types)
-                        excluded_docs = st.multiselect("Exclude documents", options=doc_names)
-                        date_from = st.date_input("From date", value=None)
-                        date_to = st.date_input("To date", value=None)
-                        min_relevance = st.slider("Minimum relevance", 0.0, 1.0, 0.0, 0.1)
-                        max_results = st.number_input("Max results", 1, 20, 4)
-                        st.session_state.advanced_filters = {
-                            "document_names": selected_docs or None,
-                            "file_types": [t.lower() for t in selected_types] if selected_types else None,
-                            "date_from": date_from.strftime("%Y-%m-%d") if date_from else None,
-                            "date_to": date_to.strftime("%Y-%m-%d") if date_to else None,
-                            "min_relevance": min_relevance if min_relevance > 0 else None,
-                            "max_results": max_results if max_results != 4 else None,
-                            "exclude_documents": excluded_docs or None,
-                        }
-                    else:
-                        st.caption("No documents available yet.")
-                else:
-                    st.caption("Unable to load documents.")
-            except Exception:
-                st.caption("Filters unavailable right now.")
-        else:
-            try:
-                docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=8)
-                if docs_resp.status_code == 200:
-                    available_docs = docs_resp.json().get("documents", [])
-                    if available_docs:
-                        doc_names = [doc.get("filename", "") for doc in available_docs]
-                        selected = st.multiselect(
-                            "Limit search to documents",
-                            options=doc_names,
-                            default=st.session_state.selected_documents,
-                            key="document_filter_select",
-                        )
-                        st.session_state.selected_documents = selected
-                        if selected:
-                            st.caption(f"Filtering by {len(selected)} document(s)")
-                        else:
-                            st.caption("Searching all documents")
-                    else:
-                        st.caption("No documents available yet.")
-            except Exception:
-                st.caption("Document filter unavailable.")
-
-        st.checkbox(
-            "Real-time streaming",
-            key="enable_streaming",
-            help="Show answers as they are generated",
-        )
-
-        if st.session_state.chat_history:
-            if st.button("Clear current chat", use_container_width=True, key="side_clear_chat"):
-                st.session_state.chat_history = []
-                st.session_state.pop("_last_processed_query", None)
-                if st.session_state.current_conversation_id:
-                    try:
-                        requests.post(
-                            f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear",
-                            timeout=5,
-                        )
-                    except Exception:
-                        pass
-                st.rerun()
-            export_lines = []
-            for msg in st.session_state.chat_history:
-                role = msg[0]
-                content = msg[1] if len(msg) > 1 else ""
-                timestamp = msg[2] if len(msg) > 2 else ""
-                if role == "user":
-                    export_lines.append(f"**You** [{timestamp}]:\n{content}")
-                else:
-                    export_lines.append(f"**Assistant** [{timestamp}]:\n{content}")
-            st.download_button(
-                "Export chat",
-                "\n\n---\n\n".join(export_lines),
-                file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                mime="text/plain",
-                use_container_width=True,
-                key="sidebar_export_chat",
-            )
-
-        st.caption("Quick upload")
-        uploaded_file = st.file_uploader(
-            "Upload single document",
-            type=["pdf", "docx", "txt", "csv", "html"],
-            key="sidebar_single_upload",
-        )
-        uploaded_files = st.file_uploader(
-            "Upload multiple documents",
-            type=["pdf", "docx", "txt", "csv", "html"],
-            accept_multiple_files=True,
-            key="sidebar_bulk_upload",
-        )
-
-    if uploaded_file:
-        # Use session state to prevent re-uploading the same file
-        upload_key = f"uploaded_{uploaded_file.name}_{uploaded_file.size}"
-        if upload_key not in st.session_state:
-            st.session_state[upload_key] = False
-        
-        if not st.session_state[upload_key]:
-            with st.spinner("Uploading..."):
-                try:
-                    file_ext = uploaded_file.name.split('.')[-1].lower()
-                    mime_types = {
-                        "pdf": "application/pdf",
-                        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        "txt": "text/plain",
-                        "csv": "text/csv",
-                        "html": "text/html"
-                    }
-                    mime_type = mime_types.get(file_ext, "application/octet-stream")
-                    
-                    files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
-                    upload_resp = requests.post(
-                        f"{API_URL}/upload", 
-                        files=files, 
-                        headers=get_auth_headers(),
-                        timeout=30
-                    )
-                    
-                    if upload_resp.status_code == 200:
-                        st.session_state[upload_key] = True  # Mark as uploaded
-                        st.success(f"✅ {uploaded_file.name} uploaded successfully!")
-                        st.info("💡 Document is being processed in the background. It may take 10–30 seconds to appear in **Documents**. Open Documents and click **🔄 Refresh** to see it.")
-                        logger.info(f"Uploaded: {uploaded_file.name}")
-                        # Refresh KB status without rerun (to avoid infinite loop)
-                        time.sleep(1)
-                        try:
-                            status_resp = requests.get(f"{API_URL}/status", headers=get_auth_headers(), timeout=2)
-                            if status_resp.status_code == 200:
-                                st.session_state.kb_status = status_resp.json()
-                        except requests.exceptions.ConnectionError:
-                            logger.warning("Cannot connect to API to refresh status")
-                        except Exception as e:
-                            logger.warning(f"Error refreshing status: {e}")
-                    else:
-                        st.error(f"❌ Upload failed: {upload_resp.status_code}")
-                        try:
-                            error_data = upload_resp.json()
-                            st.error(f"Error: {error_data.get('detail', upload_resp.text)}")
-                        except:
-                            st.error(f"Error: {upload_resp.text}")
-                except requests.exceptions.ConnectionError:
-                    st.error(get_api_connection_error_message())
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-        else:
-            # File was already uploaded, show success message
-            st.success(f"✅ {uploaded_file.name} (already uploaded)")
-    
-    # Handle bulk upload
-    try:
-        has_uploaded_files = uploaded_files is not None and len(uploaded_files) > 0
-    except (NameError, TypeError):
-        has_uploaded_files = False
-    
-    if has_uploaded_files:
-        # Use session state to prevent re-uploading the same files
-        files_key = "_".join([f"{f.name}_{f.size}" for f in uploaded_files])
-        bulk_upload_key = f"bulk_uploaded_{files_key}"
-        if bulk_upload_key not in st.session_state:
-            st.session_state[bulk_upload_key] = False
-        
-        if not st.session_state[bulk_upload_key]:
-            with st.spinner(f"Uploading {len(uploaded_files)} file(s)..."):
-                try:
-                    files_data = []
-                    for uploaded_file in uploaded_files:
-                        file_ext = uploaded_file.name.split('.')[-1].lower()
-                        mime_types = {
-                            "pdf": "application/pdf",
-                            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            "txt": "text/plain",
-                            "csv": "text/csv",
-                            "html": "text/html"
-                        }
-                        mime_type = mime_types.get(file_ext, "application/octet-stream")
-                        files_data.append(("files", (uploaded_file.name, uploaded_file, mime_type)))
-                    
-                    upload_resp = requests.post(
-                        f"{API_URL}/upload/bulk",
-                        files=files_data,
-                        headers=get_auth_headers(),
-                        timeout=120
-                    )
-                    
-                    if upload_resp.status_code == 200:
-                        st.session_state[bulk_upload_key] = True  # Mark as uploaded
-                        data = upload_resp.json()
-                        successful = data.get("successful", 0)
-                        failed = data.get("failed", 0)
-                        results = data.get("results", [])
-                        
-                        if successful > 0:
-                            st.success(f"✅ Successfully uploaded {successful} file(s)")
-                        if failed > 0:
-                            st.warning(f"⚠️ {failed} file(s) failed to upload")
-                        
-                        # Show detailed results
-                        if results:
-                            with st.expander("📋 Upload Details", expanded=False):
-                                for result in results:
-                                    status_icon = "✅" if result.get("status") == "success" else "❌"
-                                    st.write(f"{status_icon} **{result.get('filename')}**: {result.get('message', '')}")
-                        
-                        st.info("💡 **Tip:** Processing happens in the background. Wait 5-10 seconds, then click '🔄 Check API Status' to see updated chunk count.")
-                        
-                        # Refresh KB status without rerun (to avoid infinite loop)
-                        time.sleep(1)
-                        try:
-                            status_resp = requests.get(f"{API_URL}/status", headers=get_auth_headers(), timeout=2)
-                            if status_resp.status_code == 200:
-                                st.session_state.kb_status = status_resp.json()
-                        except:
-                            pass
-                    else:
-                        st.error(f"❌ Bulk upload failed: {upload_resp.status_code}")
-                        try:
-                            error_data = upload_resp.json()
-                            st.error(f"Error: {error_data.get('detail', upload_resp.text)}")
-                        except:
-                            st.error(f"Error: {upload_resp.text}")
-                except requests.exceptions.ConnectionError:
-                    st.error(get_api_connection_error_message())
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
 
     st.markdown('<div class="sb-footer">Incident Assistant</div>', unsafe_allow_html=True)
 
@@ -2982,15 +2697,6 @@ def toggle_streamlit_sidebar():
         width=0,
     )
 
-
-# Sidebar toggle helper banner
-st.markdown(
-    """
-    <div class="help-banner">
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 # ===== ZONE-BASED LAYOUT: Top bar (Header + Primary Nav) =====
 current_page = get_current_nav_page()
@@ -3079,365 +2785,431 @@ with col_avatar:
                 st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Document Management Dashboard
+# Library — clean document list (matches Knowledge Home)
 if st.session_state.get("show_documents", False):
-    st.markdown("---")
-    col_title, col_refresh, col_close = st.columns([3, 1, 1])
-    with col_title:
-        st.markdown("### 📚 Document Management Dashboard")
-    with col_refresh:
-        if st.button("🔄 Refresh", key="refresh_documents", use_container_width=True, help="Refresh the document list (use after uploading new files)"):
-            st.rerun()
-    with col_close:
-        if st.button("✕ Close", key="close_documents_dashboard", use_container_width=True, help="Close document dashboard and return to chat"):
+    def _lib_format_size(file_size):
+        try:
+            n = int(file_size or 0)
+        except (TypeError, ValueError):
+            return "—"
+        if n <= 0:
+            return "—"
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 * 1024:
+            return f"{n / 1024:.1f} KB"
+        return f"{n / (1024 * 1024):.2f} MB"
+
+    def _lib_format_date(raw):
+        if not raw:
+            return None
+        text = str(raw).strip()
+        # Prefer a short date if ISO-like
+        if "T" in text:
+            return text.split("T", 1)[0]
+        return text[:16]
+
+    st.markdown(
+        """
+        <div class="lib-shell">
+            <div class="lib-header">
+                <p class="lib-eyebrow">Library</p>
+                <h1 class="lib-title">Your documents</h1>
+                <p class="lib-subtitle">Browse what the assistant can search. Upload more anytime.</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="lib-toolbar-marker"></div>', unsafe_allow_html=True)
+    tb1, tb2, tb3, tb4 = st.columns([1.2, 1.4, 1.2, 1.2])
+    with tb1:
+        if st.button("Back", key="close_documents_dashboard", use_container_width=True):
             st.session_state.show_documents = False
             st.query_params["view"] = "chat"
             st.rerun()
-    
-    # Show loading spinner
+    with tb2:
+        if st.button("Upload", key="lib_go_upload", use_container_width=True, type="primary"):
+            navigate_to_page("upload")
+            st.query_params["view"] = "upload"
+            st.rerun()
+    with tb3:
+        if st.button("Refresh", key="refresh_documents", use_container_width=True):
+            st.rerun()
+    with tb4:
+        pass
+
     try:
-        with st.spinner("Loading documents..."):
+        with st.spinner("Loading library…"):
             try:
                 docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=30)
             except requests.exceptions.ConnectionError:
                 st.error(get_api_connection_error_message())
                 docs_resp = None
             except requests.exceptions.Timeout:
-                st.error("⏱️ Request timed out. Please try again.")
+                st.error("Request timed out. Try Refresh.")
                 docs_resp = None
-        
-        if docs_resp and docs_resp.status_code == 200:
+
+        if docs_resp is None:
+            pass
+        elif docs_resp.status_code != 200:
+            st.error(f"Failed to load documents ({docs_resp.status_code})")
+        else:
             data = docs_resp.json()
-            documents = data.get("documents", [])
-            total_docs = data.get("total_documents", 0)
+            documents = data.get("documents", []) or []
+            total_docs = data.get("total_documents", len(documents))
             total_chunks = data.get("total_chunks", 0)
-            
-            # Summary stats
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Documents", total_docs)
-            with col2:
-                st.metric("Total Chunks", total_chunks)
-            with col3:
-                avg_chunks = round(total_chunks / total_docs, 1) if total_docs > 0 else 0
-                st.metric("Avg Chunks/Doc", avg_chunks)
-            
+
+            st.markdown(
+                f"""
+                <div class="lib-shell" style="margin-top:0;margin-bottom:0.75rem;">
+                    <div class="kh-chips">
+                        <span class="kh-chip"><strong>{total_docs}</strong> document{"s" if total_docs != 1 else ""}</span>
+                        <span class="kh-chip"><strong>{total_chunks}</strong> searchable chunk{"s" if total_chunks != 1 else ""}</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
             if total_docs == 0:
-                st.info("📭 No documents in the knowledge base. Upload documents to get started!")
-                st.caption("💡 **Just uploaded?** Processing takes 10–30 seconds. Click **🔄 Refresh** above to check again.")
-                st.caption("💡 If you just uploaded a file, wait 10–30 seconds for processing, then click **Refresh** above.")
+                st.markdown(
+                    """
+                    <div class="kh-empty" style="margin-left:auto;margin-right:auto;">
+                        <h3>Library is empty</h3>
+                        <p>Upload a PDF, Word doc, text file, or spreadsheet. Processing usually takes a few seconds — then Refresh.</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
             else:
-                st.markdown("---")
-                
-                # Bulk Operations Section
-                st.markdown("#### 🔧 Bulk Operations")
-                bulk_col1, bulk_col2, bulk_col3 = st.columns(3)
-                
-                with bulk_col1:
-                    if st.button("🔄 Reprocess All Documents", use_container_width=True, help="Reprocess all documents in the knowledge base"):
-                        try:
-                            with st.spinner("Queuing documents for reprocessing..."):
-                                reprocess_resp = requests.post(
-                                    f"{API_URL}/documents/bulk-reprocess",
-                                    json={"filenames": None},  # None means all documents
-                                    headers=get_auth_headers(),
-                                    timeout=60
-                                )
-                                if reprocess_resp.status_code == 200:
-                                    data = reprocess_resp.json()
-                                    st.success(f"✅ Queued {data.get('successful', 0)} document(s) for reprocessing")
-                                    if data.get('failed', 0) > 0:
-                                        st.warning(f"⚠️ {data.get('failed', 0)} document(s) failed to queue")
-                                    st.info("💡 Reprocessing happens in the background. Check back in a few minutes.")
-                                    time.sleep(2)
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ Reprocess failed: {reprocess_resp.status_code}")
-                        except requests.exceptions.ConnectionError:
-                            st.error("❌ Cannot connect to API")
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                
-                with bulk_col2:
-                    if st.button("🗑️ Batch Delete Selected", use_container_width=True, help="Delete all selected documents"):
-                        selected_for_delete = [doc["filename"] for doc in documents if st.session_state.get(f"select_{doc['filename']}", False)]
-                        if not selected_for_delete:
-                            st.warning("⚠️ No documents selected. Use checkboxes to select documents.")
-                        else:
+                selected_names = [
+                    doc.get("filename")
+                    for doc in documents
+                    if doc.get("filename") and st.session_state.get(f"select_{doc.get('filename')}", False)
+                ]
+
+                if selected_names:
+                    st.markdown('<div class="lib-bulk-marker"></div>', unsafe_allow_html=True)
+                    b1, b2, b3 = st.columns([1.6, 1.6, 2])
+                    with b1:
+                        if st.button(f"Delete {len(selected_names)}", key="lib_batch_delete", use_container_width=True):
                             if st.session_state.get("confirm_batch_delete", False):
                                 try:
-                                    with st.spinner(f"Deleting {len(selected_for_delete)} document(s)..."):
+                                    with st.spinner(f"Deleting {len(selected_names)}…"):
                                         delete_resp = requests.post(
                                             f"{API_URL}/documents/batch-delete",
-                                            json={"filenames": selected_for_delete},
+                                            json={"filenames": selected_names},
                                             headers=get_auth_headers(),
-                                            timeout=60
+                                            timeout=60,
                                         )
-                                        if delete_resp.status_code == 200:
-                                            data = delete_resp.json()
-                                            st.success(f"✅ Deleted {data.get('successful', 0)} document(s), {data.get('total_chunks_deleted', 0)} chunks removed")
-                                            if data.get('failed', 0) > 0:
-                                                st.warning(f"⚠️ {data.get('failed', 0)} document(s) failed to delete")
-                                            # Clear selections
-                                            for filename in selected_for_delete:
-                                                st.session_state[f"select_{filename}"] = False
-                                            st.session_state["confirm_batch_delete"] = False
-                                            time.sleep(2)
-                                            st.rerun()
-                                        else:
-                                            st.error(f"❌ Batch delete failed: {delete_resp.status_code}")
-                                            st.session_state["confirm_batch_delete"] = False
-                                except requests.exceptions.ConnectionError:
-                                    st.error("❌ Cannot connect to API")
+                                    if delete_resp.status_code == 200:
+                                        for filename in selected_names:
+                                            st.session_state[f"select_{filename}"] = False
+                                        st.session_state["confirm_batch_delete"] = False
+                                        st.toast("Deleted")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Delete failed ({delete_resp.status_code})")
+                                        st.session_state["confirm_batch_delete"] = False
                                 except Exception as e:
-                                    st.error(f"❌ Error: {str(e)}")
+                                    st.error(str(e))
                                     st.session_state["confirm_batch_delete"] = False
                             else:
                                 st.session_state["confirm_batch_delete"] = True
-                                st.warning(f"⚠️ Are you sure you want to delete {len(selected_for_delete)} document(s)?")
-                                st.rerun()
-                
-                with bulk_col3:
-                    if st.button("🔄 Reprocess Selected", use_container_width=True, help="Reprocess selected documents"):
-                        selected_for_reprocess = [doc["filename"] for doc in documents if st.session_state.get(f"select_{doc['filename']}", False)]
-                        if not selected_for_reprocess:
-                            st.warning("⚠️ No documents selected. Use checkboxes to select documents.")
-                        else:
+                                st.warning(f"Click Delete again to confirm removing {len(selected_names)} document(s).")
+                    with b2:
+                        if st.button(f"Reprocess {len(selected_names)}", key="lib_batch_reprocess", use_container_width=True):
                             try:
-                                with st.spinner(f"Queuing {len(selected_for_reprocess)} document(s) for reprocessing..."):
+                                with st.spinner("Queuing reprocess…"):
                                     reprocess_resp = requests.post(
                                         f"{API_URL}/documents/bulk-reprocess",
-                                        json={"filenames": selected_for_reprocess},
+                                        json={"filenames": selected_names},
                                         headers=get_auth_headers(),
-                                        timeout=60
+                                        timeout=60,
                                     )
-                                    if reprocess_resp.status_code == 200:
-                                        data = reprocess_resp.json()
-                                        st.success(f"✅ Queued {data.get('successful', 0)} document(s) for reprocessing")
-                                        if data.get('failed', 0) > 0:
-                                            st.warning(f"⚠️ {data.get('failed', 0)} document(s) failed to queue")
-                                        st.info("💡 Reprocessing happens in the background. Check back in a few minutes.")
-                                        time.sleep(2)
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ Reprocess failed: {reprocess_resp.status_code}")
-                            except requests.exceptions.ConnectionError:
-                                st.error("❌ Cannot connect to API")
+                                if reprocess_resp.status_code == 200:
+                                    st.toast("Reprocess queued")
+                                    time.sleep(0.4)
+                                    st.rerun()
+                                else:
+                                    st.error(f"Reprocess failed ({reprocess_resp.status_code})")
                             except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
-                
-                st.markdown("---")
-                
-                # Document table with selection checkboxes
-                st.markdown("#### 📄 Documents")
-                for idx, doc in enumerate(documents):
-                    with st.container():
-                        # Add checkbox for selection
-                        filename = doc.get('filename', '')
-                        checkbox_key = f"select_{filename}"
-                        col_check, col1, col2, col3, col4 = st.columns([0.5, 2.5, 1, 1, 1])
-                        
-                        with col_check:
-                            st.checkbox(
-                                f"Select {filename or 'document'}",
-                                value=st.session_state.get(checkbox_key, False),
-                                key=checkbox_key,
-                                label_visibility="collapsed"
-                            )
-                        
-                        with col1:
-                            file_icon = {
-                                "pdf": "📄",
-                                "docx": "📝",
-                                "txt": "📃",
-                                "csv": "📊",
-                                "html": "🌐"
-                            }.get(doc.get("file_type", "").lower(), "📄")
-                            
-                            st.markdown(f"**{file_icon} {doc.get('filename', 'Unknown')}**")
-                            if doc.get('upload_date'):
-                                st.caption(f"Uploaded: {doc.get('upload_date')}")
-                            # Show version info
-                            if doc.get("version_count") and doc.get("version_count", 0) > 1:
-                                st.caption(f"📦 Version {doc.get('version', 'N/A')} of {doc.get('version_count')}")
-                            elif doc.get("version"):
-                                st.caption(f"📦 Version {doc.get('version')}")
-                        
-                        with col2:
-                            st.metric("Chunks", doc.get("chunk_count", 0))
-                        
-                        with col3:
-                            file_size = doc.get("file_size", 0)
-                            if file_size:
-                                size_mb = file_size / (1024 * 1024)
-                                st.metric("Size", f"{size_mb:.2f} MB")
-                            else:
-                                st.metric("Size", "N/A")
-                        
-                        with col4:
-                            # Version history button
-                            if doc.get("version_count") and doc.get("version_count", 0) > 1:
-                                version_key = f"versions_{idx}_{doc.get('filename', '')}"
-                                if st.button("📦 Versions", key=version_key, use_container_width=True):
-                                    st.session_state[f"show_versions_{doc.get('filename')}"] = True
-                                    st.rerun()
-                            
-                            # Delete button with confirmation
-                            delete_key = f"delete_{idx}_{doc.get('filename', '')}"
-                            confirm_key = f"confirm_{delete_key}"
-                            
-                            if st.session_state.get(confirm_key, False):
-                                col_confirm, col_cancel = st.columns(2)
-                                with col_confirm:
-                                    if st.button("✅ Confirm", key=f"yes_{delete_key}", use_container_width=True):
-                                        try:
-                                            delete_resp = requests.delete(
-                                                f"{API_URL}/documents/{doc.get('filename')}",
-                                                headers=get_auth_headers(),
-                                                timeout=10
-                                            )
-                                            if delete_resp.status_code == 200:
-                                                st.success(f"✅ Deleted {doc.get('filename')}")
-                                                st.session_state[confirm_key] = False
-                                                time.sleep(1)
-                                                st.rerun()
-                                            else:
-                                                st.error(f"❌ Delete failed: {delete_resp.text}")
-                                                st.session_state[confirm_key] = False
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
-                                            st.session_state[confirm_key] = False
-                                with col_cancel:
-                                    if st.button("❌ Cancel", key=f"no_{delete_key}", use_container_width=True):
-                                        st.session_state[confirm_key] = False
-                                        st.rerun()
-                            else:
-                                if st.button("🗑️ Delete", key=delete_key, use_container_width=True):
-                                    st.session_state[confirm_key] = True
-                                    st.rerun()
-                        
-                        st.markdown("---")
-                
-                # Close button
-                if st.button("❌ Close Dashboard", use_container_width=True):
-                    st.session_state.show_documents = False
-                    st.rerun()
-        else:
-            st.error(f"❌ Failed to load documents: {docs_resp.status_code}")
-    except requests.exceptions.Timeout:
-        st.error("⏱️ Request timed out. The knowledge base might be very large. Please try again.")
-        st.info("💡 **Tip:** If you have many documents, the query may take longer. The timeout has been increased to 30 seconds.")
-    except requests.exceptions.ConnectionError:
-        st.error("❌ Cannot connect to API. Make sure the API server is running.")
-        st.info("💡 **Tip:** Start the API server with: `python run.py api`")
-    except Exception as e:
-        st.error(f"❌ Error loading documents: {str(e)}")
-        st.info("💡 **Tip:** Check the API logs in `logs/api.log` for more details.")
-    
-    st.markdown("---")
+                                st.error(str(e))
+                    with b3:
+                        st.caption(f"{len(selected_names)} selected")
 
-# Upload view - primary focus for adding documents to the knowledge base
+                st.markdown('<div class="lib-list-marker"></div>', unsafe_allow_html=True)
+                for idx, doc in enumerate(documents):
+                    filename = doc.get("filename") or "Unknown"
+                    checkbox_key = f"select_{filename}"
+                    chunks = int(doc.get("chunk_count") or 0)
+                    file_type = (doc.get("file_type") or "file").upper()
+                    size_label = _lib_format_size(doc.get("file_size"))
+                    date_label = _lib_format_date(doc.get("upload_date"))
+                    status_ready = chunks > 0
+                    status_label = "Ready" if status_ready else "Indexing"
+                    status_dot = "" if status_ready else "warn"
+                    meta_bits = [file_type, f"{chunks} chunk{'s' if chunks != 1 else ''}", size_label]
+                    if date_label:
+                        meta_bits.append(date_label)
+                    if doc.get("version_count") and int(doc.get("version_count") or 0) > 1:
+                        meta_bits.append(f"v{doc.get('version', '?')}/{doc.get('version_count')}")
+
+                    col_check, col_body, col_actions = st.columns([0.45, 4.2, 1.6], gap="small")
+                    with col_check:
+                        st.checkbox(
+                            f"Select {filename}",
+                            value=st.session_state.get(checkbox_key, False),
+                            key=checkbox_key,
+                            label_visibility="collapsed",
+                        )
+                    with col_body:
+                        st.markdown(
+                            f"""
+                            <div class="lib-row" style="border-bottom:none;padding:0.35rem 0;">
+                                <div class="lib-row-main">
+                                    <p class="lib-name">{html.escape(filename)}</p>
+                                    <p class="lib-meta">{html.escape(" · ".join(meta_bits))}</p>
+                                    <div class="lib-status"><span class="lib-status-dot {status_dot}"></span>{status_label}</div>
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    with col_actions:
+                        delete_key = f"delete_{idx}_{filename}"
+                        confirm_key = f"confirm_{delete_key}"
+                        if st.session_state.get(confirm_key, False):
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("Confirm", key=f"yes_{delete_key}", use_container_width=True):
+                                    try:
+                                        delete_resp = requests.delete(
+                                            f"{API_URL}/documents/{filename}",
+                                            headers=get_auth_headers(),
+                                            timeout=10,
+                                        )
+                                        if delete_resp.status_code == 200:
+                                            st.session_state[confirm_key] = False
+                                            st.toast(f"Deleted {filename}")
+                                            st.rerun()
+                                        else:
+                                            st.error("Delete failed")
+                                            st.session_state[confirm_key] = False
+                                    except Exception as e:
+                                        st.error(str(e))
+                                        st.session_state[confirm_key] = False
+                            with c2:
+                                if st.button("Cancel", key=f"no_{delete_key}", use_container_width=True):
+                                    st.session_state[confirm_key] = False
+                                    st.rerun()
+                        else:
+                            if st.button("Delete", key=delete_key, use_container_width=True):
+                                st.session_state[confirm_key] = True
+                                st.rerun()
+
+                with st.expander("Advanced", expanded=False):
+                    if st.button("Reprocess all documents", key="lib_reprocess_all", use_container_width=True):
+                        try:
+                            with st.spinner("Queuing all documents…"):
+                                reprocess_resp = requests.post(
+                                    f"{API_URL}/documents/bulk-reprocess",
+                                    json={"filenames": None},
+                                    headers=get_auth_headers(),
+                                    timeout=60,
+                                )
+                            if reprocess_resp.status_code == 200:
+                                st.toast("All documents queued for reprocess")
+                            else:
+                                st.error(f"Reprocess failed ({reprocess_resp.status_code})")
+                        except Exception as e:
+                            st.error(str(e))
+
+    except requests.exceptions.Timeout:
+        st.error("Request timed out. Try Refresh.")
+    except requests.exceptions.ConnectionError:
+        st.error(get_api_connection_error_message())
+    except Exception as e:
+        st.error(f"Error loading library: {e}")
+
+# Upload — simple drop zone + explicit progress
 if st.session_state.get("show_upload", False):
-    st.markdown("---")
-    col_title, col_close = st.columns([4, 1])
-    with col_title:
-        st.markdown("### 📤 Upload Documents")
-        st.caption("Add documents to your knowledge base. Supported formats: PDF, Word, TXT, CSV, HTML.")
-    with col_close:
-        if st.button("✕ Close", key="close_upload_view", use_container_width=True, help="Return to chat"):
+    MIME_BY_EXT = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "txt": "text/plain",
+        "csv": "text/csv",
+        "html": "text/html",
+    }
+
+    def _upload_mime(name: str) -> str:
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        return MIME_BY_EXT.get(ext, "application/octet-stream")
+
+    st.markdown(
+        """
+        <div class="up-shell">
+            <div class="up-header">
+                <p class="up-eyebrow">Upload</p>
+                <h1 class="up-title">Add documents</h1>
+                <p class="up-subtitle">Drop one or more files. We’ll index them so you can ask questions with sources.</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="up-actions-marker"></div>', unsafe_allow_html=True)
+    u1, u2, u3 = st.columns([1.2, 1.5, 1.5])
+    with u1:
+        if st.button("Back", key="close_upload_view", use_container_width=True):
             st.session_state.show_upload = False
             st.query_params["view"] = "chat"
             st.rerun()
-    
-    st.markdown("---")
-    
-    # Upload UI - prominent in main area
-    up_col1, up_col2 = st.columns(2)
-    with up_col1:
-        uploaded_file = st.file_uploader(
-            "📄 Upload Single Document",
-            type=["pdf", "docx", "txt", "csv", "html"],
-            help="Upload a single document to enhance the knowledge base",
-            key="upload_view_single"
+    with u2:
+        if st.button("Open library", key="upload_view_docs", use_container_width=True):
+            navigate_to_page("documents")
+            st.query_params["view"] = "documents"
+            st.rerun()
+    with u3:
+        pass
+
+    last_result = st.session_state.get("upload_last_result")
+    if last_result:
+        ok = int(last_result.get("successful", 0) or 0)
+        fail = int(last_result.get("failed", 0) or 0)
+        names = last_result.get("names") or []
+        name_bit = ", ".join(names[:3])
+        if len(names) > 3:
+            name_bit += f" +{len(names) - 3} more"
+        st.markdown(
+            f"""
+            <div class="up-result">
+                <h3>{"Uploaded" if ok else "Upload finished"}</h3>
+                <p>{ok} ready to index{f", {fail} failed" if fail else ""}.{" Processing usually takes a few seconds." if ok else ""}{" · " + html.escape(name_bit) if name_bit else ""}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-    with up_col2:
-        uploaded_files = st.file_uploader(
-            "📚 Upload Multiple Documents (Bulk)",
-            type=["pdf", "docx", "txt", "csv", "html"],
-            help="Upload multiple documents at once",
-            accept_multiple_files=True,
-            key="upload_view_bulk"
-        )
-    
-    if uploaded_file:
-        upload_key = f"upload_view_{uploaded_file.name}_{uploaded_file.size}"
-        if upload_key not in st.session_state:
-            st.session_state[upload_key] = False
-        if not st.session_state[upload_key]:
-            with st.spinner("Uploading..."):
-                try:
-                    file_ext = uploaded_file.name.split('.')[-1].lower()
-                    mime_types = {"pdf": "application/pdf", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "txt": "text/plain", "csv": "text/csv", "html": "text/html"}
-                    mime_type = mime_types.get(file_ext, "application/octet-stream")
-                    files = {"file": (uploaded_file.name, uploaded_file, mime_type)}
-                    upload_resp = requests.post(f"{API_URL}/upload", files=files, headers=get_auth_headers(), timeout=30)
+        st.markdown('<div class="up-actions-marker"></div>', unsafe_allow_html=True)
+        r1, r2 = st.columns(2)
+        with r1:
+            if st.button("View in library", key="upload_goto_library", use_container_width=True, type="primary"):
+                st.session_state.pop("upload_last_result", None)
+                navigate_to_page("documents")
+                st.query_params["view"] = "documents"
+                st.rerun()
+        with r2:
+            if st.button("Upload more", key="upload_clear_result", use_container_width=True):
+                st.session_state.pop("upload_last_result", None)
+                st.session_state["upload_widget_nonce"] = int(st.session_state.get("upload_widget_nonce", 0)) + 1
+                st.rerun()
+
+    if "upload_widget_nonce" not in st.session_state:
+        st.session_state.upload_widget_nonce = 0
+
+    st.markdown('<div class="up-panel-marker"></div>', unsafe_allow_html=True)
+    picked_files = st.file_uploader(
+        "Choose files",
+        type=["pdf", "docx", "txt", "csv", "html"],
+        accept_multiple_files=True,
+        key=f"upload_view_files_{st.session_state.upload_widget_nonce}",
+        label_visibility="collapsed",
+        help="PDF, Word, TXT, CSV, or HTML",
+    )
+    st.markdown(
+        '<p class="up-formats">PDF · Word · TXT · CSV · HTML</p>',
+        unsafe_allow_html=True,
+    )
+
+    file_list = list(picked_files or [])
+    if file_list:
+        st.caption(f"{len(file_list)} file{'s' if len(file_list) != 1 else ''} selected")
+        st.markdown('<div class="up-actions-marker"></div>', unsafe_allow_html=True)
+        if st.button("Upload now", key="upload_submit", use_container_width=True, type="primary"):
+            progress = st.progress(0, text="Starting upload…")
+            successful = 0
+            failed = 0
+            uploaded_names = []
+            try:
+                if len(file_list) == 1:
+                    uf = file_list[0]
+                    progress.progress(35, text=f"Uploading {uf.name}…")
+                    files = {"file": (uf.name, uf, _upload_mime(uf.name))}
+                    upload_resp = requests.post(
+                        f"{API_URL}/upload",
+                        files=files,
+                        headers=get_auth_headers(),
+                        timeout=60,
+                    )
+                    progress.progress(85, text="Finishing…")
                     if upload_resp.status_code == 200:
-                        st.session_state[upload_key] = True
-                        st.success(f"✅ {uploaded_file.name} uploaded!")
-                        st.info("💡 Processing in background (10–30s). Go to **Documents** and click **🔄 Refresh** to see it.")
-                        st.rerun()
+                        successful = 1
+                        uploaded_names = [uf.name]
                     else:
-                        st.error(f"❌ Upload failed: {upload_resp.status_code}")
-                except requests.exceptions.ConnectionError:
-                    st.error(get_api_connection_error_message())
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-        else:
-            st.success(f"✅ {uploaded_file.name} (already uploaded)")
-    
-    try:
-        has_uploaded_files = uploaded_files is not None and len(uploaded_files) > 0
-    except (NameError, TypeError):
-        has_uploaded_files = False
-    
-    if has_uploaded_files:
-        files_key = "_".join([f"{f.name}_{f.size}" for f in uploaded_files])
-        bulk_upload_key = f"upload_view_bulk_{files_key}"
-        if bulk_upload_key not in st.session_state:
-            st.session_state[bulk_upload_key] = False
-        if not st.session_state[bulk_upload_key]:
-            with st.spinner(f"Uploading {len(uploaded_files)} file(s)..."):
-                try:
+                        failed = 1
+                        detail = upload_resp.text
+                        try:
+                            detail = upload_resp.json().get("detail", detail)
+                        except Exception:
+                            pass
+                        st.error(f"Upload failed: {detail}")
+                else:
                     files_data = []
-                    for uf in uploaded_files:
-                        file_ext = uf.name.split('.')[-1].lower()
-                        mime_types = {"pdf": "application/pdf", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "txt": "text/plain", "csv": "text/csv", "html": "text/html"}
-                        mime_type = mime_types.get(file_ext, "application/octet-stream")
-                        files_data.append(("files", (uf.name, uf, mime_type)))
-                    upload_resp = requests.post(f"{API_URL}/upload/bulk", files=files_data, headers=get_auth_headers(), timeout=120)
+                    for i, uf in enumerate(file_list):
+                        progress.progress(
+                            int(10 + (70 * i / max(len(file_list), 1))),
+                            text=f"Preparing {uf.name}…",
+                        )
+                        files_data.append(("files", (uf.name, uf, _upload_mime(uf.name))))
+                    progress.progress(80, text=f"Uploading {len(file_list)} files…")
+                    upload_resp = requests.post(
+                        f"{API_URL}/upload/bulk",
+                        files=files_data,
+                        headers=get_auth_headers(),
+                        timeout=180,
+                    )
                     if upload_resp.status_code == 200:
-                        st.session_state[bulk_upload_key] = True
                         data = upload_resp.json()
-                        st.success(f"✅ Uploaded {data.get('successful', 0)} file(s)")
-                        if data.get('failed', 0) > 0:
-                            st.warning(f"⚠️ {data.get('failed', 0)} failed")
-                        st.info("💡 Processing in background. Go to **Documents** and click **🔄 Refresh**.")
-                        st.rerun()
+                        successful = int(data.get("successful", 0) or 0)
+                        failed = int(data.get("failed", 0) or 0)
+                        results = data.get("results") or []
+                        uploaded_names = [
+                            r.get("filename")
+                            for r in results
+                            if r.get("status") == "success" and r.get("filename")
+                        ] or [f.name for f in file_list]
                     else:
-                        st.error(f"❌ Bulk upload failed: {upload_resp.status_code}")
-                except requests.exceptions.ConnectionError:
-                    st.error(get_api_connection_error_message())
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-        else:
-            st.success(f"✅ Bulk upload already completed")
-    
-    st.markdown("---")
-    if st.button("📚 View Documents", use_container_width=True, key="upload_view_docs"):
-        st.session_state.show_upload = False
-        st.session_state.show_documents = True
-        st.query_params["view"] = "documents"
-        st.rerun()
+                        failed = len(file_list)
+                        st.error(f"Bulk upload failed ({upload_resp.status_code})")
+
+                progress.progress(100, text="Done")
+                if successful > 0:
+                    st.session_state["upload_last_result"] = {
+                        "successful": successful,
+                        "failed": failed,
+                        "names": uploaded_names,
+                    }
+                    # Reset file uploader widget so files don't linger in the box
+                    st.session_state["upload_widget_nonce"] = int(st.session_state.get("upload_widget_nonce", 0)) + 1
+                    try:
+                        status_resp = requests.get(f"{API_URL}/status", headers=get_auth_headers(), timeout=2)
+                        if status_resp.status_code == 200:
+                            st.session_state.kb_status = status_resp.json()
+                    except Exception:
+                        pass
+                    st.rerun()
+            except requests.exceptions.ConnectionError:
+                st.error(get_api_connection_error_message())
+            except Exception as e:
+                st.error(str(e))
+            finally:
+                try:
+                    progress.empty()
+                except Exception:
+                    pass
 
 # Search History Dashboard
 if st.session_state.get("show_history", False):
@@ -5175,32 +4947,6 @@ if st.session_state.get("show_profile", False):
     
     st.markdown("---")
 
-# Example questions helper
-def get_example_questions():
-    raw = os.environ.get("EXAMPLE_QUESTIONS", "").strip()
-    if not raw:
-        return ["What is the billing process?", "How do I handle a student inquiry?", "What are the payment deadlines?"]
-    if raw.startswith("["):
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            pass
-    for sep in ("|", ","):
-        if sep in raw:
-            return [q.strip() for q in raw.split(sep) if q.strip()]
-    return [raw]
-
-
-def get_starter_prompts():
-    """Curated empty-state prompts with short descriptions."""
-    return [
-        ("Summarize a policy\nTurn a long document or procedure into a quick answer.", "Summarize a policy"),
-        ("Find the right source\nAsk for the exact document, section, or supporting evidence.", "Find the right source"),
-        ("Compare two processes\nSee differences between teams, workflows, or deadlines.", "Compare two processes"),
-        ("Draft a response\nGenerate a clear reply for a user, student, or teammate.", "Draft a response"),
-    ]
-
-
 def fetch_knowledge_home_stats():
     """Fetch compact knowledge-base stats for the home screen."""
     stats = {
@@ -5260,8 +5006,7 @@ def fetch_knowledge_home_stats():
         pass
     return stats
 
-# Zone-based layout: center (chat) + right (context panel) when on chat view
-suggestions_placeholder = st.empty()
+# Zone-based layout: center (chat) when on chat view
 chat_empty = not st.session_state.chat_history
 current_page = get_current_nav_page()
 show_copilot_empty = chat_empty and current_page == "chat" and not st.session_state.get("show_documents", False)
@@ -5274,30 +5019,11 @@ if "example_query" in st.session_state:
 else:
     query = None
 
-# Extract sources from last assistant message for right context panel
-last_sources = []
-if st.session_state.chat_history:
-    for item in reversed(st.session_state.chat_history):
-        if len(item) >= 4 and item[0] == "assistant":
-            last_sources = item[3] if isinstance(item[3], list) else []
-            break
-
-if "selected_sources" not in st.session_state:
-    st.session_state.selected_sources = []
-if "selected_assistant_key" not in st.session_state:
-    st.session_state.selected_assistant_key = None
-if "selected_source_message" not in st.session_state:
-    st.session_state.selected_source_message = ""
-
-active_sources = st.session_state.selected_sources if st.session_state.selected_sources else last_sources
-
 # Centered chat column — no side source panel (sources live under each answer)
 if use_zone_layout:
     col_left, col_chat, col_right = st.columns([1, 3, 1], gap="large")
-    col_context = None
 else:
     col_chat = st.container()
-    col_context = None
 
 with col_chat:
     if show_copilot_empty:
@@ -5385,47 +5111,7 @@ with col_chat:
                 """,
                 unsafe_allow_html=True,
             )
-        else:
-            # Light prompts once docs exist — keep secondary to the ask bar
-            st.markdown('<div class="starter-grid-title">Try asking</div>', unsafe_allow_html=True)
-            example_questions = get_example_questions()[:3]
-            prompt_cols = st.columns(len(example_questions) or 1)
-            for idx, question in enumerate(example_questions):
-                with prompt_cols[idx]:
-                    if st.button(question, key=f"kh_example_{idx}", use_container_width=True):
-                        st.session_state.example_query = question
-                        st.rerun()
-    # Center zone: suggestions placeholder, chat history, input
-    suggestions_placeholder = st.empty()
-    if "last_query_input" not in st.session_state:
-        st.session_state.last_query_input = ""
-    current_input = ""
-    if "query_input_text" in st.session_state:
-        current_input = st.session_state.query_input_text
-    if current_input and len(current_input.strip()) > 0:
-        try:
-            suggestions_resp = requests.get(
-                f"{API_URL}/suggestions",
-                params={"q": current_input.strip(), "limit": 5, "include_documents": True},
-                timeout=3
-            )
-            if suggestions_resp.status_code == 200:
-                suggestions_data = suggestions_resp.json()
-                suggestions = suggestions_data.get("suggestions", [])
-                if suggestions:
-                    with suggestions_placeholder.container():
-                        st.markdown("**💡 Query Suggestions:**")
-                        for idx, suggestion in enumerate(suggestions):
-                            sq = suggestion.get("query", "")
-                            stype = suggestion.get("type", "")
-                            icon = "⭐" if stype == "saved" else ("📚" if stype == "document" else "🕐")
-                            label = f"{suggestion.get('name', '')}: {sq}" if stype == "saved" and suggestion.get("name") else sq
-                            if st.button(f"{icon} {label}", key=f"suggestion_{idx}", use_container_width=True):
-                                st.session_state.example_query = sq
-                                st.rerun()
-        except:
-            pass
-# Handle example query (from pill click) - only overwrite if we have one; don't wipe chat_input value
+# Handle example query (from history / saved queries) - only overwrite if we have one
 if "example_query" in st.session_state:
     query = st.session_state.example_query
     del st.session_state.example_query

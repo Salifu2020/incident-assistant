@@ -23,7 +23,6 @@ from .models import (
     DocumentListResponse, DocumentInfo, DeleteDocumentResponse,
     HistoryResponse, HistoryEntry, SavedQueriesResponse, SavedQuery,
     SaveQueryRequest, UpdateSavedQueryRequest,
-    SuggestionsResponse, QuerySuggestion,
     FeedbackRequest, FeedbackResponse, FeedbackEntry, FeedbackStats, FeedbackStatsResponse,
     Conversation, ConversationListResponse, ConversationMessage,
     CreateConversationRequest, UpdateConversationRequest,
@@ -48,7 +47,7 @@ from .models import (
     BackupListResponse, RestoreRequest,
     ChunkingConfigRequest, ChunkingConfigResponse
 )
-from .history import SearchHistory, SavedQueries, QuerySuggestions, AnswerFeedback, ConversationManager
+from .history import SearchHistory, SavedQueries, AnswerFeedback, ConversationManager
 from .health import HealthMonitor
 from .analytics import AnalyticsTracker
 from .analytics import AnalyticsTracker
@@ -1635,24 +1634,6 @@ def use_saved_query(query: str):
         return {"message": "Usage count updated"}
     except Exception as e:
         logger.error(f"Error updating usage: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Query Suggestions Endpoint
-@app.get("/suggestions", response_model=SuggestionsResponse)
-def get_suggestions(q: str = "", limit: int = 10, include_documents: bool = True):
-    """Get query suggestions based on partial input, history, saved queries, and document content."""
-    try:
-        # Ensure assistant is set for document-based suggestions
-        QuerySuggestions.set_assistant(get_assistant())
-        
-        suggestions_data = QuerySuggestions.get_suggestions(q, limit=limit, include_documents=include_documents)
-        suggestions = [QuerySuggestion(**s) for s in suggestions_data]
-        return {
-            "suggestions": suggestions,
-            "total": len(suggestions)
-        }
-    except Exception as e:
-        logger.error(f"Error getting suggestions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Feedback Endpoints
