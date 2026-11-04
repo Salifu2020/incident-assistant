@@ -208,7 +208,7 @@ def startup_event():
                 # Initialize default admin user in database
                 try:
                     if DBUserManager.initialize_default_admin():
-                        logger.info("✅ Default admin user created in database (username: admin, password: REDACTED)")
+                        logger.info("Default admin user created in database")
                 except Exception as e:
                     logger.warning(f"Could not initialize default admin in database: {e}")
             else:
@@ -220,7 +220,7 @@ def startup_event():
     if not _use_db or not is_db_available():
         try:
             if UserManager.initialize_default_admin():
-                logger.info("✅ Default admin user created in JSON storage (username: admin, password: REDACTED)")
+                logger.info("Default admin user created in JSON storage")
         except Exception as e:
             logger.warning(f"Could not initialize default admin: {e}")
 

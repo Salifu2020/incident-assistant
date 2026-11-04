@@ -10,6 +10,7 @@ from .auth import (
 )
 from typing import Dict, Optional, Tuple, List
 from datetime import datetime
+import os
 import secrets
 import logging
 
@@ -216,7 +217,10 @@ class DBUserManager:
     
     @staticmethod
     def initialize_default_admin() -> bool:
-        """Initialize default admin user if no users exist."""
+        """Initialize default admin user if no users exist.
+
+        Requires DEFAULT_ADMIN_PASSWORD from the environment. Never hardcodes credentials.
+        """
         db = get_db()
         if db is None:
             return False
@@ -224,15 +228,23 @@ class DBUserManager:
         try:
             user_count = db.query(User).count()
             if user_count == 0:
+                default_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()
+                if not default_password:
+                    logger.warning(
+                        "No users found and DEFAULT_ADMIN_PASSWORD is not set; "
+                        "skipping default admin creation"
+                    )
+                    return False
                 try:
+                    default_email = os.environ.get("DEFAULT_ADMIN_EMAIL", "admin@example.com").strip()
                     DBUserManager.create_user(
-                        email="admin@example.com",
-                        password="REDACTED",
+                        email=default_email,
+                        password=default_password,
                         role="admin",
                         first_name="Admin",
                         username="admin",
                     )
-                    logger.info("✅ Default admin user created in database")
+                    logger.info("Default admin user created in database")
                     return True
                 except ValueError as e:
                     logger.error(f"Failed to create default admin: {e}")

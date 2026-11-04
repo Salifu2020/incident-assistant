@@ -34,9 +34,24 @@ ingested_files/
 .DS_Store
 Thumbs.db
 
-# Environment variables
+# Environment variables / secrets
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+.ssh/
+secrets/
+credentials*.json
+
+# Local scratch / debug dumps
+*_tail.txt
+test_api_out.txt
+api_tail.txt
+st_tail.txt
+
+# Nested / local copies
+my-incident-assistant/
 
 # Markdown files (except README and docs)
 *.md

@@ -1309,22 +1309,32 @@ class UserManager:
     
     @staticmethod
     def initialize_default_admin():
-        """Initialize default admin user if no users exist."""
+        """Initialize default admin user if no users exist.
+
+        Requires DEFAULT_ADMIN_PASSWORD (and optionally DEFAULT_ADMIN_EMAIL)
+        from the environment. Never hardcodes credentials.
+        """
         users_data = load_users()
         users = users_data.get("users", [])
         
         if len(users) == 0:
+            default_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()
+            if not default_password:
+                logger.warning(
+                    "No users found and DEFAULT_ADMIN_PASSWORD is not set; "
+                    "skipping default admin creation"
+                )
+                return False
             try:
-                # Use create_user which includes password validation
-                # Default password: REDACTED (meets all requirements, 10 chars, well within 72-byte limit)
-                default_password = "REDACTED"
+                default_email = os.environ.get("DEFAULT_ADMIN_EMAIL", "admin@example.com").strip()
                 UserManager.create_user(
-                    email="admin@example.com",
+                    email=default_email,
                     password=default_password,
                     role="admin",
                     first_name="Admin",
                     username="admin",
                 )
+                logger.info("Default admin user created in JSON storage")
                 return True
             except ValueError as e:
                 # If validation fails, log the error but don't crash
