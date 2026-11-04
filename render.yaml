@@ -5,8 +5,8 @@ services:
     name: incident-assistant-api
     runtime: python
     plan: free
-    buildCommand: pip install --upgrade pip && pip install -r requirements-api.txt
-    startCommand: python run.py api
+    buildCommand: bash scripts/render_build.sh
+    startCommand: python run_api.py
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
