@@ -6,7 +6,7 @@ from .database import get_db, User, is_db_available, init_db
 from .auth import (
     hash_password, verify_password, validate_password,
     create_access_token, create_refresh_token, verify_token, verify_refresh_token,
-    log_audit_event
+    log_audit_event, normalize_email, generate_username_from_email
 )
 from typing import Dict, Optional, Tuple, List
 from datetime import datetime
@@ -21,6 +21,8 @@ class DBUserManager:
     @staticmethod
     def _user_to_dict(user: User) -> Dict:
         """Convert User model to dictionary."""
+        first_name = getattr(user, "first_name", None)
+        display_name = getattr(user, "display_name", None) or first_name
         return {
             "id": user.id,
             "username": user.username,
@@ -28,39 +30,53 @@ class DBUserManager:
             "role": user.role,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login": user.last_login.isoformat() if user.last_login else None,
-            "active": user.active
+            "active": user.active,
+            "first_name": first_name,
+            "display_name": display_name,
         }
     
     @staticmethod
-    def create_user(username: str, email: str, password: str, role: str = "user") -> Dict:
-        """Create a new user in database."""
+    def create_user(
+        email: str,
+        password: str,
+        role: str = "user",
+        first_name: Optional[str] = None,
+        username: Optional[str] = None,
+    ) -> Dict:
+        """Create a new user in database. Username is auto-generated when omitted."""
         # Validate password policy
         is_valid, errors = validate_password(password)
         if not is_valid:
             raise ValueError("Password does not meet requirements: " + "; ".join(errors))
-        
+
+        email = normalize_email(email)
+        if not email or "@" not in email:
+            raise ValueError("A valid email address is required")
+        first_name = (first_name or "").strip() or None
+
         db = get_db()
         if db is None:
             raise RuntimeError("Database not available")
         
         try:
-            # Check if username or email already exists
-            existing_user = db.query(User).filter(
-                (User.username == username) | (User.email == email)
-            ).first()
-            
-            if existing_user:
-                if existing_user.username == username:
+            existing_email = db.query(User).filter(User.email == email).first()
+            if existing_email:
+                raise ValueError("Email already exists")
+
+            if not username:
+                existing_usernames = {u.username for u in db.query(User.username).all()}
+                username = generate_username_from_email(email, existing_usernames)
+            else:
+                existing_username = db.query(User).filter(User.username == username).first()
+                if existing_username:
                     raise ValueError("Username already exists")
-                if existing_user.email == email:
-                    raise ValueError("Email already exists")
             
             # Hash password
             hashed_password = hash_password(password)
             
             # Create new user
             now = datetime.utcnow()
-            new_user = User(
+            user_kwargs = dict(
                 id=secrets.token_urlsafe(16),
                 username=username,
                 email=email,
@@ -69,14 +85,21 @@ class DBUserManager:
                 created_at=now,
                 password_changed_at=now,
                 last_login=None,
-                active=True
+                active=True,
             )
+            # Optional columns may not exist on older DBs; set when present on model
+            if hasattr(User, "first_name"):
+                user_kwargs["first_name"] = first_name
+            if hasattr(User, "display_name"):
+                user_kwargs["display_name"] = first_name
+
+            new_user = User(**user_kwargs)
             
             db.add(new_user)
             db.commit()
             db.refresh(new_user)
             
-            logger.info(f"Created new user in database: {username}")
+            logger.info(f"Created new user in database: {email}")
             return DBUserManager._user_to_dict(new_user)
             
         except ValueError:
@@ -86,6 +109,29 @@ class DBUserManager:
             db.rollback()
             logger.error(f"Error creating user: {e}")
             raise RuntimeError(f"Failed to create user: {str(e)}")
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_user_by_email(email: str) -> Optional[Dict]:
+        """Get user by email."""
+        db = get_db()
+        if db is None:
+            return None
+
+        try:
+            user = db.query(User).filter(User.email == normalize_email(email)).first()
+            if user:
+                result = DBUserManager._user_to_dict(user)
+                result["hashed_password"] = user.hashed_password
+                result["password_changed_at"] = (
+                    user.password_changed_at.isoformat() if user.password_changed_at else None
+                )
+                return result
+            return None
+        except Exception as e:
+            logger.error(f"Error getting user by email: {e}")
+            return None
         finally:
             db.close()
     
@@ -99,17 +145,12 @@ class DBUserManager:
         try:
             user = db.query(User).filter(User.username == username).first()
             if user:
-                return {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "hashed_password": user.hashed_password,
-                    "role": user.role,
-                    "created_at": user.created_at.isoformat() if user.created_at else None,
-                    "password_changed_at": user.password_changed_at.isoformat() if user.password_changed_at else None,
-                    "last_login": user.last_login.isoformat() if user.last_login else None,
-                    "active": user.active
-                }
+                result = DBUserManager._user_to_dict(user)
+                result["hashed_password"] = user.hashed_password
+                result["password_changed_at"] = (
+                    user.password_changed_at.isoformat() if user.password_changed_at else None
+                )
+                return result
             return None
         except Exception as e:
             logger.error(f"Error getting user by username: {e}")
@@ -118,9 +159,9 @@ class DBUserManager:
             db.close()
     
     @staticmethod
-    def authenticate_user(username: str, password: str) -> Optional[Dict]:
-        """Authenticate user and return user info if successful."""
-        user_dict = DBUserManager.get_user_by_username(username)
+    def authenticate_user(email: str, password: str) -> Optional[Dict]:
+        """Authenticate user by email and return user info if successful."""
+        user_dict = DBUserManager.get_user_by_email(email)
         if not user_dict:
             return None
         
@@ -148,7 +189,9 @@ class DBUserManager:
                 "email": user_dict["email"],
                 "role": user_dict["role"],
                 "created_at": user_dict["created_at"],
-                "last_login": datetime.utcnow().isoformat()
+                "last_login": datetime.utcnow().isoformat(),
+                "first_name": user_dict.get("first_name"),
+                "display_name": user_dict.get("display_name") or user_dict.get("first_name"),
             }
         
         return None
@@ -183,10 +226,11 @@ class DBUserManager:
             if user_count == 0:
                 try:
                     DBUserManager.create_user(
-                        username="admin",
                         email="admin@example.com",
                         password="REDACTED",
-                        role="admin"
+                        role="admin",
+                        first_name="Admin",
+                        username="admin",
                     )
                     logger.info("✅ Default admin user created in database")
                     return True

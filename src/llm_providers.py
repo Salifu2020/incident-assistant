@@ -55,7 +55,7 @@ class GroqProvider(LLMProvider):
         "llama3.2:3b": "llama-3.1-8b-instant",
     }
     
-    def __init__(self, api_key: str = None, model: str = "llama-3.1-8b-instant"):
+    def __init__(self, api_key: str = None, model: str = "qwen/qwen3.8-27b"):
         """
         Initialize Groq provider.
         
@@ -113,7 +113,12 @@ class GroqProvider(LLMProvider):
             max_tokens=max_tokens,
             stream=False
         )
-        return response.choices[0].message.content.strip()
+        message = response.choices[0].message
+        content = (message.content or "").strip()
+        # Some Groq models (e.g. gpt-oss) return reasoning with empty content.
+        if not content:
+            content = (getattr(message, "reasoning", None) or "").strip()
+        return content
     
     def chat_stream(self, messages: List[Dict],
                     temperature: float = 0.3, max_tokens: int = 500) -> Generator[str, None, None]:
@@ -126,8 +131,10 @@ class GroqProvider(LLMProvider):
             stream=True
         )
         for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            delta = chunk.choices[0].delta
+            piece = getattr(delta, "content", None) or getattr(delta, "reasoning", None)
+            if piece:
+                yield piece
 
 
 class OllamaProvider(LLMProvider):
@@ -306,7 +313,7 @@ def get_llm_provider(provider_name: str = None, model: str = None) -> LLMProvide
     """
     # Check environment for provider preference
     provider_name = provider_name or os.environ.get("LLM_PROVIDER", "auto")
-    model = model or os.environ.get("LLM_MODEL", "llama-3.1-8b-instant")
+    model = model or os.environ.get("LLM_MODEL", "qwen/qwen3.8-27b")
     
     if provider_name == "groq" or (provider_name == "auto" and os.environ.get("GROQ_API_KEY")):
         provider = GroqProvider(model=model)

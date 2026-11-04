@@ -231,20 +231,22 @@ def root():
 # Authentication endpoints
 @app.post("/auth/register", response_model=UserInfo)
 async def register(user_data: UserRegister, request: FastAPIRequest = None):
-    """Register a new user."""
+    """Register a new user with first name, email, and password."""
     try:
         # Validate role
         if user_data.role not in ["user", "admin"]:
             raise HTTPException(status_code=400, detail="Invalid role. Must be 'user' or 'admin'")
+        if not (user_data.first_name or "").strip():
+            raise HTTPException(status_code=400, detail="First name is required")
         
         user_manager = get_user_manager()
         user = user_manager.create_user(
-            username=user_data.username,
             email=user_data.email,
             password=user_data.password,
-            role=user_data.role
+            role=user_data.role,
+            first_name=user_data.first_name.strip(),
         )
-        logger.info(f"New user registered: {user_data.username}")
+        logger.info(f"New user registered: {user_data.email}")
         
         # Log audit event
         ip_address = None
@@ -257,10 +259,10 @@ async def register(user_data: UserRegister, request: FastAPIRequest = None):
         log_audit_event(
             event_type="user_created",
             user_id=user["id"],
-            username=user_data.username,
+            username=user.get("username"),
             ip_address=ip_address,
             status="success",
-            details={"role": user_data.role}
+            details={"role": user_data.role, "email": user_data.email}
         )
         
         return UserInfo(**user)
@@ -272,14 +274,14 @@ async def register(user_data: UserRegister, request: FastAPIRequest = None):
 
 @app.post("/auth/login", response_model=Token)
 async def login(credentials: UserLogin, request: FastAPIRequest = None):
-    """Login and get access token."""
+    """Login with email and password, then get access token."""
     user_manager = get_user_manager()
-    result = user_manager.authenticate_user(credentials.username, credentials.password)
+    result = user_manager.authenticate_user(credentials.email, credentials.password)
     
     if not result:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -298,7 +300,7 @@ async def login(credentials: UserLogin, request: FastAPIRequest = None):
                 )
             log_audit_event(
                 event_type="login_locked",
-                username=credentials.username,
+                username=credentials.email,
                 ip_address=ip_address,
                 status="failed",
                 error_message="Account locked"
@@ -319,13 +321,13 @@ async def login(credentials: UserLogin, request: FastAPIRequest = None):
                 )
             log_audit_event(
                 event_type="login_failed",
-                username=credentials.username,
+                username=credentials.email,
                 ip_address=ip_address,
                 status="failed",
                 error_message="Invalid credentials",
                 details={"attempts_remaining": attempts_remaining}
             )
-            detail_msg = "Incorrect username or password"
+            detail_msg = "Incorrect email or password"
             if attempts_remaining > 0:
                 detail_msg += f". {attempts_remaining} attempt(s) remaining before account lockout."
             raise HTTPException(
@@ -389,7 +391,7 @@ async def login(credentials: UserLogin, request: FastAPIRequest = None):
         device_info=None  # Could parse from user agent
     )
     
-    logger.info(f"User logged in: {credentials.username} (session: {session_id[:8]}...)")
+    logger.info(f"User logged in: {credentials.email} (session: {session_id[:8]}...)")
     
     return {
         "access_token": access_token,
@@ -782,7 +784,7 @@ async def verify_and_enable_2fa(
 @app.post("/auth/2fa/verify-login")
 async def verify_2fa_login(
     request: TwoFALoginRequest,
-    username: str,
+    email: str,
     http_request: FastAPIRequest = None
 ):
     """
@@ -790,7 +792,7 @@ async def verify_2fa_login(
     This endpoint is called after initial password authentication.
     """
     user_manager = get_user_manager()
-    user = user_manager.get_user_by_username(username)
+    user = user_manager.get_user_by_email(email)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -841,7 +843,7 @@ async def verify_2fa_login(
             twofa_enabled=True
         )
         
-        logger.info(f"2FA login successful for user: {username} (session: {session_id[:8]}...)")
+        logger.info(f"2FA login successful for user: {email} (session: {session_id[:8]}...)")
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,

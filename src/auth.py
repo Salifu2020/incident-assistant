@@ -6,6 +6,7 @@ import json
 import hashlib
 import secrets
 import base64
+import re
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List, Tuple
 import threading
@@ -813,30 +814,63 @@ def verify_token(token: str) -> Optional[Dict]:
         return None
 
 
+def normalize_email(email: str) -> str:
+    """Normalize email for lookup/storage."""
+    return (email or "").strip().lower()
+
+
+def generate_username_from_email(email: str, existing_usernames: set) -> str:
+    """Derive a unique internal username from an email local-part."""
+    local = (email or "").split("@")[0].strip().lower()
+    base = re.sub(r"[^a-z0-9._-]", "", local) or "user"
+    candidate = base
+    suffix = 1
+    while candidate in existing_usernames:
+        candidate = f"{base}{suffix}"
+        suffix += 1
+    return candidate
+
+
 class UserManager:
     """Manage users and authentication."""
     
     @staticmethod
-    def create_user(username: str, email: str, password: str, role: str = "user") -> Dict:
-        """Create a new user."""
+    def create_user(
+        email: str,
+        password: str,
+        role: str = "user",
+        first_name: Optional[str] = None,
+        username: Optional[str] = None,
+    ) -> Dict:
+        """Create a new user. Username is optional and auto-generated from email when omitted."""
         # Validate password policy
         is_valid, errors = validate_password(password)
         if not is_valid:
             raise ValueError("Password does not meet requirements: " + "; ".join(errors))
-        
+
+        email = normalize_email(email)
+        if not email or "@" not in email:
+            raise ValueError("A valid email address is required")
+
+        first_name = (first_name or "").strip()
         users_data = load_users()
         users = users_data.get("users", [])
-        
-        # Check if username or email already exists
+
         for user in users:
-            if user.get("username") == username:
-                raise ValueError("Username already exists")
-            if user.get("email") == email:
+            if normalize_email(user.get("email", "")) == email:
                 raise ValueError("Email already exists")
-        
+            if username and user.get("username") == username:
+                raise ValueError("Username already exists")
+
+        existing_usernames = {u.get("username") for u in users if u.get("username")}
+        if not username:
+            username = generate_username_from_email(email, existing_usernames)
+        elif username in existing_usernames:
+            raise ValueError("Username already exists")
+
         # Hash password
         hashed_password = hash_password(password)
-        
+
         # Create new user
         now = datetime.now().isoformat()
         new_user = {
@@ -848,22 +882,26 @@ class UserManager:
             "created_at": now,
             "password_changed_at": now,  # Track password change date
             "last_login": None,
-            "active": True
+            "active": True,
+            "first_name": first_name or None,
+            "display_name": first_name or None,
         }
-        
+
         users.append(new_user)
         users_data["users"] = users
         save_users(users_data)
-        
+
         # Add to password history
         add_to_password_history(new_user["id"], hashed_password)
-        
+
         return {
             "id": new_user["id"],
             "username": new_user["username"],
             "email": new_user["email"],
             "role": new_user["role"],
-            "created_at": new_user["created_at"]
+            "created_at": new_user["created_at"],
+            "first_name": new_user.get("first_name"),
+            "display_name": new_user.get("display_name"),
         }
     
     @staticmethod
@@ -887,37 +925,39 @@ class UserManager:
         return False, None
     
     @staticmethod
-    def record_failed_login(username: str) -> Tuple[bool, Optional[str], int]:
+    def record_failed_login(email: str) -> Tuple[bool, Optional[str], int]:
         """Record a failed login attempt. Returns (is_locked, unlock_time, attempts_remaining)."""
         users_data = load_users()
         users = users_data.get("users", [])
-        
-        # Find user
+        email = normalize_email(email)
+
+        # Find user by email
         user = None
         for u in users:
-            if u.get("username") == username:
+            if normalize_email(u.get("email", "")) == email:
                 user = u
                 break
-        
+
         if not user:
             # User doesn't exist, don't track attempts (security best practice)
             return False, None, MAX_FAILED_ATTEMPTS
-        
+
         user_id = user["id"]
         lockouts_data = load_lockouts()
         lockouts = lockouts_data.get("lockouts", [])
-        
+
         # Find or create lockout record
         lockout = None
         for l in lockouts:
             if l.get("user_id") == user_id:
                 lockout = l
                 break
-        
+
         if not lockout:
             lockout = {
                 "user_id": user_id,
-                "username": username,
+                "username": user.get("username"),
+                "email": email,
                 "failed_attempts": 0,
                 "locked": False,
                 "locked_at": None,
@@ -925,24 +965,24 @@ class UserManager:
                 "last_attempt": None
             }
             lockouts.append(lockout)
-        
+
         # Increment failed attempts
         lockout["failed_attempts"] = lockout.get("failed_attempts", 0) + 1
         lockout["last_attempt"] = datetime.now().isoformat()
-        
+
         attempts = lockout["failed_attempts"]
         attempts_remaining = max(0, MAX_FAILED_ATTEMPTS - attempts)
-        
+
         # Lock account if threshold reached
         if attempts >= MAX_FAILED_ATTEMPTS:
             lockout["locked"] = True
             lockout["locked_at"] = datetime.now().isoformat()
             unlock_time = datetime.now() + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
             lockout["unlock_at"] = unlock_time.isoformat()
-            logger.warning(f"Account locked: {username} after {attempts} failed attempts")
+            logger.warning(f"Account locked: {email} after {attempts} failed attempts")
             save_lockouts(lockouts_data)
             return True, unlock_time.isoformat(), 0
-        
+
         save_lockouts(lockouts_data)
         return False, None, attempts_remaining
     
@@ -981,43 +1021,46 @@ class UserManager:
         return False
     
     @staticmethod
-    def authenticate_user(username: str, password: str) -> Optional[Dict]:
-        """Authenticate a user and return user info if successful."""
+    def authenticate_user(email: str, password: str) -> Optional[Dict]:
+        """Authenticate a user by email and return user info if successful."""
         users_data = load_users()
         users = users_data.get("users", [])
-        
+        email = normalize_email(email)
+
         for user in users:
-            if user.get("username") == username and user.get("active", True):
+            if normalize_email(user.get("email", "")) == email and user.get("active", True):
                 user_id = user["id"]
-                
+
                 # Check if account is locked
                 is_locked, unlock_time = UserManager.is_account_locked(user_id)
                 if is_locked:
-                    logger.warning(f"Login attempt blocked: {username} (account locked)")
+                    logger.warning(f"Login attempt blocked: {email} (account locked)")
                     return {
                         "error": "account_locked",
                         "unlock_time": unlock_time
                     }
-                
+
                 if verify_password(password, user.get("hashed_password", "")):
                     # Successful login - clear failed attempts
                     UserManager.clear_failed_attempts(user_id)
-                    
+
                     # Update last login
                     user["last_login"] = datetime.now().isoformat()
                     save_users(users_data)
-                    
+
                     return {
                         "id": user["id"],
                         "username": user["username"],
                         "email": user["email"],
                         "role": user["role"],
                         "created_at": user.get("created_at"),
-                        "last_login": user["last_login"]
+                        "last_login": user["last_login"],
+                        "first_name": user.get("first_name"),
+                        "display_name": user.get("display_name") or user.get("first_name"),
                     }
                 else:
                     # Failed login - record attempt
-                    is_locked, unlock_time, attempts_remaining = UserManager.record_failed_login(username)
+                    is_locked, unlock_time, attempts_remaining = UserManager.record_failed_login(email)
                     if is_locked:
                         return {
                             "error": "account_locked",
@@ -1027,10 +1070,9 @@ class UserManager:
                         "error": "invalid_credentials",
                         "attempts_remaining": attempts_remaining
                     }
-        
+
         # User doesn't exist - don't reveal this (security best practice)
-        # But still record attempt to prevent enumeration
-        UserManager.record_failed_login(username)
+        UserManager.record_failed_login(email)
         return None
     
     @staticmethod
@@ -1068,10 +1110,34 @@ class UserManager:
                     "unlock_time": unlock_time,
                     "failed_attempts": failed_attempts,
                     "password_expires_at": password_expires_at,
-                    "password_expired": password_expired
+                    "password_expired": password_expired,
+                    "first_name": user.get("first_name"),
+                    "display_name": user.get("display_name") or user.get("first_name"),
                 }
         return None
     
+    @staticmethod
+    def get_user_by_email(email: str) -> Optional[Dict]:
+        """Get user by email."""
+        users_data = load_users()
+        users = users_data.get("users", [])
+        email = normalize_email(email)
+
+        for user in users:
+            if normalize_email(user.get("email", "")) == email:
+                return {
+                    "id": user["id"],
+                    "username": user["username"],
+                    "email": user["email"],
+                    "role": user["role"],
+                    "created_at": user.get("created_at"),
+                    "last_login": user.get("last_login"),
+                    "active": user.get("active", True),
+                    "first_name": user.get("first_name"),
+                    "display_name": user.get("display_name") or user.get("first_name"),
+                }
+        return None
+
     @staticmethod
     def get_user_by_username(username: str) -> Optional[Dict]:
         """Get user by username."""
@@ -1253,10 +1319,11 @@ class UserManager:
                 # Default password: REDACTED (meets all requirements, 10 chars, well within 72-byte limit)
                 default_password = "REDACTED"
                 UserManager.create_user(
-                    username="admin",
                     email="admin@example.com",
                     password=default_password,
-                    role="admin"
+                    role="admin",
+                    first_name="Admin",
+                    username="admin",
                 )
                 return True
             except ValueError as e:

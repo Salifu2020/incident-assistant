@@ -1,6 +1,7 @@
 import os
 import re
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import logging
 from datetime import datetime
@@ -245,8 +246,8 @@ st.markdown(
         border-color: rgba(59, 130, 246, 0.4) !important;
         color: #93c5fd !important;
     }
-    /* Open sidebar button - when Streamlit's collapse control is hidden */
-    .btn-open-sidebar {
+    /* Sidebar toggle in top nav */
+    div[class*="st-key-nav_toggle_sidebar"] .stButton > button {
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -256,11 +257,16 @@ st.markdown(
         border: 1px solid rgba(71, 85, 105, 0.5) !important;
         color: #e2e8f0 !important;
         font-size: 1.1rem !important;
-        cursor: pointer !important;
-        transition: all 0.2s ease !important;
+        min-width: 2.6rem !important;
+        width: auto !important;
+        box-shadow: none !important;
+        transform: none !important;
     }
-    .btn-open-sidebar:hover {
+    div[class*="st-key-nav_toggle_sidebar"] .stButton > button:hover {
         background: rgba(51, 65, 85, 0.9) !important;
+        border-color: rgba(148, 163, 184, 0.35) !important;
+        box-shadow: none !important;
+        transform: none !important;
     }
     .cmd-bar-avatar {
         width: 32px;
@@ -429,16 +435,12 @@ st.markdown(
         border: 1px solid rgba(71, 85, 105, 0.5) !important;
         color: #e2e8f0 !important;
     }
-    /* Sidebar - modern pill shape, full text, NOT circular */
+    /* Sidebar buttons: keep rail styling (override generic pill look) */
     [data-testid="stSidebar"] .stButton > button {
-        background: rgba(30, 41, 59, 0.8) !important;
-        border: 1px solid rgba(71, 85, 105, 0.5) !important;
-        color: #e2e8f0 !important;
-        border-radius: 10px !important;
         width: 100% !important;
         min-width: unset !important;
         height: auto !important;
-        padding: 0.5rem 1rem !important;
+        border-radius: 10px !important;
     }
     
     /* Chat - Fluid message bubbles */
@@ -518,293 +520,100 @@ st.markdown(
         box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35) !important;
     }
     
-    /* Auth Page - Centered card layout */
-    /* ===== MODERN AUTH SCREEN ===== */
-    .auth-page {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2rem 1rem;
-    }
-    .auth-card {
-        width: 100%;
-        max-width: 300px;
-        margin-left: auto;
-        margin-right: auto;
-        background: rgba(15, 23, 42, 0.74);
-        border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        box-shadow: 0 10px 28px -16px rgba(0, 0, 0, 0.55);
-        padding: 1.05rem 1rem 0.85rem;
-        position: relative;
-        overflow: hidden;
-    }
-    .auth-card::before {
-        content: none;
-    }
-    .auth-card::after {
-        content: none;
-    }
-    .auth-brand {
+    /* ===== Auth screen (login / signup) ===== */
+    .auth-hero {
         text-align: center;
-        margin-bottom: 0;
-        position: relative;
-        z-index: 1;
+        margin: 0 auto 1.1rem;
+        max-width: 420px;
+        animation: authFadeUp 0.55s ease both;
     }
     .auth-logo-wrap {
         display: flex;
         justify-content: center;
-        align-items: center;
-        margin: 0 auto 0.65rem;
-        position: relative;
-        z-index: 1;
+        margin: 0 auto 0.7rem;
     }
     .auth-logo-svg {
-        width: 2.7rem;
-        height: 2.7rem;
-        filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.35));
-    }
-    .auth-logo {
-        font-size: 3rem;
-        margin-bottom: 1rem;
-        display: block;
+        width: 2.85rem;
+        height: 2.85rem;
+        filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+        animation: authLogoIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     .auth-title {
-        font-size: 1.25rem;
+        font-family: 'Plus Jakarta Sans', 'DM Sans', sans-serif;
+        font-size: clamp(1.55rem, 3.2vw, 1.85rem);
         font-weight: 700;
         color: #f8fafc;
-        margin: 0 0 0.25rem 0;
-        letter-spacing: -0.03em;
-        line-height: 1.2;
+        margin: 0 0 0.35rem 0;
+        letter-spacing: -0.04em;
+        line-height: 1.15;
     }
     .auth-subtitle {
-        font-size: 0.82rem;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.95rem;
         color: #94a3b8;
         margin: 0;
-        line-height: 1.35;
+        line-height: 1.4;
         font-weight: 400;
     }
-    .auth-features {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 0.5rem;
-        margin: 0.75rem 0 0;
-        flex-wrap: wrap;
-        position: relative;
-        z-index: 1;
+    .auth-form-title {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 1.02rem;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        color: #f1f5f9;
+        margin: 0 0 0.2rem 0;
     }
-    .auth-feature {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        font-size: 0.65rem;
-        font-weight: 500;
+    .auth-form-hint {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.84rem;
         color: #94a3b8;
-        letter-spacing: 0.01em;
-        padding: 0;
-        border-radius: 0;
-        background: transparent;
-        border: none;
-        box-shadow: none;
-    }
-    .auth-feature-icon {
-        font-size: 0.95rem;
-        line-height: 1;
-    }
-    .auth-lead {
-        font-size: 0.9375rem;
-        color: #94a3b8;
-        margin: 0 0 1.5rem 0;
-        line-height: 1.6;
-        text-align: center;
-        width: 100%;
-        max-width: none;
-        letter-spacing: 0.01em;
-        box-sizing: border-box;
-    }
-    .auth-tabs-container {
-        margin-bottom: 1.5rem;
-    }
-    .auth-tabs .stTabs [data-baseweb="tab-list"] {
-        gap: 0;
-        background: #0f172a;
-        padding: 4px;
-        border-radius: 12px;
-        border: 1px solid #334155;
-    }
-    .auth-tabs .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 600;
-        font-size: 0.9375rem;
-        color: #94a3b8;
-        background: transparent;
-        transition: all 0.2s ease;
-    }
-    .auth-tabs .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-        color: white !important;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-    }
-    .auth-form {
-        background: rgba(15, 23, 42, 0.6);
-        border-radius: 16px;
-        border: 1px solid #334155;
-        padding: 1.5rem;
-    }
-    .auth-input-group {
-        margin-bottom: 1rem;
-    }
-    .auth-input-label {
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: #e2e8f0;
-        margin-bottom: 0.5rem;
-        display: block;
-    }
-    .auth-submit-btn {
-        width: 100%;
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 0.875rem 1.5rem;
-        font-size: 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        margin-top: 0.5rem;
-    }
-    .auth-submit-btn:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
-    }
-    .auth-divider {
-        display: flex;
-        align-items: center;
-        margin: 1.5rem 0;
-        color: #64748b;
-        font-size: 0.8125rem;
-    }
-    .auth-divider::before,
-    .auth-divider::after {
-        content: '';
-        flex: 1;
-        height: 1px;
-        background: #334155;
-    }
-    .auth-divider span {
-        padding: 0 1rem;
+        margin: 0 0 0.85rem 0;
+        line-height: 1.4;
     }
     .password-requirements {
-        background: rgba(15, 23, 42, 0.45);
-        border-radius: 10px;
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        padding: 1rem;
-        margin: 1rem 0;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        padding: 0 0 0.35rem 0;
+        margin: 0 0 0.85rem 0;
     }
     .password-requirements-title {
-        font-size: 0.8125rem;
+        font-size: 0.78rem;
         font-weight: 600;
-        color: #e2e8f0;
-        margin-bottom: 0.75rem;
+        color: #94a3b8;
+        margin-bottom: 0.45rem;
+        letter-spacing: 0.01em;
     }
     .password-req {
-        font-size: 0.75rem;
-        color: #94a3b8;
-        margin: 0.375rem 0;
+        font-size: 0.78rem;
+        color: #64748b;
+        margin: 0.2rem 0;
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.45rem;
+        transition: color 0.15s ease;
+    }
+    .password-req::before {
+        content: '';
+        width: 0.4rem;
+        height: 0.4rem;
+        border-radius: 50%;
+        background: #475569;
+        flex-shrink: 0;
     }
     .password-req.met {
-        color: #10b981;
+        color: #5eead4;
     }
-    .auth-footer-text {
-        text-align: center;
-        margin-top: 1.5rem;
-        font-size: 0.8125rem;
-        color: #64748b;
+    .password-req.met::before {
+        background: #14b8a6;
     }
-    .auth-footer-text a {
-        color: #3b82f6;
-        text-decoration: none;
-        font-weight: 500;
+    @keyframes authFadeUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
     }
-    .auth-footer-text a:hover {
-        text-decoration: underline;
-    }
-    /* Responsive */
-    @media (max-width: 480px) {
-        .auth-card {
-            max-width: min(300px, 100%);
-            padding: 1.5rem 1.15rem 1.35rem;
-            border-radius: 20px;
-        }
-        .auth-title {
-            font-size: 1.35rem;
-        }
-        .auth-features {
-            gap: 0.35rem;
-        }
-        .auth-feature {
-            font-size: 0.7rem;
-            padding: 0.28rem 0.55rem;
-        }
-    }
-    
-    /* Old styles (keeping for compatibility) */
-    .auth-header {
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .auth-header h1 {
-        font-size: 1.75rem;
-        font-weight: 600;
-        color: #f1f5f9;
-        margin: 0 0 0.5rem 0;
-    }
-    .auth-header p {
-        font-size: 0.9375rem;
-        color: #94a3b8;
-        margin: 0;
-    }
-    .auth-tabs .stTabs [data-baseweb="tab-list"] {
-        gap: 0;
-        background: #0f172a;
-        padding: 0.25rem;
-        border-radius: 10px;
-        border: 1px solid #334155;
-    }
-    .auth-tabs .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
-        padding: 0.5rem 1.25rem;
-        font-weight: 500;
-        color: #94a3b8;
-        background: transparent;
-    }
-    .auth-tabs .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-        color: white !important;
-    }
-    .auth-form-section {
-        margin-top: 1.5rem;
-        padding: 1.25rem;
-        background: rgba(15, 23, 42, 0.6);
-        border-radius: 12px;
-        border: 1px solid #334155;
-    }
-    .auth-footer {
-        text-align: center;
-        margin-top: 1.5rem;
-        padding: 1rem;
-        font-size: 0.8125rem;
-        color: #64748b;
-        background: rgba(15, 23, 42, 0.4);
-        border-radius: 8px;
-        border: 1px dashed #334155;
+    @keyframes authLogoIn {
+        from { opacity: 0; transform: scale(0.86) translateY(6px); }
+        to { opacity: 1; transform: scale(1) translateY(0); }
     }
     
     /* Input Fields - Fluid, soft focus */
@@ -836,32 +645,6 @@ st.markdown(
         font-size: 0.9375rem;
     }
     
-    /* Auth page - Centered card layout */
-    .auth-wrapper {
-        max-width: 420px;
-        margin: 2rem auto;
-        padding: 2rem;
-        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
-        border-radius: 16px;
-        border: 1px solid #334155;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    }
-    .auth-title {
-        font-size: 1.5rem;
-        font-weight: 600;
-        color: #f1f5f9;
-        margin-bottom: 0.25rem;
-        text-align: center;
-    }
-    .auth-subtitle {
-        font-size: 0.875rem;
-        color: #94a3b8;
-        margin-bottom: 1.5rem;
-        text-align: center;
-    }
-    .auth-form-section {
-        margin: 1.5rem 0;
-    }
     div[data-testid="stTabs"] > div:first-child {
         background: #1e293b !important;
         border-radius: 10px 10px 0 0 !important;
@@ -936,29 +719,132 @@ st.markdown(
         }
     }
     
-    /* Sidebar - Fluid, minimal */
+    /* Sidebar - Knowledge Home rail */
     [data-testid="stSidebar"] {
-        background: rgba(15, 23, 42, 0.95);
-        backdrop-filter: blur(8px);
-        border-right: 1px solid rgba(51, 65, 85, 0.4);
+        background: linear-gradient(180deg, #0a121c 0%, #0c1522 55%, #0a1018 100%);
+        border-right: 1px solid rgba(148, 163, 184, 0.12);
     }
-    
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 0.85rem;
+    }
     [data-testid="stSidebar"] .stButton>button {
         width: 100%;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.2rem;
         border-radius: 10px;
         background: transparent;
-        color: #e2e8f0;
+        color: #cbd5e1;
         border: 1px solid transparent;
         text-align: left;
-        padding: 0.5rem 0.875rem;
+        justify-content: flex-start;
+        padding: 0.48rem 0.8rem;
+        font-family: 'DM Sans', sans-serif;
         font-size: 0.875rem;
-        transition: all 0.2s ease;
+        font-weight: 500;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     }
-    
     [data-testid="stSidebar"] .stButton>button:hover {
-        background: rgba(51, 65, 85, 0.5);
-        border-color: rgba(71, 85, 105, 0.3);
+        background: rgba(30, 41, 59, 0.55);
+        border-color: rgba(148, 163, 184, 0.14);
+        color: #f1f5f9;
+        transform: none;
+        box-shadow: none;
+    }
+    /* Active nav item */
+    [data-testid="stSidebar"] .stButton>button[kind="primary"] {
+        background: rgba(13, 148, 136, 0.16) !important;
+        border: 1px solid rgba(45, 212, 191, 0.28) !important;
+        color: #99f6e4 !important;
+        font-weight: 600 !important;
+        justify-content: flex-start !important;
+        margin-bottom: 0.2rem !important;
+    }
+    [data-testid="stSidebar"] .stButton>button[kind="primary"]:hover {
+        background: rgba(13, 148, 136, 0.24) !important;
+        border-color: rgba(45, 212, 191, 0.4) !important;
+        color: #ccfbf1 !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    /* Solid New chat CTA — must beat active-nav primary specificity */
+    [data-testid="stSidebar"] div[class*="st-key-side_start_new_chat"] .stButton > button[kind="primary"] {
+        background: #0d9488 !important;
+        border: none !important;
+        color: #fff !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-weight: 650 !important;
+        justify-content: center !important;
+        margin: 0.15rem 0 0.55rem !important;
+    }
+    [data-testid="stSidebar"] div[class*="st-key-side_start_new_chat"] .stButton > button[kind="primary"]:hover {
+        background: #0f766e !important;
+        color: #fff !important;
+        box-shadow: 0 6px 16px rgba(13, 148, 136, 0.25) !important;
+    }
+    .sb-cta-marker { display: none; }
+    [data-testid="stSidebar"] .stButton>button[kind="tertiary"] {
+        color: #94a3b8 !important;
+        background: transparent !important;
+        border: none !important;
+        justify-content: flex-start !important;
+        padding-left: 0.35rem !important;
+        margin-bottom: 0.05rem !important;
+    }
+    [data-testid="stSidebar"] .stButton>button[kind="tertiary"]:hover {
+        color: #5eead4 !important;
+        background: transparent !important;
+    }
+    .sb-user {
+        padding: 0.15rem 0.15rem 0.85rem;
+        margin-bottom: 0.35rem;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+    .sb-user-name {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 0.98rem;
+        font-weight: 650;
+        color: #f8fafc;
+        letter-spacing: -0.02em;
+        margin: 0;
+        line-height: 1.25;
+    }
+    .sb-user-meta {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        color: #94a3b8;
+        margin: 0.2rem 0 0;
+        line-height: 1.35;
+        word-break: break-word;
+    }
+    .sb-section-label {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin: 0.85rem 0 0.4rem;
+    }
+    .sb-thread {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin: 0 0 0.35rem;
+    }
+    .sb-footer {
+        text-align: center;
+        color: #475569;
+        font-size: 0.72rem;
+        font-family: 'DM Sans', sans-serif;
+        padding: 0.5rem 0 0.25rem;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] {
+        background: rgba(15, 23, 42, 0.35) !important;
+        border: 1px solid rgba(148, 163, 184, 0.12) !important;
+        border-radius: 10px !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+        font-family: 'DM Sans', sans-serif !important;
+        font-size: 0.84rem !important;
+        color: #94a3b8 !important;
     }
     
     /* Ensure sidebar expand/collapse button is always visible and clickable */
@@ -1406,205 +1292,194 @@ st.markdown(
         border: 1px solid rgba(71, 85, 105, 0.4);
     }
 
-    /* Login / signup only — toggled via body.auth-screen in app */
-    body.auth-screen section[data-testid="stSidebar"] {
+    /* Login / signup only — toggled via body:has(.auth-hero) in app */
+    body:has(.auth-hero) section[data-testid="stSidebar"] {
         display: none !important;
     }
-    body.auth-screen .stApp > div {
+    body:has(.auth-hero) .stApp > div {
         flex-direction: row;
     }
-    body.auth-screen section.main > div {
+    body:has(.auth-hero) section.main > div {
         flex: 1 1 100%;
         max-width: 100%;
     }
-    body.auth-screen [data-testid="stAppViewContainer"] .main {
-        background: radial-gradient(ellipse 100% 60% at 50% -15%, rgba(59, 130, 246, 0.12), transparent 55%),
-            linear-gradient(180deg, #0a0f1a 0%, #0f172a 40%, #0c1222 100%);
+    body:has(.auth-hero) [data-testid="stAppViewContainer"] .main {
+        min-height: 100vh;
+        background:
+            radial-gradient(ellipse 90% 55% at 50% -8%, rgba(20, 184, 166, 0.14), transparent 52%),
+            radial-gradient(ellipse 50% 40% at 100% 100%, rgba(14, 165, 233, 0.08), transparent 50%),
+            linear-gradient(180deg, #071018 0%, #0c1522 45%, #0a1018 100%);
     }
-    /* Compact centered rail — avoids stretched full-width inputs/buttons */
-    body.auth-screen .main .block-container,
-    body.auth-screen [data-testid="stMain"] .block-container,
-    body.auth-screen [data-testid="stMainBlockContainer"] {
-        max-width: 300px !important;
+    body:has(.auth-hero) .main .block-container,
+    body:has(.auth-hero) [data-testid="stMain"] .block-container,
+    body:has(.auth-hero) [data-testid="stMainBlockContainer"] {
+        max-width: 400px !important;
         margin-left: auto !important;
         margin-right: auto !important;
-        padding-left: 1.25rem !important;
-        padding-right: 1.25rem !important;
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 1.15rem !important;
+        padding-right: 1.15rem !important;
         width: 100%;
         box-sizing: border-box;
     }
-    body.auth-screen [data-testid="stHorizontalBlock"] {
-        max-width: 300px !important;
+    body:has(.auth-hero) [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"],
+    body:has(.auth-hero) [data-testid="stVerticalBlock"] > div {
+        gap: 0.45rem !important;
+    }
+    body:has(.auth-hero) .stForm [data-testid="stVerticalBlock"] {
+        gap: 0.55rem !important;
+    }
+    body:has(.auth-hero) [data-testid="stHorizontalBlock"] {
+        max-width: 420px !important;
         margin-left: auto !important;
         margin-right: auto !important;
         width: 100% !important;
         justify-content: center !important;
-        gap: 0.5rem !important;
+        gap: 0.65rem !important;
     }
-    body.auth-screen [data-testid="stAlert"] {
-        max-width: 300px !important;
+    body:has(.auth-hero) [data-testid="stAlert"] {
+        max-width: 420px !important;
         margin-left: auto !important;
         margin-right: auto !important;
         width: 100% !important;
         box-sizing: border-box;
     }
-    body.auth-screen .auth-card {
-        max-width: 300px !important;
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
-    }
-    body.auth-screen .auth-card .auth-title {
-        font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #f8fafc;
-        letter-spacing: -0.035em;
-    }
-    body.auth-screen .auth-card .auth-subtitle {
-        font-family: 'DM Sans', 'Inter', sans-serif;
-        color: #a1b4cf;
-    }
-    body.auth-screen .auth-card .auth-feature {
-        font-family: 'DM Sans', 'Inter', sans-serif;
-    }
-    body.auth-screen .auth-lead {
-        margin: 1.15rem 0 1.4rem 0;
-        color: #a8b9d4;
-        width: 100%;
-        text-align: center;
-    }
-    body.auth-screen .auth-form-title {
-        font-size: 1.02rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        color: #e2e8f0;
-        margin: 0 0 0.4rem 0;
-    }
-    body.auth-screen .auth-form-hint {
-        font-size: 0.84rem;
-        color: #94a3b8;
-        margin: 0 0 1.15rem 0;
-        line-height: 1.45;
-    }
-    body.auth-screen .stTextInput label,
-    body.auth-screen .stSelectbox label {
+    body:has(.auth-hero) .stTextInput label,
+    body:has(.auth-hero) .stSelectbox label,
+    body:has(.auth-hero) .stCheckbox label {
+        font-family: 'DM Sans', sans-serif !important;
         font-size: 0.86rem !important;
-        font-weight: 650 !important;
-        color: #e2e8f0 !important;
-        margin-bottom: 0.35rem !important;
+        font-weight: 550 !important;
+        color: #cbd5e1 !important;
+        margin-bottom: 0.3rem !important;
     }
-    body.auth-screen [data-testid="stVerticalBlock"] [data-testid="stExpander"] {
-        width: 100%;
-        max-width: 100%;
-    }
-    body.auth-screen div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-        gap: 0;
-        background: #0f172a !important;
-        padding: 4px !important;
-        border-radius: 12px !important;
-        border: 1px solid #334155 !important;
-    }
-    body.auth-screen div[data-testid="stTabs"] [data-baseweb="tab"] {
-        border-radius: 8px !important;
-        padding: 0.65rem 1.25rem !important;
-        font-weight: 600 !important;
-        font-size: 0.9rem !important;
-        color: #94a3b8 !important;
-        background: transparent !important;
-    }
-    body.auth-screen div[data-testid="stTabs"] [aria-selected="true"] {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-        color: white !important;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35) !important;
-    }
-    /* Streamlit forms use `.stForm` (more reliable than data-testid wrappers) */
-    body.auth-screen .stForm {
+    body:has(.auth-hero) .stForm,
+    body:has(.auth-hero) [data-testid="stForm"] {
         width: 100% !important;
-        max-width: 280px !important;
+        max-width: 400px !important;
         margin-left: auto !important;
         margin-right: auto !important;
         box-sizing: border-box;
-        padding: 1.35rem 1.15rem 1rem 1.15rem !important;
-        border-radius: 14px !important;
-        background: rgba(15, 23, 42, 0.5) !important;
+        padding: 1.2rem 1.2rem 0.95rem 1.2rem !important;
+        border-radius: 16px !important;
+        background: rgba(12, 20, 32, 0.72) !important;
         border: 1px solid rgba(148, 163, 184, 0.16) !important;
-        backdrop-filter: blur(6px) !important;
-        -webkit-backdrop-filter: blur(6px) !important;
+        box-shadow: 0 18px 48px -28px rgba(0, 0, 0, 0.75) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        animation: authFadeUp 0.55s ease 0.08s both;
     }
-    body.auth-screen [data-testid="stForm"] {
-        width: 100%;
-        max-width: 280px !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-        box-sizing: border-box;
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        border-radius: 14px;
-        padding: 1.35rem 1.15rem 1rem 1.15rem;
-        background: rgba(15, 23, 42, 0.5);
-        box-shadow: none;
-    }
-    body.auth-screen button[kind="primary"] {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    body:has(.auth-hero) button[kind="primary"],
+    body:has(.auth-hero) button[kind="primaryFormSubmit"] {
+        background: #0d9488 !important;
         color: #fff !important;
         border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
+        border-radius: 10px !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-weight: 650 !important;
+        font-size: 0.95rem !important;
+        padding-top: 0.65rem !important;
+        padding-bottom: 0.65rem !important;
+        margin-top: 0.35rem !important;
+        transition: background 0.15s ease, transform 0.15s ease !important;
     }
-    body.auth-screen button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
-        box-shadow: 0 3px 10px rgba(37, 99, 235, 0.22) !important;
+    body:has(.auth-hero) button[kind="primary"]:hover,
+    body:has(.auth-hero) button[kind="primaryFormSubmit"]:hover {
+        background: #0f766e !important;
+        box-shadow: 0 8px 20px rgba(13, 148, 136, 0.28) !important;
+        transform: translateY(-1px) !important;
     }
-    body.auth-screen .stExpander {
+    /* Secondary form actions (Create account / Forgot) stay quiet text links */
+    body:has(.auth-hero) button[kind="tertiary"],
+    body:has(.auth-hero) button[kind="secondary"],
+    body:has(.auth-hero) button[kind="tertiaryFormSubmit"],
+    body:has(.auth-hero) button[kind="secondaryFormSubmit"] {
+        background: transparent !important;
+        box-shadow: none !important;
+        transform: none !important;
+        color: #94a3b8 !important;
+    }
+    body:has(.auth-hero) button[kind="tertiaryFormSubmit"]:hover,
+    body:has(.auth-hero) button[kind="tertiary"]:hover {
+        color: #5eead4 !important;
+        background: transparent !important;
+    }
+    body:has(.auth-hero) [data-baseweb="checkbox"] span[data-checked="true"],
+    body:has(.auth-hero) [data-baseweb="checkbox"] > div {
+        background-color: #0d9488 !important;
+        border-color: #0d9488 !important;
+    }
+    body:has(.auth-hero) .stExpander {
         width: 100% !important;
-        max-width: 280px !important;
+        max-width: 420px !important;
         margin-left: auto !important;
         margin-right: auto !important;
         box-sizing: border-box;
-        border-radius: 14px !important;
-        background: rgba(15, 23, 42, 0.42) !important;
-        border: 1px solid rgba(148, 163, 184, 0.14) !important;
-        backdrop-filter: blur(4px) !important;
-        -webkit-backdrop-filter: blur(4px) !important;
+        border-radius: 12px !important;
+        background: rgba(12, 20, 32, 0.45) !important;
+        border: 1px solid rgba(148, 163, 184, 0.12) !important;
     }
-    body.auth-screen .stTextInput > div > div > input,
-    body.auth-screen .stTextArea > div > div > textarea {
-        border-radius: 12px;
-        border: 1px solid rgba(100, 116, 139, 0.45);
-        background: rgba(15, 23, 42, 0.44);
+    body:has(.auth-hero) .stTextInput > div > div > input,
+    body:has(.auth-hero) .stTextArea > div > div > textarea {
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        background: rgba(15, 23, 42, 0.85);
+        font-family: 'DM Sans', sans-serif;
+        min-height: 2.6rem;
     }
-    body.auth-screen .stTextInput > div > div > input:focus {
-        border-color: rgba(96, 165, 250, 0.65);
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    body:has(.auth-hero) .stTextInput > div > div > input:focus {
+        border-color: rgba(45, 212, 191, 0.55);
+        box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.16);
     }
-    body.auth-screen button[kind="tertiary"] {
-        color: #93c5fd !important;
+    body:has(.auth-hero) button[kind="tertiary"] {
+        color: #94a3b8 !important;
+        font-family: 'DM Sans', sans-serif !important;
         font-weight: 500 !important;
         text-decoration: none;
     }
-    body.auth-screen button[kind="tertiary"]:hover {
-        color: #bfdbfe !important;
+    body:has(.auth-hero) button[kind="tertiary"]:hover {
+        color: #e2e8f0 !important;
     }
-    body.auth-screen .auth-link-actions-marker + div [data-testid="stHorizontalBlock"] {
+    body:has(.auth-hero) .auth-switch-row {
+        margin-top: 1rem;
+        text-align: center;
+    }
+    body:has(.auth-hero) .auth-link-actions-marker + div [data-testid="stHorizontalBlock"] {
         align-items: center !important;
-        gap: 0.35rem !important;
-        margin-bottom: 0.8rem !important;
+        gap: 0.5rem !important;
+        margin: 0.85rem 0 0.15rem 0 !important;
     }
-    body.auth-screen .auth-link-actions-marker + div .stButton > button[kind="tertiary"] {
+    body:has(.auth-hero) .auth-link-actions-marker + div .stButton > button[kind="tertiary"] {
         width: 100%;
         justify-content: center;
-        border: 1px solid rgba(148, 163, 184, 0.18) !important;
-        border-radius: 12px !important;
-        background: rgba(15, 23, 42, 0.35) !important;
-        color: #c7d2fe !important;
-        font-size: 0.82rem !important;
-        font-weight: 600 !important;
-        padding: 0.35rem 0.6rem !important;
-        transition: background 0.15s ease, border-color 0.15s ease;
+        border: none !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        color: #94a3b8 !important;
+        font-size: 0.84rem !important;
+        font-weight: 500 !important;
+        padding: 0.25rem 0.2rem !important;
+        box-shadow: none !important;
+        transform: none !important;
     }
-    body.auth-screen .auth-link-actions-marker + div .stButton > button[kind="tertiary"]:hover {
-        background: rgba(30, 41, 59, 0.55) !important;
-        border-color: rgba(148, 163, 184, 0.32) !important;
-        color: #e2e8f0 !important;
+    body:has(.auth-hero) .auth-link-actions-marker + div .stButton > button[kind="tertiary"]:hover {
+        background: transparent !important;
+        color: #5eead4 !important;
+        border: none !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    @media (max-width: 480px) {
+        body:has(.auth-hero) .main .block-container,
+        body:has(.auth-hero) [data-testid="stMain"] .block-container,
+        body:has(.auth-hero) [data-testid="stMainBlockContainer"] {
+            padding-top: 2rem !important;
+            max-width: 100% !important;
+        }
+        body:has(.auth-hero) .auth-title {
+            font-size: 1.55rem;
+        }
     }
 
     /* -------- Phase 1 chat modernization overrides -------- */
@@ -1622,104 +1497,146 @@ st.markdown(
         --ia-shadow-glow: 0 18px 48px rgba(2, 8, 23, 0.34);
     }
 
-    /* Make conversation layout feel more intentional */
+    /* Clean centered thread (Notion / Linear AI style) */
     .block-container {
-        max-width: 1520px;
+        max-width: 1100px;
     }
 
-    .message-user,
-    .message-bot {
-        border-radius: 20px !important;
-        padding: 0.95rem 1.05rem !important;
-        margin-bottom: 0.8rem !important;
-        box-shadow: var(--ia-shadow-soft) !important;
-        border: 1px solid var(--ia-border-soft) !important;
-        max-width: 84% !important;
-        line-height: 1.62 !important;
-        font-size: 0.96rem !important;
+    .thread {
+        max-width: 720px;
+        margin: 0 auto 1.25rem;
+        padding: 0.25rem 0 0.5rem;
     }
 
-    .message-user {
-        background: linear-gradient(135deg, var(--ia-accent-a) 0%, var(--ia-accent-b) 100%) !important;
-        margin-left: 13% !important;
-        color: #f8fbff !important;
-        border-color: rgba(134, 181, 255, 0.35) !important;
+    .msg {
+        margin: 0 0 1.35rem;
+        animation: authFadeUp 0.35s ease both;
     }
 
-    .message-bot {
-        background: linear-gradient(180deg, var(--ia-bg-card) 0%, var(--ia-bg-card-soft) 100%) !important;
-        margin-right: 13% !important;
-        color: #e7effa !important;
-        backdrop-filter: blur(10px) saturate(1.06);
-    }
-
-    .message-meta {
+    .msg-user {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        margin-bottom: 0.45rem;
+        justify-content: flex-end;
     }
 
-    .message-role {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        font-size: 0.74rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        font-weight: 700;
-        opacity: 0.94;
+    .msg-user-bubble {
+        max-width: 85%;
+        padding: 0.7rem 0.95rem;
+        border-radius: 16px 16px 4px 16px;
+        background: rgba(13, 148, 136, 0.16);
+        border: 1px solid rgba(45, 212, 191, 0.22);
+        color: #f1f5f9;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        word-wrap: break-word;
     }
 
-    .message-body p,
-    .message-body div,
-    .message-body span,
-    .message-body li {
-        color: inherit !important;
+    .msg-assistant {
+        max-width: 100%;
+        padding: 0.15rem 0.15rem 0.35rem;
+        border-top: none;
+        color: #e2e8f0;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.98rem;
+        line-height: 1.65;
+        word-wrap: break-word;
     }
 
-    .message-actions-label {
-        font-size: 0.72rem;
-        color: var(--ia-text-subtle);
+    .msg-assistant .msg-body {
+        color: #e2e8f0;
     }
 
-    .message-time {
-        font-size: 0.72rem !important;
-        color: var(--ia-text-muted) !important;
-        opacity: 0.9 !important;
+    .msg-assistant.streaming .msg-body {
+        opacity: 0.92;
     }
 
-    .message-sources {
+    .msg-actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.45rem;
-        margin-top: 0.8rem;
+        gap: 0.35rem;
+        margin-top: 0.55rem;
+        opacity: 0.72;
+    }
+
+    /* Keep answer action labels readable (no Co… / He… / Im…) */
+    .msg-actions-row [data-testid="stHorizontalBlock"] {
+        gap: 0.45rem !important;
+        align-items: center;
+    }
+    .msg-actions-row .stButton > button {
+        width: auto !important;
+        min-width: 4.75rem !important;
+        padding: 0.28rem 0.75rem !important;
+        font-size: 0.8rem !important;
+        font-weight: 500 !important;
+        white-space: nowrap !important;
+        border-radius: 8px !important;
+        background: transparent !important;
+        border: 1px solid rgba(148, 163, 184, 0.2) !important;
+        color: #94a3b8 !important;
+        box-shadow: none !important;
+    }
+    .msg-actions-row .stButton > button:hover {
+        color: #e2e8f0 !important;
+        border-color: rgba(45, 212, 191, 0.35) !important;
+        background: rgba(13, 148, 136, 0.1) !important;
+        transform: none !important;
+    }
+
+    .sources-block {
+        margin-top: 0.75rem;
+        padding-top: 0.55rem;
+        border-top: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .sources-summary {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin: 0 0 0.45rem;
     }
 
     .source-chip {
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
-        padding: 0.38rem 0.62rem;
-        border-radius: 999px;
-        background: rgba(148, 163, 184, 0.09);
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        color: #d8e4f5;
+        padding: 0.32rem 0.58rem;
+        border-radius: 8px;
+        background: rgba(148, 163, 184, 0.07);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        color: #cbd5e1;
         font-size: 0.76rem;
         line-height: 1.2;
+        margin: 0 0.3rem 0.3rem 0;
     }
 
     .source-chip em {
-        color: var(--ia-text-subtle);
+        color: #64748b;
         font-style: normal;
+        font-size: 0.72rem;
+    }
+
+    /* Legacy class hooks still used by streaming placeholders */
+    .message-user,
+    .message-bot {
+        max-width: 720px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        box-shadow: none !important;
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+    }
+
+    .message-bot.streaming {
+        animation: none;
+        box-shadow: none !important;
     }
 
     .zone-context-panel {
-        border-radius: 14px !important;
-        background: linear-gradient(180deg, rgba(17, 25, 40, 0.72) 0%, rgba(17, 25, 40, 0.56) 100%) !important;
-        border: 1px solid var(--ia-border-soft) !important;
-        box-shadow: var(--ia-shadow-soft) !important;
+        display: none !important;
     }
 
     /* Modern composer shell */
@@ -1821,6 +1738,122 @@ st.markdown(
 
     .copilot-greeting p {
         color: #9fb2cb !important;
+    }
+
+    /* ===== Knowledge Home ===== */
+    .kh-shell {
+        max-width: 720px;
+        margin: 0.5rem auto 1.5rem;
+        text-align: center;
+        animation: authFadeUp 0.45s ease both;
+    }
+    .kh-eyebrow {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin: 0 0 0.55rem 0;
+    }
+    .kh-title {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: clamp(1.55rem, 3vw, 1.95rem);
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        color: #f8fafc;
+        margin: 0 0 0.45rem 0;
+        line-height: 1.2;
+    }
+    .kh-subtitle {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.98rem;
+        color: #94a3b8;
+        margin: 0 0 1.35rem 0;
+        line-height: 1.45;
+    }
+    .kh-chips {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.55rem;
+        margin: 0.35rem 0 1.25rem;
+    }
+    .kh-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.75rem;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(15, 23, 42, 0.55);
+        color: #cbd5e1;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+    .kh-chip strong {
+        color: #f1f5f9;
+        font-weight: 650;
+    }
+    .kh-chip-dot {
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 50%;
+        background: #14b8a6;
+        display: inline-block;
+    }
+    .kh-chip-dot.warn {
+        background: #f59e0b;
+    }
+    .kh-empty {
+        margin: 1.1rem auto 0.35rem;
+        max-width: 520px;
+        padding: 1.1rem 1.15rem;
+        border-radius: 14px;
+        border: 1px dashed rgba(148, 163, 184, 0.28);
+        background: rgba(12, 20, 32, 0.45);
+        text-align: left;
+    }
+    .kh-empty h3 {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 1rem;
+        color: #f1f5f9;
+        margin: 0 0 0.35rem 0;
+        letter-spacing: -0.02em;
+    }
+    .kh-empty p {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.88rem;
+        color: #94a3b8;
+        margin: 0;
+        line-height: 1.45;
+    }
+    .kh-actions-marker + div [data-testid="stHorizontalBlock"] {
+        max-width: 420px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        gap: 0.75rem !important;
+    }
+    .kh-actions-marker + div .stButton > button {
+        border-radius: 10px !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-weight: 600 !important;
+        min-height: 2.7rem;
+    }
+    .kh-actions-marker + div .stButton > button[kind="primary"] {
+        background: #0d9488 !important;
+        border: none !important;
+        color: #fff !important;
+    }
+    .kh-actions-marker + div .stButton > button[kind="primary"]:hover {
+        background: #0f766e !important;
+    }
+    .kh-composer-hint {
+        text-align: center;
+        color: #64748b;
+        font-size: 0.8rem;
+        margin: 0.55rem 0 0.85rem;
+        font-family: 'DM Sans', sans-serif;
     }
     </style>
     """,
@@ -1970,8 +2003,11 @@ if "password_reset_email" not in st.session_state:
     st.session_state.password_reset_email = None
 if "show_2fa_setup" not in st.session_state:
     st.session_state.show_2fa_setup = False
-if "pending_2fa_username" not in st.session_state:
-    st.session_state.pending_2fa_username = None
+if "pending_2fa_email" not in st.session_state:
+    st.session_state.pending_2fa_email = None
+# Back-compat if an older session still has the username key
+if "pending_2fa_username" in st.session_state and not st.session_state.pending_2fa_email:
+    st.session_state.pending_2fa_email = st.session_state.pending_2fa_username
 if "pending_remember_me" not in st.session_state:
     st.session_state.pending_remember_me = True
 if "2fa_setup_data" not in st.session_state:
@@ -2150,19 +2186,22 @@ if not st.session_state.authenticated:
 
 # Login/Register UI
 if not st.session_state.authenticated:
-    # Show warning if API_URL is still localhost (common deployment issue)
-    if API_URL.startswith("http://127.0.0.1") or API_URL.startswith("http://localhost"):
-        st.warning(
-            "⚠️ **API Configuration Issue Detected**\n\n"
-            "The API URL is set to localhost, which won't work on Streamlit Cloud.\n\n"
-            "**To fix:**\n"
-            "1. Deploy your FastAPI backend (Railway, Render, Fly.io, etc.)\n"
-            "2. In Streamlit Cloud: Settings → Secrets → Add `API_URL = \"https://your-backend-url.com\"`\n"
-            "3. Redeploy\n\n"
-            "📖 See `STREAMLIT_CLOUD_DEPLOYMENT.md` for detailed instructions."
+    def _is_streamlit_cloud_host() -> bool:
+        cwd = os.getcwd().replace("\\", "/")
+        return bool(
+            os.environ.get("STREAMLIT_SHARING_MODE")
+            or cwd.startswith("/mount/src")
         )
-        st.markdown("---")
-    
+
+    # Only warn when localhost API_URL would actually break (hosted Streamlit Cloud)
+    if _is_streamlit_cloud_host() and (
+        API_URL.startswith("http://127.0.0.1") or API_URL.startswith("http://localhost")
+    ):
+        st.warning(
+            "API URL is set to localhost, which won't work on Streamlit Cloud. "
+            "Set `API_URL` in Streamlit Cloud secrets to your backend URL."
+        )
+
     # Check for reset token in query parameters (for email links)
     query_params = st.query_params
     reset_token_from_url = query_params.get("reset_token", None)
@@ -2170,7 +2209,6 @@ if not st.session_state.authenticated:
         st.session_state.password_reset_token = reset_token_from_url
         st.session_state.show_password_reset = True
         st.session_state.auth_view = "login"
-        # Verify token to get email
         try:
             verify_resp = requests.post(
                 f"{API_URL}/auth/password-reset/verify",
@@ -2180,298 +2218,131 @@ if not st.session_state.authenticated:
             if verify_resp.status_code == 200:
                 verify_data = verify_resp.json()
                 st.session_state.password_reset_email = verify_data.get("email")
-        except:
-            pass  # Will show error in form
+        except Exception:
+            pass
 
-    # Dev helpers (default creds + reset token debugging) should never be the default
-    # experience for production users.
     debug_mode = os.environ.get("DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
     show_dev_helpers = debug_mode
-    
-    # Modern Auth UI — compact ~300px rail; body.auth-screen hides sidebar & scopes auth CSS
-    st.markdown(
-        '<script>document.body.classList.add("auth-screen")</script>',
-        unsafe_allow_html=True,
-    )
+
     st.markdown(
         """
-<div class="auth-card">
-    <div class="auth-brand">
-        <div class="auth-logo-wrap" aria-hidden="true">
-            <svg class="auth-logo-svg" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <defs>
-                    <linearGradient id="auth-book-a" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stop-color="#2dd4bf"/>
-                        <stop offset="100%" stop-color="#14b8a6"/>
-                    </linearGradient>
-                    <linearGradient id="auth-book-b" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stop-color="#f472b6"/>
-                        <stop offset="100%" stop-color="#db2777"/>
-                    </linearGradient>
-                    <linearGradient id="auth-book-c" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stop-color="#7dd3fc"/>
-                        <stop offset="100%" stop-color="#0ea5e9"/>
-                    </linearGradient>
-                </defs>
-                <rect x="10" y="22" width="26" height="46" rx="4" fill="url(#auth-book-a)" transform="rotate(-14 23 45)" opacity="0.98"/>
-                <rect x="28" y="14" width="28" height="52" rx="4" fill="url(#auth-book-b)" transform="rotate(6 42 40)" opacity="0.98"/>
-                <rect x="44" y="20" width="28" height="48" rx="4" fill="url(#auth-book-c)" transform="rotate(14 58 44)" opacity="0.98"/>
-            </svg>
-        </div>
-        <h1 class="auth-title">Incident Assistant</h1>
-        <p class="auth-subtitle">Your AI-powered knowledge base</p>
+<div class="auth-hero">
+    <div class="auth-logo-wrap" aria-hidden="true">
+        <svg class="auth-logo-svg" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="auth-book-a" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#2dd4bf"/>
+                    <stop offset="100%" stop-color="#14b8a6"/>
+                </linearGradient>
+                <linearGradient id="auth-book-b" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#f472b6"/>
+                    <stop offset="100%" stop-color="#db2777"/>
+                </linearGradient>
+                <linearGradient id="auth-book-c" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#7dd3fc"/>
+                    <stop offset="100%" stop-color="#0ea5e9"/>
+                </linearGradient>
+            </defs>
+            <rect x="10" y="22" width="26" height="46" rx="4" fill="url(#auth-book-a)" transform="rotate(-14 23 45)" opacity="0.98"/>
+            <rect x="28" y="14" width="28" height="52" rx="4" fill="url(#auth-book-b)" transform="rotate(6 42 40)" opacity="0.98"/>
+            <rect x="44" y="20" width="28" height="48" rx="4" fill="url(#auth-book-c)" transform="rotate(14 58 44)" opacity="0.98"/>
+        </svg>
     </div>
-    <div class="auth-features">
-        <span class="auth-feature"><span class="auth-feature-icon">🔒</span> Secure</span>
-        <span class="auth-feature"><span class="auth-feature-icon">⚡</span> Fast</span>
-        <span class="auth-feature"><span class="auth-feature-icon">🤖</span> AI-Powered</span>
-    </div>
+    <h1 class="auth-title">Incident Assistant</h1>
+    <p class="auth-subtitle">Ask your documents. Get answers with sources.</p>
 </div>
 """,
         unsafe_allow_html=True,
     )
 
     if st.session_state.auth_view == "register":
-        st.markdown(
-            '<p class="auth-lead">Create your account to get started.</p>',
-            unsafe_allow_html=True,
-        )
-    
-        # Password requirements with modern styling
-        st.markdown("""
-        <div class="password-requirements">
-            <div class="password-requirements-title">📋 Password Requirements:</div>
-            <div id="req-list-reg">
-                <div id="req-length-reg" class="password-req">❌ Min. 8 characters</div>
-                <div id="req-upper-reg" class="password-req">❌ One uppercase letter (A-Z)</div>
-                <div id="req-lower-reg" class="password-req">❌ One lowercase letter (a-z)</div>
-                <div id="req-number-reg" class="password-req">❌ One number (0-9)</div>
-                <div id="req-special-reg" style="margin: 0.375rem 0; color: #94a3b8; transition: color 0.2s;">❌ At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)</div>
-            </div>
-        </div>
-        <script>
-        (function() {
-            function checkPasswordRequirements(password) {
-                const requirements = {
-                    length: password.length >= 8,
-                    upper: /[A-Z]/.test(password),
-                    lower: /[a-z]/.test(password),
-                    number: /[0-9]/.test(password),
-                    special: /[!@#$%^&*()_+\\-=\\[\\]{}|;:,.<>?]/.test(password)
-                };
-            
-                // Update UI
-                const updateReq = (id, met, text) => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        if (met) {
-                            el.innerHTML = '✅ ' + text;
-                            el.style.color = '#10b981';
-                        } else {
-                            el.innerHTML = '❌ ' + text;
-                            el.style.color = '#94a3b8';
-                        }
-                    }
-                };
-            
-                updateReq('req-length-reg', requirements.length, 'Minimum length: 8 characters');
-                updateReq('req-upper-reg', requirements.upper, 'At least one uppercase letter (A-Z)');
-                updateReq('req-lower-reg', requirements.lower, 'At least one lowercase letter (a-z)');
-                updateReq('req-number-reg', requirements.number, 'At least one number (0-9)');
-                updateReq('req-special-reg', requirements.special, 'At least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)');
-            }
-        
-            // Monitor password input - find by label text
-            function setupPasswordValidation() {
-                const inputs = document.querySelectorAll('input[type="password"]');
-            
-                // Find the password input (not the confirm password)
-                // In Streamlit, inputs are in forms, and we can find by looking for the one before "Confirm Password"
-                let passwordInput = null;
-            
-                // Method 1: Find by looking for label containing "Password" but not "Confirm"
-                const allLabels = document.querySelectorAll('label, [data-testid*="stTextInput"]');
-                for (let label of allLabels) {
-                    const text = label.textContent || '';
-                    if (text.includes('Password') && !text.includes('Confirm')) {
-                        // Find the input near this label
-                        const form = label.closest('form') || label.closest('[data-testid*="stForm"]');
-                        if (form) {
-                            const formInputs = form.querySelectorAll('input[type="password"]');
-                            if (formInputs.length > 0) {
-                                passwordInput = formInputs[0];
-                                break;
-                            }
-                        }
-                    }
-                }
-            
-                // Method 2: If in register form, use first password input
-                if (!passwordInput) {
-                    const registerForm = document.querySelector('form');
-                    if (registerForm) {
-                        const formInputs = registerForm.querySelectorAll('input[type="password"]');
-                        if (formInputs.length >= 1) {
-                            passwordInput = formInputs[0];
-                        }
-                    }
-                }
-            
-                if (passwordInput) {
-                    // Store original value to detect changes
-                    let lastValue = passwordInput.value || '';
-                
-                    const checkAndUpdate = function() {
-                        const currentValue = passwordInput.value || '';
-                        if (currentValue !== lastValue) {
-                            lastValue = currentValue;
-                            checkPasswordRequirements(currentValue);
-                        }
-                    };
-                
-                    // Add event listeners
-                    passwordInput.addEventListener('input', checkAndUpdate);
-                    passwordInput.addEventListener('keyup', checkAndUpdate);
-                    passwordInput.addEventListener('change', checkAndUpdate);
-                
-                    // Check initial value
-                    checkAndUpdate();
-                } else {
-                    // Retry after a delay if inputs aren't ready yet
-                    setTimeout(setupPasswordValidation, 300);
-                }
-            }
-        
-            // Run after page load
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', function() {
-                    setTimeout(setupPasswordValidation, 300);
-                });
-            } else {
-                setTimeout(setupPasswordValidation, 300);
-            }
-        
-            // Also monitor for Streamlit reruns
-            const observer = new MutationObserver(function(mutations) {
-                let shouldCheck = false;
-                mutations.forEach(function(mutation) {
-                    if (mutation.addedNodes.length > 0) {
-                        shouldCheck = true;
-                    }
-                });
-                if (shouldCheck) {
-                    setTimeout(setupPasswordValidation, 100);
-                }
-            });
-        
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-        })();
-        </script>
-        """, unsafe_allow_html=True)
-    
         with st.form("register_form"):
             st.markdown(
-                '<div class="auth-form-title">Create your account</div><div class="auth-form-hint">Start building with an admin-ready knowledge base.</div>',
+                '<div class="auth-form-title">Create account</div>'
+                '<div class="auth-form-hint">Upload documents and ask questions in plain English.</div>',
                 unsafe_allow_html=True,
             )
-            reg_username = st.text_input("Username", key="reg_username", placeholder="Choose a username")
+            reg_first_name = st.text_input("First name", key="reg_first_name", placeholder="Your first name")
             reg_email = st.text_input("Email", key="reg_email", placeholder="you@example.com")
-            reg_password = st.text_input("Password", type="password", key="reg_password", placeholder="••••••••", help="See password requirements above")
-            reg_password_confirm = st.text_input("Confirm Password", type="password", key="reg_password_confirm", placeholder="••••••••")
-            submit_reg = st.form_submit_button("Register", use_container_width=True)
-        
+            reg_password = st.text_input("Password", type="password", key="reg_password", placeholder="Create a password")
+            with st.expander("Password requirements", expanded=False):
+                st.caption("8+ characters, with uppercase, lowercase, number, and special character.")
+            reg_password_confirm = st.text_input("Confirm password", type="password", key="reg_password_confirm", placeholder="Repeat password")
+            submit_reg = st.form_submit_button("Create account", use_container_width=True, type="primary")
+
             if submit_reg:
-                if reg_username and reg_email and reg_password:
+                if reg_first_name and reg_email and reg_password:
                     if reg_password != reg_password_confirm:
-                        st.error("❌ Passwords do not match")
+                        st.error("Passwords do not match")
                     else:
                         try:
                             response = requests.post(
                                 f"{API_URL}/auth/register",
                                 json={
-                                    "username": reg_username,
-                                    "email": reg_email,
+                                    "first_name": reg_first_name.strip(),
+                                    "email": reg_email.strip(),
                                     "password": reg_password,
                                     "role": "user"
                                 },
                                 timeout=5
                             )
                             if response.status_code == 200:
-                                st.success("✅ Registration successful! Please login.")
+                                st.success("Account created. You can sign in now.")
+                                st.session_state.auth_view = "login"
                             else:
-                                st.error(f"❌ Registration failed: {response.json().get('detail', 'Unknown error')}")
+                                st.error(f"Registration failed: {response.json().get('detail', 'Unknown error')}")
                         except requests.exceptions.ConnectionError:
                             st.error(get_api_connection_error_message())
                         except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
+                            st.error(f"Error: {str(e)}")
                 else:
-                    st.warning("⚠️ Please fill in all fields")
-    
+                    st.warning("Please fill in all fields")
 
-        if st.button(
-            "Already have an account? Sign in",
-            key="auth_switch_to_login",
-            type="tertiary",
-        ):
+        if st.button("Already have an account? Sign in", key="auth_switch_to_login", type="tertiary", use_container_width=True):
             st.session_state.auth_view = "login"
             st.rerun()
     else:
-        st.markdown(
-            '<p class="auth-lead">Welcome back! Enter your credentials to continue.</p>',
-            unsafe_allow_html=True,
-        )
         if st.session_state.show_password_reset:
-            st.markdown("---")
-            st.markdown("### 🔑 Password Reset")
-        
             if st.session_state.password_reset_token:
-                # Step 2: Reset password with token
-                st.info(f"📧 Reset token received for: {st.session_state.password_reset_email}")
+                if st.session_state.password_reset_email:
+                    st.caption(f"Resetting password for {st.session_state.password_reset_email}")
                 if show_dev_helpers:
-                    st.warning("⚠️ **Development Mode:** In production, this token would be sent via email.")
-                else:
-                    st.caption("Token verified. Set your new password below.")
-            
+                    st.info("Dev mode: token is available without email delivery.")
+
                 with st.form("reset_password_form"):
-                    st.text_input("Reset Token", value=st.session_state.password_reset_token, disabled=True, key="display_token")
-                
-                    # Password requirements info
-                    with st.expander("📋 Password Requirements", expanded=False):
-                        st.markdown("""
-                        Your new password must meet the following requirements:
-                        - **Minimum length:** 8 characters
-                        - **At least one uppercase letter** (A-Z)
-                        - **At least one lowercase letter** (a-z)
-                        - **At least one number** (0-9)
-                        - **At least one special character** (!@#$%^&*()_+-=[]{}|;:,.<>?)
-                        - **Cannot reuse** your last 5 passwords
-                        """)
-                
-                    new_password = st.text_input("New Password", type="password", key="reset_new_password", help="See password requirements above")
-                    confirm_password = st.text_input("Confirm New Password", type="password", key="reset_confirm_password")
-                
+                    st.markdown(
+                        '<div class="auth-form-title">Set a new password</div>'
+                        '<div class="auth-form-hint">Choose a strong password you have not used recently.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.text_input("Reset token", value=st.session_state.password_reset_token, disabled=True, key="display_token")
+                    with st.expander("Password requirements", expanded=False):
+                        st.markdown(
+                            "- At least 8 characters\n"
+                            "- Uppercase, lowercase, number, and special character\n"
+                            "- Cannot reuse your last 5 passwords"
+                        )
+                    new_password = st.text_input("New password", type="password", key="reset_new_password")
+                    confirm_password = st.text_input("Confirm new password", type="password", key="reset_confirm_password")
                     col1, col2 = st.columns(2)
                     with col1:
-                        submit_reset = st.form_submit_button("✅ Reset Password", use_container_width=True)
+                        submit_reset = st.form_submit_button("Reset password", use_container_width=True, type="primary")
                     with col2:
-                        cancel_reset = st.form_submit_button("❌ Cancel", use_container_width=True)
-                
+                        cancel_reset = st.form_submit_button("Cancel", use_container_width=True)
+
                     if cancel_reset:
                         st.session_state.show_password_reset = False
                         st.session_state.password_reset_token = None
                         st.session_state.password_reset_email = None
                         st.rerun()
-                
+
                     if submit_reset:
                         if not new_password or not confirm_password:
-                            st.error("❌ Please fill in all fields")
+                            st.error("Please fill in all fields")
                         elif new_password != confirm_password:
-                            st.error("❌ Passwords do not match")
+                            st.error("Passwords do not match")
                         elif len(new_password) < 6:
-                            st.error("❌ Password must be at least 6 characters long")
+                            st.error("Password must be at least 6 characters long")
                         else:
                             try:
                                 response = requests.post(
@@ -2483,37 +2354,40 @@ if not st.session_state.authenticated:
                                     timeout=30
                                 )
                                 if response.status_code == 200:
-                                    st.success("✅ Password reset successful! You can now login with your new password.")
+                                    st.success("Password updated. You can sign in now.")
                                     st.session_state.show_password_reset = False
                                     st.session_state.password_reset_token = None
                                     st.session_state.password_reset_email = None
-                                    time.sleep(2)
+                                    time.sleep(1)
                                     st.rerun()
                                 else:
                                     error_detail = response.json().get('detail', 'Unknown error')
-                                    st.error(f"❌ Password reset failed: {error_detail}")
+                                    st.error(f"Password reset failed: {error_detail}")
                             except requests.exceptions.ConnectionError:
                                 st.error(get_api_connection_error_message())
                             except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
+                                st.error(f"Error: {str(e)}")
             else:
-                # Step 1: Request password reset
                 with st.form("request_reset_form"):
-                    reset_email = st.text_input("Email Address", key="reset_email")
-                
+                    st.markdown(
+                        '<div class="auth-form-title">Reset password</div>'
+                        '<div class="auth-form-hint">Enter the email on your account and we will send a reset link.</div>',
+                        unsafe_allow_html=True,
+                    )
+                    reset_email = st.text_input("Email address", key="reset_email", placeholder="you@example.com")
                     col1, col2 = st.columns(2)
                     with col1:
-                        submit_request = st.form_submit_button("📧 Send Reset Link", use_container_width=True)
+                        submit_request = st.form_submit_button("Send reset link", use_container_width=True, type="primary")
                     with col2:
-                        cancel_request = st.form_submit_button("❌ Cancel", use_container_width=True)
-                
+                        cancel_request = st.form_submit_button("Cancel", use_container_width=True)
+
                     if cancel_request:
                         st.session_state.show_password_reset = False
                         st.rerun()
-                
+
                     if submit_request:
                         if not reset_email:
-                            st.error("❌ Please enter your email address")
+                            st.error("Please enter your email address")
                         else:
                             try:
                                 response = requests.post(
@@ -2523,165 +2397,52 @@ if not st.session_state.authenticated:
                                 )
                                 if response.status_code == 200:
                                     data = response.json()
-                                    st.success("✅ " + data.get("message", "Reset link sent"))
-                                
-                                    # In dev/testing, show the token so reset works without email.
+                                    st.success(data.get("message", "Reset link sent"))
                                     if show_dev_helpers and data.get("token"):
                                         st.session_state.password_reset_token = data.get("token")
                                         st.session_state.password_reset_email = reset_email
-                                        st.info("🔑 Dev mode: your reset token is shown below. In production, this would be sent via email.")
+                                        st.info("Dev mode: reset token ready.")
                                         st.rerun()
                                 else:
                                     error_detail = response.json().get('detail', 'Unknown error')
-                                    st.error(f"❌ Request failed: {error_detail}")
+                                    st.error(f"Request failed: {error_detail}")
                             except requests.exceptions.ConnectionError:
                                 st.error(get_api_connection_error_message())
                             except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
-        
-            st.markdown("---")
-        else:
-            # Normal login form with link actions in the form header area.
-            # Wrapped in an additional center column to keep sign-in compact.
-            _login_l, _login_c, _login_r = st.columns([0.2, 0.6, 0.2])
-            with _login_c:
-                with st.form("login_form"):
-                    st.markdown(
-                        '<div class="auth-form-title">Welcome back</div>',
-                        unsafe_allow_html=True,
-                    )
-                    username = st.text_input("Username", key="login_username", placeholder="Enter your username")
-                    show_password = st.checkbox("Show password", value=False, key="login_show_password")
-                    password = st.text_input(
-                        "Password",
-                        type="default" if show_password else "password",
-                        key="login_password",
-                        placeholder="Enter your password"
-                    )
-                    remember_me = st.checkbox("Remember me on this device", value=True, key="login_remember_me")
-                    st.caption("Keeps you signed in across page refreshes on this browser.")
-
-                    # Inline validation cues (shown before submit)
-                    _username = (username or "").strip()
-                    _password = password or ""
-                    if _username and len(_username) < 3:
-                        st.caption("⚠️ Username looks short.")
-                    if _password and len(_password) < 8:
-                        st.caption("⚠️ Password should usually be at least 8 characters.")
-                
-                    submit = st.form_submit_button(
-                        "Sign in",
-                        use_container_width=True,
-                        type="primary",
-                        disabled=not bool(_username and _password),
-                    )
-                    st.markdown('<div class="auth-link-actions-marker"></div>', unsafe_allow_html=True)
-                    _ac_l, _ac_r = st.columns(2)
-                    with _ac_l:
-                        switch_to_register = st.form_submit_button("Create account", type="tertiary", use_container_width=True)
-                    with _ac_r:
-                        trigger_forgot = st.form_submit_button("Forgot password?", type="tertiary", use_container_width=True)
-
-                    if switch_to_register:
-                        st.session_state.auth_view = "register"
-                        st.rerun()
-                    if trigger_forgot:
-                        st.session_state.show_password_reset = True
-                        st.rerun()
-                
-                    if submit:
-                        if _username and _password:
-                            try:
-                                with st.spinner("Signing in..."):
-                                    response = requests.post(
-                                        f"{API_URL}/auth/login",
-                                        json={"username": _username, "password": _password},
-                                        timeout=5
-                                    )
-                                if response.status_code == 200:
-                                    data = response.json()
-                                
-                                    # Check if 2FA is required
-                                    if data.get("requires_2fa", False):
-                                        st.session_state.pending_2fa_username = _username
-                                        st.session_state.pending_remember_me = remember_me
-                                        st.info("🔐 Two-Factor Authentication required. Please enter your 2FA code.")
-                                        st.rerun()
-                                    else:
-                                        st.session_state.authenticated = True
-                                        st.session_state.access_token = data["access_token"]
-                                        if "refresh_token" in data:
-                                            st.session_state.refresh_token = data["refresh_token"]
-                                        if "session_id" in data:
-                                            st.session_state.session_id = data["session_id"]
-                                        st.session_state.current_user = data["user"]
-                                        # Persist token only when the user opts in.
-                                        if remember_me:
-                                            st.query_params.token = data["access_token"]
-                                        else:
-                                            st.query_params.clear()
-                                        st.success("✅ Login successful!")
-                                        st.rerun()
-                                elif response.status_code == 423:  # Locked
-                                    try:
-                                        error_detail = response.json().get('detail', 'Account is locked')
-                                    except Exception:
-                                        error_detail = "Account is locked"
-                                    st.error(f"🔒 {error_detail}")
-                                    st.warning("💡 Contact an administrator to unlock your account, or wait for the lockout period to expire.")
-                                else:
-                                    try:
-                                        error_detail = response.json().get('detail', 'Unknown error')
-                                    except Exception:
-                                        error_detail = response.text or "Unknown error"
-                                    if response.status_code in (400, 401):
-                                        error_detail = error_detail or "Invalid username or password."
-                                    st.error(f"❌ {error_detail}")
-                                    # Show attempts remaining if mentioned in error
-                                    if "attempt" in error_detail.lower() and "remaining" in error_detail.lower():
-                                        st.warning("⚠️ Too many failed attempts will lock your account.")
-                            except requests.exceptions.ConnectionError:
-                                st.error(get_api_connection_error_message())
-                            except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
-                        else:
-                            st.error("Please enter both username and password.")
-                            if not _username:
-                                st.caption("Username is required.")
-                            if not _password:
-                                st.caption("Password is required.")
-    
-        # 2FA verification form (shown when 2FA is required)
-        if st.session_state.pending_2fa_username:
-            st.markdown("---")
-            st.markdown("### 🔐 Two-Factor Authentication")
-            st.info(f"Enter the 6-digit authenticator code (or backup code) for **{st.session_state.pending_2fa_username}**.")
-        
+                                st.error(f"Error: {str(e)}")
+        elif st.session_state.pending_2fa_email:
             with st.form("2fa_verify_form"):
+                st.markdown(
+                    '<div class="auth-form-title">Two-factor authentication</div>'
+                    f'<div class="auth-form-hint">Enter the 6-digit code for {st.session_state.pending_2fa_email}.</div>',
+                    unsafe_allow_html=True,
+                )
                 twofa_code = st.text_input(
-                    "2FA Code",
+                    "Authentication code",
                     key="2fa_code",
-                    placeholder="123456 or BACKUP-CODE",
-                    help="Paste-friendly: spaces and dashes are ignored."
+                    placeholder="123456",
+                    help="Spaces and dashes are ignored."
                 )
                 normalized_code = (twofa_code or "").strip().replace(" ", "").replace("-", "")
-                st.caption("Tip: you can paste codes with spaces/dashes.")
-                if twofa_code and normalized_code != twofa_code.strip():
-                    st.caption(f"Using: `{normalized_code}`")
-                submit_2fa = st.form_submit_button("Verify", use_container_width=True, disabled=not bool(normalized_code))
-            
+                submit_2fa = st.form_submit_button(
+                    "Verify and sign in",
+                    use_container_width=True,
+                    type="primary",
+                    disabled=not bool(normalized_code),
+                )
+
                 if submit_2fa:
                     if normalized_code:
                         code_is_numeric_otp = normalized_code.isdigit() and len(normalized_code) == 6
                         code_is_backup = len(normalized_code) >= 8
                         if not (code_is_numeric_otp or code_is_backup):
-                            st.warning("⚠️ Enter a valid 6-digit code or backup code.")
+                            st.warning("Enter a valid 6-digit code or backup code.")
                         else:
                             try:
                                 response = requests.post(
                                     f"{API_URL}/auth/2fa/verify-login",
                                     json={"code": normalized_code},
-                                    params={"username": st.session_state.pending_2fa_username},
+                                    params={"email": st.session_state.pending_2fa_email},
                                     timeout=5
                                 )
                                 if response.status_code == 200:
@@ -2693,61 +2454,149 @@ if not st.session_state.authenticated:
                                     if "session_id" in data:
                                         st.session_state.session_id = data["session_id"]
                                     st.session_state.current_user = data["user"]
-                                    st.session_state.pending_2fa_username = None
-                                    # Persist token only when opted-in on the previous step.
+                                    st.session_state.pending_2fa_email = None
                                     if st.session_state.pending_remember_me:
                                         st.query_params.token = data["access_token"]
                                     else:
                                         st.query_params.clear()
-                                    st.success("✅ Login successful!")
                                     st.rerun()
                                 else:
                                     try:
                                         error_detail = response.json().get('detail', 'Invalid 2FA code')
                                     except Exception:
                                         error_detail = response.text or "Invalid 2FA code"
-                                    st.error(f"❌ {error_detail}")
+                                    st.error(error_detail)
                             except requests.exceptions.ConnectionError:
                                 st.error(get_api_connection_error_message())
                             except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
+                                st.error(f"Error: {str(e)}")
                     else:
-                        st.warning("⚠️ Please enter your 2FA code")
-        
-            if st.button("❌ Cancel", key="cancel_2fa"):
-                st.session_state.pending_2fa_username = None
+                        st.warning("Please enter your 2FA code")
+
+            if st.button("Cancel", key="cancel_2fa", type="tertiary", use_container_width=True):
+                st.session_state.pending_2fa_email = None
                 st.rerun()
-    
+        else:
+            with st.form("login_form"):
+                st.markdown(
+                    '<div class="auth-form-title">Sign in</div>'
+                    '<div class="auth-form-hint">Welcome back. Continue to your knowledge base.</div>',
+                    unsafe_allow_html=True,
+                )
+                email = st.text_input("Email", key="login_email", placeholder="you@example.com")
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    key="login_password",
+                    placeholder="Your password"
+                )
+                remember_me = st.checkbox("Keep me signed in", value=True, key="login_remember_me")
+
+                _email = (email or "").strip()
+                _password = password or ""
+
+                submit = st.form_submit_button(
+                    "Sign in",
+                    use_container_width=True,
+                    type="primary",
+                )
+                st.markdown('<div class="auth-link-actions-marker"></div>', unsafe_allow_html=True)
+                _ac_l, _ac_r = st.columns(2)
+                with _ac_l:
+                    switch_to_register = st.form_submit_button("Create account", type="tertiary", use_container_width=True)
+                with _ac_r:
+                    trigger_forgot = st.form_submit_button("Forgot password?", type="tertiary", use_container_width=True)
+
+                if switch_to_register:
+                    st.session_state.auth_view = "register"
+                    st.rerun()
+                if trigger_forgot:
+                    st.session_state.show_password_reset = True
+                    st.rerun()
+
+                if submit:
+                    if _email and _password:
+                        try:
+                            with st.spinner("Signing in..."):
+                                response = requests.post(
+                                    f"{API_URL}/auth/login",
+                                    json={"email": _email, "password": _password},
+                                    timeout=5
+                                )
+                            if response.status_code == 200:
+                                data = response.json()
+                                if data.get("requires_2fa", False):
+                                    st.session_state.pending_2fa_email = _email
+                                    st.session_state.pending_remember_me = remember_me
+                                    st.rerun()
+                                else:
+                                    st.session_state.authenticated = True
+                                    st.session_state.access_token = data["access_token"]
+                                    if "refresh_token" in data:
+                                        st.session_state.refresh_token = data["refresh_token"]
+                                    if "session_id" in data:
+                                        st.session_state.session_id = data["session_id"]
+                                    st.session_state.current_user = data["user"]
+                                    if remember_me:
+                                        st.query_params.token = data["access_token"]
+                                    else:
+                                        st.query_params.clear()
+                                    st.rerun()
+                            elif response.status_code == 423:
+                                try:
+                                    error_detail = response.json().get('detail', 'Account is locked')
+                                except Exception:
+                                    error_detail = "Account is locked"
+                                st.error(error_detail)
+                                st.caption("Contact an administrator, or wait for the lockout period to expire.")
+                            else:
+                                try:
+                                    error_detail = response.json().get('detail', 'Unknown error')
+                                except Exception:
+                                    error_detail = response.text or "Unknown error"
+                                if response.status_code in (400, 401):
+                                    error_detail = error_detail or "Invalid email or password."
+                                st.error(error_detail)
+                                if "attempt" in error_detail.lower() and "remaining" in error_detail.lower():
+                                    st.caption("Too many failed attempts will lock your account.")
+                        except requests.exceptions.ConnectionError:
+                            st.error(get_api_connection_error_message())
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
+                    else:
+                        st.error("Please enter both email and password.")
 
     st.stop()
 
 # Main app (only shown if authenticated)
 # Deep linking: open view from URL (?view=documents etc.)
-st.markdown(
-    '<script>document.body.classList.remove("auth-screen")</script>',
-    unsafe_allow_html=True,
-)
+# Auth-only styles are scoped via body:has(.auth-hero); no class toggle needed.
 apply_view_from_query_params()
 
-# Sidebar - organized into clear sections
-with st.sidebar:
-    # --- User block (compact) ---
-    if st.session_state.current_user:
-        user = st.session_state.current_user
-        role_badge = "👑" if user.get("role") == "admin" else "👤"
-        st.markdown(f"**{user.get('username', 'User')}** {role_badge}")
-        if st.button("🚪 Logout", use_container_width=True, key="sidebar_logout"):
-            st.session_state.authenticated = False
-            st.session_state.access_token = None
-            st.session_state.current_user = None
-            st.session_state.auth_view = "login"
-            st.session_state.chat_history = []
-            st.session_state.pop("_last_processed_query", None)
-            st.query_params.clear()
-            st.rerun()
-        st.markdown("---")
+def _sidebar_load_conversation(conversation_id: str) -> bool:
+    """Load a conversation into the current chat session."""
+    try:
+        conv_detail = requests.get(f"{API_URL}/conversations/{conversation_id}", timeout=5).json()
+        messages = conv_detail.get("messages", [])
+        loaded_history = []
+        for msg in messages:
+            role = msg.get("role", "assistant")
+            content = msg.get("content", "")
+            timestamp = msg.get("timestamp", "")[:5] if msg.get("timestamp") else ""
+            sources = msg.get("sources", [])
+            if content and not (content.strip().startswith("<div") or content.strip().startswith("<span")):
+                loaded_history.append((role, content, timestamp, sources))
+        st.session_state.current_conversation_id = conversation_id
+        st.session_state.chat_history = loaded_history
+        st.session_state.pop("_last_processed_query", None)
+        return True
+    except Exception as e:
+        logger.warning(f"Could not load conversation {conversation_id}: {e}")
+        return False
 
-    # --- Navigation (task-based) ---
+
+# Sidebar - Knowledge Home rail
+with st.sidebar:
     is_admin = st.session_state.current_user and st.session_state.current_user.get("role") == "admin"
     current_page = get_current_nav_page()
 
@@ -2760,220 +2609,217 @@ with st.sidebar:
                 st.query_params["view"] = page_key
                 st.rerun()
 
-    st.caption("▸ Chat")
-    render_nav_button("💬 Chat", "chat", "side_nav_chat")
-    render_nav_button("🕐 History", "history", "side_nav_history")
-    render_nav_button("💾 Saved", "saved_queries", "side_nav_saved_queries")
+    if st.session_state.current_user:
+        user = st.session_state.current_user
+        _display = user.get("display_name") or user.get("first_name") or user.get("username", "User")
+        _email = user.get("email") or ""
+        _role = "Admin" if user.get("role") == "admin" else "Member"
+        st.markdown(
+            f"""
+            <div class="sb-user">
+                <p class="sb-user-name">{html.escape(str(_display))}</p>
+                <p class="sb-user-meta">{html.escape(str(_email))}<br/>{_role}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Log out", key="sidebar_logout", type="tertiary", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.access_token = None
+            st.session_state.current_user = None
+            st.session_state.auth_view = "login"
+            st.session_state.chat_history = []
+            st.session_state.pop("_last_processed_query", None)
+            st.query_params.clear()
+            st.rerun()
 
-    st.caption("▸ Knowledge Base")
-    render_nav_button("📄 Docs", "documents", "side_nav_documents")
-    render_nav_button("📤 Upload", "upload", "side_nav_upload")
+    st.markdown('<div class="sb-cta-marker"></div>', unsafe_allow_html=True)
+    if st.button("New chat", key="side_start_new_chat", use_container_width=True, type="primary"):
+        st.session_state.pop("_last_processed_query", None)
+        try:
+            resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
+            if resp.status_code == 200:
+                st.session_state.current_conversation_id = resp.json().get("id")
+        except Exception:
+            pass
+        st.session_state.chat_history = []
+        navigate_to_page("chat")
+        st.query_params["view"] = "chat"
+        st.rerun()
 
-    st.caption("▸ Admin / Settings")
-    render_nav_button("👤 Profile", "profile", "side_nav_profile")
-    render_nav_button("🔑 Password", "change_password", "side_nav_change_password")
-    render_nav_button("🔐 2FA", "2fa", "side_nav_2fa")
+    st.markdown('<p class="sb-section-label">Navigate</p>', unsafe_allow_html=True)
+    render_nav_button("Home", "chat", "side_nav_chat")
+    render_nav_button("Library", "documents", "side_nav_documents")
+    render_nav_button("Upload", "upload", "side_nav_upload")
+    render_nav_button("History", "history", "side_nav_history")
+    render_nav_button("Saved", "saved_queries", "side_nav_saved_queries")
 
-    with st.expander("More", expanded=False):
-        render_nav_button("📱 Sessions", "sessions", "side_nav_more_sessions")
-        render_nav_button("💬 Threads", "conversations", "side_nav_more_conversations")
-        if is_admin:
-            render_nav_button("👥 Users", "user_management", "side_nav_more_user_management")
-            render_nav_button("📋 Audit", "audit_logs", "side_nav_more_audit_logs")
-            render_nav_button("💾 Backup", "export_backup", "side_nav_more_export_backup")
-            render_nav_button("📈 Metrics", "health", "side_nav_more_health")
+    st.markdown('<p class="sb-section-label">Recent chats</p>', unsafe_allow_html=True)
+    recent_conversations = []
+    try:
+        conv_resp = requests.get(f"{API_URL}/conversations", timeout=3)
+        if conv_resp.status_code == 200:
+            all_convs = conv_resp.json().get("conversations", []) or []
+            recent_conversations = sorted(
+                all_convs,
+                key=lambda c: c.get("updated_at") or c.get("created_at") or "",
+                reverse=True,
+            )[:5]
+    except Exception:
+        recent_conversations = []
 
-    st.markdown("---")
+    if recent_conversations:
+        for idx, conv in enumerate(recent_conversations):
+            title = (conv.get("title") or "Untitled chat").strip() or "Untitled chat"
+            if len(title) > 34:
+                title = title[:31] + "…"
+            is_current = conv.get("id") == st.session_state.current_conversation_id
+            label = f"• {title}" if not is_current else f"• {title} (open)"
+            if st.button(label, key=f"side_recent_conv_{idx}", use_container_width=True, type="tertiary"):
+                if _sidebar_load_conversation(conv.get("id")):
+                    navigate_to_page("chat")
+                    st.query_params["view"] = "chat"
+                    st.rerun()
+    else:
+        st.markdown('<p class="sb-thread">No chats yet. Start one from Home.</p>', unsafe_allow_html=True)
 
-    # --- Search options (simplified, single expander) ---
-    with st.expander("🔍 Search options", expanded=False):
-        st.markdown("### 📄 Search Filters")
-        col_filter_toggle, col_advanced = st.columns([3, 1])
-        with col_filter_toggle:
-            if st.checkbox("🔍 Enable Advanced Filters", value=st.session_state.show_advanced_filters, key="advanced_filters_toggle"):
-                st.session_state.show_advanced_filters = True
-            else:
-                st.session_state.show_advanced_filters = False
+    with st.expander("Account", expanded=False):
+        render_nav_button("Profile", "profile", "side_nav_profile")
+        render_nav_button("Password", "change_password", "side_nav_change_password")
+        render_nav_button("Two-factor auth", "2fa", "side_nav_2fa")
+        render_nav_button("Sessions", "sessions", "side_nav_more_sessions")
+        render_nav_button("All threads", "conversations", "side_nav_more_conversations")
+
+    if is_admin:
+        with st.expander("Admin", expanded=False):
+            render_nav_button("Users", "user_management", "side_nav_more_user_management")
+            render_nav_button("Audit", "audit_logs", "side_nav_more_audit_logs")
+            render_nav_button("Backup", "export_backup", "side_nav_more_export_backup")
+            render_nav_button("Metrics", "health", "side_nav_more_health")
+
+    uploaded_file = None
+    uploaded_files = None
+    with st.expander("Tools", expanded=False):
+        st.caption("Search scope and preferences")
+        st.session_state.show_advanced_filters = st.checkbox(
+            "Enable advanced filters",
+            value=st.session_state.show_advanced_filters,
+            key="advanced_filters_toggle",
+        )
 
         if st.session_state.show_advanced_filters:
             try:
                 docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=5)
                 if docs_resp.status_code == 200:
-                    data = docs_resp.json()
-                    available_docs = data.get("documents", [])
+                    available_docs = docs_resp.json().get("documents", [])
                     if available_docs:
                         doc_names = [doc.get("filename", "") for doc in available_docs]
-                        file_types = list(set([doc.get("file_type", "").upper() for doc in available_docs if doc.get("file_type")]))
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            selected_docs = st.multiselect(
-                                "📄 Include Documents",
-                                options=doc_names,
-                                default=st.session_state.selected_documents,
-                                help="Select documents to search. Leave empty to search all."
-                            )
-                            st.session_state.selected_documents = selected_docs
-                            selected_types = st.multiselect("📁 File Types", options=file_types, help="Filter by file types")
-                            excluded_docs = st.multiselect("🚫 Exclude Documents", options=doc_names, help="Documents to exclude from search")
-                        with col2:
-                            st.markdown("**📅 Date Range**")
-                            date_from = st.date_input("From Date", value=None, help="Filter by processing date from")
-                            date_to = st.date_input("To Date", value=None, help="Filter by processing date to")
-                            min_relevance = st.slider("Minimum Relevance", min_value=0.0, max_value=1.0, value=0.0, step=0.1, help="Minimum relevance score")
-                            max_results = st.number_input("Max Results", min_value=1, max_value=20, value=4, help="Maximum number of results to return")
+                        file_types = list({
+                            doc.get("file_type", "").upper()
+                            for doc in available_docs
+                            if doc.get("file_type")
+                        })
+                        selected_docs = st.multiselect(
+                            "Include documents",
+                            options=doc_names,
+                            default=st.session_state.selected_documents,
+                            help="Leave empty to search all.",
+                        )
+                        st.session_state.selected_documents = selected_docs
+                        selected_types = st.multiselect("File types", options=file_types)
+                        excluded_docs = st.multiselect("Exclude documents", options=doc_names)
+                        date_from = st.date_input("From date", value=None)
+                        date_to = st.date_input("To date", value=None)
+                        min_relevance = st.slider("Minimum relevance", 0.0, 1.0, 0.0, 0.1)
+                        max_results = st.number_input("Max results", 1, 20, 4)
                         st.session_state.advanced_filters = {
-                            "document_names": selected_docs if selected_docs else None,
+                            "document_names": selected_docs or None,
                             "file_types": [t.lower() for t in selected_types] if selected_types else None,
                             "date_from": date_from.strftime("%Y-%m-%d") if date_from else None,
                             "date_to": date_to.strftime("%Y-%m-%d") if date_to else None,
                             "min_relevance": min_relevance if min_relevance > 0 else None,
                             "max_results": max_results if max_results != 4 else None,
-                            "exclude_documents": excluded_docs if excluded_docs else None
+                            "exclude_documents": excluded_docs or None,
                         }
-                        active_filters = []
-                        if selected_docs:
-                            active_filters.append(f"{len(selected_docs)} document(s)")
-                        if selected_types:
-                            active_filters.append(f"{len(selected_types)} file type(s)")
-                        if date_from or date_to:
-                            active_filters.append("date range")
-                        if min_relevance > 0:
-                            active_filters.append(f"relevance ≥ {min_relevance:.1f}")
-                        if excluded_docs:
-                            active_filters.append(f"excluding {len(excluded_docs)} doc(s)")
-                        if active_filters:
-                            st.info(f"🔍 **Active filters:** {', '.join(active_filters)}")
-                        else:
-                            st.caption("No documents available. Upload documents to enable filtering.")
                     else:
-                        st.caption("No documents available. Upload documents to enable filtering.")
+                        st.caption("No documents available yet.")
                 else:
-                    st.caption("Unable to load document list for filtering.")
+                    st.caption("Unable to load documents.")
             except Exception:
-                st.caption("Filtering unavailable (API connection issue)")
+                st.caption("Filters unavailable right now.")
         else:
-            # Simple document filter
             try:
-                try:
-                    docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=30)
-                except requests.exceptions.ConnectionError:
-                    st.error("❌ Cannot connect to API. Make sure the API server is running.")
-                    docs_resp = None
-                
-                if docs_resp and docs_resp.status_code == 200:
-                    data = docs_resp.json()
-                    available_docs = data.get("documents", [])
-
+                docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=8)
+                if docs_resp.status_code == 200:
+                    available_docs = docs_resp.json().get("documents", [])
                     if available_docs:
                         doc_names = [doc.get("filename", "") for doc in available_docs]
                         selected = st.multiselect(
-                            "Select documents to search (leave empty to search all documents)",
+                            "Limit search to documents",
                             options=doc_names,
                             default=st.session_state.selected_documents,
                             key="document_filter_select",
-                            help="Choose specific documents to search. Leave empty to search all documents in the knowledge base."
                         )
                         st.session_state.selected_documents = selected
                         if selected:
-                            st.info(f"🔍 **Filtering by {len(selected)} document(s):** {', '.join(selected[:3])}{'...' if len(selected) > 3 else ''}")
+                            st.caption(f"Filtering by {len(selected)} document(s)")
                         else:
-                            st.caption("💡 Searching all documents in knowledge base")
+                            st.caption("Searching all documents")
                     else:
-                        st.caption("No documents available. Upload documents to enable filtering.")
+                        st.caption("No documents available yet.")
             except Exception:
-                st.caption("Filtering unavailable (API connection issue)")
+                st.caption("Document filter unavailable.")
 
-        st.markdown("---")
-        @st.fragment
-        def streaming_toggle_fragment():
-            st.checkbox(
-                "⚡ Enable Real-time Streaming",
-                value=st.session_state.enable_streaming,
-                key="enable_streaming",
-                help="Enable real-time streaming to see responses as they're generated"
-            )
-        streaming_toggle_fragment()
-
-    st.markdown("---")
-    
-    # Quick actions (chat-related)
-    st.markdown("**Quick Actions**")
-    col_new, col_clear = st.columns(2)
-    with col_new:
-        if st.button("💬 New Chat", use_container_width=True, help="Start a new conversation"):
-            st.session_state.pop("_last_processed_query", None)  # Clear so new query can process
-            try:
-                resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
-                if resp.status_code == 200:
-                    conv = resp.json()
-                    st.session_state.current_conversation_id = conv.get("id")
-                    st.session_state.chat_history = []
-                    st.session_state.pop("_last_processed_query", None)
-                    st.rerun()
-                else:
-                    st.warning(f"⚠️ Failed: {resp.status_code}")
-            except requests.exceptions.ConnectionError:
-                st.error("❌ Cannot connect to API.")
-            except Exception as e:
-                logger.error(f"Error creating conversation: {e}")
-                st.warning(f"⚠️ Error: {str(e)}")
-    with col_clear:
-        if st.button("🗑️ Clear", use_container_width=True, help="Clear current chat"):
-            st.session_state.chat_history = []
-            st.session_state.pop("_last_processed_query", None)
-            if st.session_state.current_conversation_id:
-                try:
-                    requests.post(f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear", timeout=5)
-                except:
-                    pass
-            st.rerun()
-    
-    # Export Chat & Check Status
-    if st.session_state.chat_history:
-        export_lines = []
-        for msg in st.session_state.chat_history:
-            role = msg[0]
-            content = msg[1] if len(msg) > 1 else ""
-            timestamp = msg[2] if len(msg) > 2 else ""
-            if role == "user":
-                export_lines.append(f"**You** [{timestamp}]:\n{content}")
-            else:
-                export_lines.append(f"**Assistant** [{timestamp}]:\n{content}")
-        export_text = "\n\n---\n\n".join(export_lines)
-        st.download_button(
-            "📥 Export Chat",
-            export_text,
-            file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            mime="text/plain",
-            use_container_width=True,
-            key="sidebar_export_chat"
+        st.checkbox(
+            "Real-time streaming",
+            key="enable_streaming",
+            help="Show answers as they are generated",
         )
-    
-    # File Upload (always visible at bottom)
-    st.markdown("---")
-    st.markdown("#### 📤 Upload Documents")
-    
-    # Initialize variables
-    uploaded_file = None
-    uploaded_files = None
-    
-    # Single file upload
-    uploaded_file = st.file_uploader(
-        "📄 Upload Single Document",
-        type=["pdf", "docx", "txt", "csv", "html"],
-        help="Upload a single document to enhance the knowledge base",
-        label_visibility="visible"
-    )
-    
-    # Bulk file upload
-    uploaded_files = st.file_uploader(
-        "📚 Upload Multiple Documents (Bulk Upload)",
-        type=["pdf", "docx", "txt", "csv", "html"],
-        help="Upload multiple documents at once. All files will be processed in the background.",
-        accept_multiple_files=True,
-        label_visibility="visible"
-    )
-    
+
+        if st.session_state.chat_history:
+            if st.button("Clear current chat", use_container_width=True, key="side_clear_chat"):
+                st.session_state.chat_history = []
+                st.session_state.pop("_last_processed_query", None)
+                if st.session_state.current_conversation_id:
+                    try:
+                        requests.post(
+                            f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear",
+                            timeout=5,
+                        )
+                    except Exception:
+                        pass
+                st.rerun()
+            export_lines = []
+            for msg in st.session_state.chat_history:
+                role = msg[0]
+                content = msg[1] if len(msg) > 1 else ""
+                timestamp = msg[2] if len(msg) > 2 else ""
+                if role == "user":
+                    export_lines.append(f"**You** [{timestamp}]:\n{content}")
+                else:
+                    export_lines.append(f"**Assistant** [{timestamp}]:\n{content}")
+            st.download_button(
+                "Export chat",
+                "\n\n---\n\n".join(export_lines),
+                file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key="sidebar_export_chat",
+            )
+
+        st.caption("Quick upload")
+        uploaded_file = st.file_uploader(
+            "Upload single document",
+            type=["pdf", "docx", "txt", "csv", "html"],
+            key="sidebar_single_upload",
+        )
+        uploaded_files = st.file_uploader(
+            "Upload multiple documents",
+            type=["pdf", "docx", "txt", "csv", "html"],
+            accept_multiple_files=True,
+            key="sidebar_bulk_upload",
+        )
+
     if uploaded_file:
         # Use session state to prevent re-uploading the same file
         upload_key = f"uploaded_{uploaded_file.name}_{uploaded_file.size}"
@@ -3108,14 +2954,34 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 
-    # Footer - in sidebar so chat bar is the last element in main area
-    st.markdown("---")
-    st.markdown(
-        "<div style='text-align: center; color: #6b7280; font-size: 0.8rem;'>"
-        "Powered by FastAPI & Streamlit | Incident Assistant v1.0"
-        "</div>",
-        unsafe_allow_html=True
+    st.markdown('<div class="sb-footer">Incident Assistant</div>', unsafe_allow_html=True)
+
+def toggle_streamlit_sidebar():
+    """Click Streamlit's native expand/collapse control (query-param open is first-load only)."""
+    components.html(
+        """
+        <script>
+        (function () {
+          const doc = window.parent.document;
+          const expand = doc.querySelector('[data-testid="stExpandSidebarButton"]');
+          const collapse =
+            doc.querySelector('[data-testid="stBaseButton-headerNoPadding"][aria-label="Collapse sidebar"]') ||
+            doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
+            doc.querySelector('[data-testid="stSidebarCollapseButton"]');
+          if (expand) {
+            expand.click();
+            return;
+          }
+          if (collapse) {
+            collapse.click();
+          }
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
     )
+
 
 # Sidebar toggle helper banner
 st.markdown(
@@ -3130,7 +2996,7 @@ st.markdown(
 current_page = get_current_nav_page()
 is_admin = st.session_state.current_user and st.session_state.current_user.get("role") == "admin"
 
-# Top zone: logo above, then nav bar (Menu | Chat Documents | avatar)
+# Top zone: brand + primary destinations + account menu
 st.markdown(
     """
     <div class="zone-top-nav">
@@ -3147,65 +3013,70 @@ st.markdown(
 st.markdown('<div class="nav-bar-row">', unsafe_allow_html=True)
 col_open_sidebar, col_nav, col_avatar = st.columns([1, 4, 1])
 with col_open_sidebar:
-    # Reopen sidebar - add ?sidebar=open and force full reload via link (form/script unreliable in Streamlit)
-    _params = dict(st.query_params)
-    _params["sidebar"] = "open"
-    from urllib.parse import urlencode
-    _href = "?" + urlencode(_params)
-    st.markdown(
-        f'<a href="{html.escape(_href)}" class="btn-open-sidebar" title="Open sidebar" target="_self">☰</a>',
-        unsafe_allow_html=True
-    )
+    if st.button("☰", key="nav_toggle_sidebar", help="Open or close sidebar"):
+        st.session_state["_do_sidebar_toggle"] = True
+    if st.session_state.pop("_do_sidebar_toggle", False):
+        toggle_streamlit_sidebar()
 with col_nav:
     st.markdown('<div class="nav-buttons-marker"></div>', unsafe_allow_html=True)
     nav_items = [
-        ("💬 Chat", "chat"),
-        ("📄 Documents", "documents"),
-        ("📤 Upload", "upload"),
-        ("🕐 History", "history"),
-        ("👤 Account", "profile"),
+        ("Home", "chat"),
+        ("Library", "documents"),
+        ("Upload", "upload"),
+        ("History", "history"),
     ]
     if is_admin:
-        nav_items.append(("⚙️ Admin", "user_management"))
+        nav_items.append(("Admin", "user_management"))
     cols = st.columns(len(nav_items))
     for i, (label, key) in enumerate(nav_items):
         with cols[i]:
             is_active = current_page == key or (key == "history" and current_page in ("history", "saved_queries", "conversations"))
-            if key == "profile":
-                is_active = current_page in ("profile", "change_password", "2fa", "sessions")
             if key == "user_management":
                 is_active = current_page in ("user_management", "audit_logs", "export_backup", "health")
             btn_type = "primary" if is_active else "secondary"
             if st.button(label, key=f"nav_{key}", use_container_width=True, type=btn_type):
-                target = key
-                if key == "history":
-                    target = "history"
-                # Documents toggle: if already showing documents, close the dashboard
                 if key == "documents" and current_page == "documents":
                     st.session_state.show_documents = False
                     st.query_params["view"] = "chat"
                     st.rerun()
-                # Upload toggle: if already on upload, return to chat
                 elif key == "upload" and current_page == "upload":
                     st.session_state.show_upload = False
                     st.query_params["view"] = "chat"
                     st.rerun()
                 else:
-                    navigate_to_page(target)
-                    st.query_params["view"] = target
+                    navigate_to_page(key)
+                    st.query_params["view"] = key
                     st.rerun()
 with col_avatar:
     st.markdown('<div class="nav-avatar-col"></div>', unsafe_allow_html=True)
     user = st.session_state.get("current_user") or {}
-    username = user.get("username", "User")
+    username = user.get("display_name") or user.get("first_name") or user.get("email") or user.get("username", "User")
     initial = (username[0] if username else "U").upper()
-    # Narrow slot so avatar stays circular (not pill-shaped)
     _a1, _a2, _a3 = st.columns([1, 1, 1])
     with _a2:
-        if st.button(initial, key="nav_avatar_btn", help=f"Profile: {username}", use_container_width=True):
-            navigate_to_page("profile")
-            st.query_params["view"] = "profile"
-            st.rerun()
+        with st.popover(initial, use_container_width=True):
+            st.caption(username)
+            if st.button("Profile", key="nav_pop_profile", use_container_width=True):
+                navigate_to_page("profile")
+                st.query_params["view"] = "profile"
+                st.rerun()
+            if st.button("Password", key="nav_pop_password", use_container_width=True):
+                navigate_to_page("change_password")
+                st.query_params["view"] = "change_password"
+                st.rerun()
+            if st.button("Two-factor auth", key="nav_pop_2fa", use_container_width=True):
+                navigate_to_page("2fa")
+                st.query_params["view"] = "2fa"
+                st.rerun()
+            if st.button("Log out", key="nav_pop_logout", use_container_width=True):
+                st.session_state.authenticated = False
+                st.session_state.access_token = None
+                st.session_state.current_user = None
+                st.session_state.auth_view = "login"
+                st.session_state.chat_history = []
+                st.session_state.pop("_last_processed_query", None)
+                st.query_params.clear()
+                st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Document Management Dashboard
@@ -5329,6 +5200,66 @@ def get_starter_prompts():
         ("Draft a response\nGenerate a clear reply for a user, student, or teammate.", "Draft a response"),
     ]
 
+
+def fetch_knowledge_home_stats():
+    """Fetch compact knowledge-base stats for the home screen."""
+    stats = {
+        "document_count": 0,
+        "chunk_count": 0,
+        "pending_count": 0,
+        "is_processing": False,
+        "last_upload_label": "No uploads yet",
+        "ready": True,
+        "error": None,
+    }
+    try:
+        status_resp = requests.get(f"{API_URL}/status", headers=get_auth_headers(), timeout=4)
+        if status_resp.status_code == 200:
+            data = status_resp.json()
+            stats["document_count"] = int(data.get("document_count") or 0)
+            stats["chunk_count"] = int(data.get("knowledge_base_chunks") or 0)
+            stats["pending_count"] = int(data.get("pending_files_count") or 0)
+            stats["is_processing"] = bool(data.get("is_processing"))
+            stats["ready"] = not stats["is_processing"]
+            st.session_state.kb_status = data
+    except Exception as e:
+        stats["error"] = str(e)
+
+    try:
+        docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=6)
+        if docs_resp.status_code == 200:
+            payload = docs_resp.json()
+            documents = payload.get("documents") or []
+            if documents:
+                stats["document_count"] = int(payload.get("total_documents") or len(documents))
+                stats["chunk_count"] = int(payload.get("total_chunks") or stats["chunk_count"])
+                dated = []
+                for doc in documents:
+                    raw = doc.get("upload_date") or doc.get("uploaded_at")
+                    if not raw:
+                        continue
+                    try:
+                        dated.append(datetime.fromisoformat(str(raw).replace("Z", "+00:00")))
+                    except Exception:
+                        continue
+                if dated:
+                    latest = max(dated)
+                    # Make timezone-naive for simple relative labels
+                    if latest.tzinfo is not None:
+                        latest = latest.replace(tzinfo=None)
+                    delta = datetime.now() - latest
+                    if delta.days <= 0:
+                        stats["last_upload_label"] = "Today"
+                    elif delta.days == 1:
+                        stats["last_upload_label"] = "Yesterday"
+                    elif delta.days < 7:
+                        stats["last_upload_label"] = f"{delta.days} days ago"
+                    else:
+                        stats["last_upload_label"] = latest.strftime("%b %d, %Y")
+    except Exception:
+        pass
+    return stats
+
 # Zone-based layout: center (chat) + right (context panel) when on chat view
 suggestions_placeholder = st.empty()
 chat_empty = not st.session_state.chat_history
@@ -5360,20 +5291,16 @@ if "selected_source_message" not in st.session_state:
 
 active_sources = st.session_state.selected_sources if st.session_state.selected_sources else last_sources
 
-# Create zone layout: when empty use centered layout [1,3,1]; when has content use [3,1] for chat+sources
+# Centered chat column — no side source panel (sources live under each answer)
 if use_zone_layout:
-    if show_copilot_empty:
-        col_left, col_chat, col_right = st.columns([1, 3, 1], gap="large")
-        col_context = None
-    else:
-        col_chat, col_context = st.columns([3, 1], gap="large")
+    col_left, col_chat, col_right = st.columns([1, 3, 1], gap="large")
+    col_context = None
 else:
     col_chat = st.container()
     col_context = None
 
 with col_chat:
     if show_copilot_empty:
-        # 1. Salutation
         from datetime import datetime as dt
         hour = dt.now().hour
         if hour < 12:
@@ -5384,37 +5311,90 @@ with col_chat:
             time_greeting = "Good evening"
         user_name = "there"
         if st.session_state.get("current_user"):
-            user_name = st.session_state.current_user.get("username", "there")
+            user_name = (
+                st.session_state.current_user.get("first_name")
+                or st.session_state.current_user.get("display_name")
+                or st.session_state.current_user.get("username", "there")
+            )
             if user_name:
-                user_name = user_name.split()[0] if " " in user_name else user_name  # First name only
+                user_name = user_name.split()[0] if " " in user_name else user_name
+
+        kb_stats = fetch_knowledge_home_stats()
+        doc_count = kb_stats.get("document_count", 0)
+        status_label = "Indexing" if kb_stats.get("is_processing") else "Ready"
+        status_dot = "warn" if kb_stats.get("is_processing") else ""
+        last_upload = kb_stats.get("last_upload_label", "No uploads yet")
+
         st.markdown(
-            f'<div class="copilot-greeting"><h2>{time_greeting}, {user_name}</h2>'
-            '<p>Search your knowledge base, compare answers, or draft a response in one place.</p></div>',
-            unsafe_allow_html=True
+            f"""
+            <div class="kh-shell">
+                <p class="kh-eyebrow">Knowledge home</p>
+                <h1 class="kh-title">{time_greeting}, {html.escape(str(user_name))}</h1>
+                <p class="kh-subtitle">Ask your documents. Get answers with sources.</p>
+                <div class="kh-chips">
+                    <span class="kh-chip"><strong>{doc_count}</strong> document{"s" if doc_count != 1 else ""}</span>
+                    <span class="kh-chip">Last upload: <strong>{html.escape(str(last_upload))}</strong></span>
+                    <span class="kh-chip"><span class="kh-chip-dot {status_dot}"></span> {status_label}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        # 2. Chat bar (rendered here for correct order when empty)
+
         if query is None:
-            chat_val = st.chat_input("Ask anything", key="chat_input")
+            chat_val = st.chat_input(
+                "Ask your documents…" if doc_count > 0 else "Upload documents, then ask a question…",
+                key="chat_input",
+            )
             if chat_val:
-                st.session_state._pending_chat_query = chat_val  # Persist immediately so it can't be overwritten
+                st.session_state._pending_chat_query = chat_val
             query = chat_val if chat_val else query
+
         st.markdown(
-            '<div class="composer-hint">Ask a question, then refine with sources, saved prompts, or document filters.</div>',
-            unsafe_allow_html=True
+            '<div class="kh-composer-hint">Answers cite the exact document or section they came from.</div>',
+            unsafe_allow_html=True,
         )
-        st.markdown('<div class="starter-grid-title">Start with a focused task</div>', unsafe_allow_html=True)
-        starter_prompts = get_starter_prompts()
-        starter_rows = [starter_prompts[:2], starter_prompts[2:4]]
-        for row_idx, row in enumerate(starter_rows):
-            cols = st.columns(2, gap="medium")
-            for col_idx, prompt_data in enumerate(row):
-                button_text, prompt_value = prompt_data
-                with cols[col_idx]:
-                    st.markdown('<div class="starter-card">', unsafe_allow_html=True)
-                    if st.button(button_text, key=f"starter_card_{row_idx}_{col_idx}", use_container_width=True):
-                        st.session_state.example_query = prompt_value
+
+        st.markdown('<div class="kh-actions-marker"></div>', unsafe_allow_html=True)
+        action_l, action_r = st.columns(2)
+        with action_l:
+            if st.button("Upload documents", key="kh_upload_btn", use_container_width=True, type="primary"):
+                navigate_to_page("upload")
+                st.query_params["view"] = "upload"
+                st.rerun()
+        with action_r:
+            if st.button("Browse library", key="kh_browse_btn", use_container_width=True):
+                navigate_to_page("documents")
+                st.query_params["view"] = "documents"
+                st.rerun()
+
+        if doc_count == 0:
+            pending = kb_stats.get("pending_count", 0)
+            if pending:
+                empty_title = "Documents are still processing"
+                empty_body = f"{pending} file(s) are indexing. This usually takes a few seconds — then you can ask questions."
+            else:
+                empty_title = "Your knowledge base is empty"
+                empty_body = "Upload a PDF, Word doc, text file, or spreadsheet to start asking questions with sources."
+            st.markdown(
+                f"""
+                <div class="kh-empty">
+                    <h3>{html.escape(empty_title)}</h3>
+                    <p>{html.escape(empty_body)}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            # Light prompts once docs exist — keep secondary to the ask bar
+            st.markdown('<div class="starter-grid-title">Try asking</div>', unsafe_allow_html=True)
+            example_questions = get_example_questions()[:3]
+            prompt_cols = st.columns(len(example_questions) or 1)
+            for idx, question in enumerate(example_questions):
+                with prompt_cols[idx]:
+                    if st.button(question, key=f"kh_example_{idx}", use_container_width=True):
+                        st.session_state.example_query = question
                         st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
     # Center zone: suggestions placeholder, chat history, input
     suggestions_placeholder = st.empty()
     if "last_query_input" not in st.session_state:
@@ -5445,132 +5425,18 @@ with col_chat:
                                 st.rerun()
         except:
             pass
-    # Chat history and input - continue in center zone
-    if not show_copilot_empty:
-        col_conv_title, col_order = st.columns([3, 1])
-        with col_conv_title:
-            st.markdown("### 💬 Conversation")
-        with col_order:
-            order = st.selectbox(
-                "Sort",
-                options=["oldest_first", "newest_first"],
-                format_func=lambda x: "Oldest first" if x == "oldest_first" else "Newest first",
-                key="conversation_order_select",
-                index=0 if st.session_state.conversation_order == "oldest_first" else 1,
-                help="Oldest first: chronological order. Newest first: latest at top."
-            )
-            if order != st.session_state.conversation_order:
-                st.session_state.conversation_order = order
-                st.rerun()
-
-# Right context panel (Zone C) - sources or suggestions (hidden when empty - pills are in center)
-if col_context is not None and not show_copilot_empty:
-    with col_context:
-        st.markdown('<div class="zone-context-panel context-panel">', unsafe_allow_html=True)
-        if active_sources:
-            st.markdown("**📚 Sources**")
-            if st.session_state.get("selected_assistant_key"):
-                st.caption("Selected answer")
-            for i, src in enumerate(active_sources[:5]):
-                title = src.get("title", src.get("filename", "Document")) if isinstance(src, dict) else str(src)
-                relevance = src.get("relevance", src.get("score")) if isinstance(src, dict) else None
-                rel_str = f" ({relevance:.0%})" if relevance is not None else ""
-                st.caption(f"• {title}{rel_str}")
-        else:
-            with st.expander("💡 Try a suggestion", expanded=False):
-                example_questions = get_example_questions()
-                for i, question in enumerate(example_questions[:5]):
-                    if st.button(question, key=f"example_{i}", use_container_width=True):
-                        st.session_state.example_query = question
-                        st.rerun()
-                try:
-                    suggestions_resp = requests.get(f"{API_URL}/suggestions", params={"q": "", "limit": 3}, timeout=2)
-                    if suggestions_resp.status_code == 200:
-                        suggestions = suggestions_resp.json().get("suggestions", [])
-                        if suggestions:
-                            st.caption("**Popular**")
-                            for idx, suggestion in enumerate(suggestions[:3]):
-                                sq = suggestion.get("query", "")
-                                stype = suggestion.get("type", "")
-                                icon = "⭐" if stype == "saved" else ("📚" if stype == "document" else "🕐")
-                                disp = (sq[:40] + "…") if len(sq) > 40 else sq
-                                if st.button(f"{icon} {disp}", key=f"popular_{idx}", use_container_width=True):
-                                    st.session_state.example_query = sq
-                                    st.rerun()
-                except:
-                    pass
-        st.markdown('</div>', unsafe_allow_html=True)
-
 # Handle example query (from pill click) - only overwrite if we have one; don't wipe chat_input value
 if "example_query" in st.session_state:
     query = st.session_state.example_query
     del st.session_state.example_query
 
 def render_user_message_block(message_idx: int, message: str, msg_time: str):
-    """Render a user message with save-query actions."""
-    col_msg, col_save = st.columns([5, 1])
-    with col_msg:
-        safe_message = html.escape(str(message)).replace("\n", "<br/>")
-        st.markdown(
-            textwrap.dedent(
-                f"""
-                <div class="message-user">
-                    <div class="message-meta">
-                        <span class="message-role">You</span>
-                        <span class="message-time">{html.escape(str(msg_time))}</span>
-                    </div>
-                    <div class="message-body">{safe_message}</div>
-                </div>
-                """
-            ).strip(),
-            unsafe_allow_html=True
-        )
-    with col_save:
-        is_saved = False
-        try:
-            saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=5)
-            if saved_resp.status_code == 200:
-                saved_queries = saved_resp.json().get("saved_queries", [])
-                is_saved = any(sq.get("query") == message for sq in saved_queries)
-        except Exception:
-            pass
-
-        save_key = f"save_query_{message_idx}"
-        if not is_saved:
-            if st.button("⭐", key=save_key, help="Save this query", use_container_width=True):
-                st.session_state[f"show_save_dialog_{message_idx}"] = True
-                st.rerun()
-        else:
-            st.button("⭐", key=f"saved_{save_key}", disabled=True, use_container_width=True)
-
-    if st.session_state.get(f"show_save_dialog_{message_idx}", False):
-        with st.form(f"save_form_{message_idx}"):
-            save_name = st.text_input("Name (optional)", value=message[:50], key=f"save_name_{message_idx}")
-            save_desc = st.text_area("Description (optional)", key=f"save_desc_{message_idx}")
-            col_save_btn, col_cancel_btn = st.columns(2)
-            with col_save_btn:
-                if st.form_submit_button("💾 Save"):
-                    try:
-                        save_resp = requests.post(
-                            f"{API_URL}/saved-queries",
-                            json={
-                                "query": message,
-                                "name": save_name,
-                                "description": save_desc
-                            },
-                            timeout=5
-                        )
-                        if save_resp.status_code == 200:
-                            st.success("✅ Saved!")
-                            st.session_state[f"show_save_dialog_{message_idx}"] = False
-                            time.sleep(0.5)
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error: {str(e)}")
-            with col_cancel_btn:
-                if st.form_submit_button("❌ Cancel"):
-                    st.session_state[f"show_save_dialog_{message_idx}"] = False
-                    st.rerun()
+    """Render a clean user message bubble."""
+    safe_message = html.escape(str(message)).replace("\n", "<br/>")
+    st.markdown(
+        f'<div class="msg msg-user"><div class="msg-user-bubble">{safe_message}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def build_assistant_message_key(msg_time: str, message: str) -> str:
@@ -5580,134 +5446,124 @@ def build_assistant_message_key(msg_time: str, message: str) -> str:
 
 
 def render_assistant_message_block(message_idx: int, message: str, msg_time: str, sources: list, user_query: str, message_key: str):
-    """Render an assistant message with copy and feedback actions."""
+    """Render a clean assistant answer with collapsed sources."""
     _display_msg = str(message).strip()
-    col_msg, col_actions = st.columns([5, 1])
-    with col_msg:
-        safe_message = html.escape(_display_msg).replace("\n", "<br/>")
-        if _display_msg.strip().startswith("<"):
-            safe_message = "⚠️ An error occurred while displaying the response. Please try again."
+    safe_message = html.escape(_display_msg).replace("\n", "<br/>")
+    if _display_msg.strip().startswith("<"):
+        safe_message = "An error occurred while displaying the response. Please try again."
 
-    sources_text = ""
-    if sources and len(sources) > 0:
-        parts = []
-        for source in sources:
-            name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
-            rel = source.get("relevance", 0) if isinstance(source, dict) else 0
-            rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
-            parts.append("📄 " + html.escape(str(name)) + " (" + rel_label + ", " + f"{rel:.0%}" + ")")
-        sources_text = "<div style='margin-top:0.5rem;'><strong>📚 Sources:</strong><br/>" + "<br/>".join(parts) + "</div>"
-
-    template = (
-        '<div class="message-bot" id="answer_' + str(message_idx) + '">'
-        "<strong>📚 Assistant</strong>"
-        '<div style="margin-top:0.5rem;">' + safe_message + "</div>"
-        + sources_text
-        + '<div class="message-time">' + html.escape(str(msg_time)) + "</div>"
-        "</div>"
+    st.markdown(
+        f'<div class="msg msg-assistant" id="answer_{message_idx}"><div class="msg-body">{safe_message}</div></div>',
+        unsafe_allow_html=True,
     )
-    st.markdown(template, unsafe_allow_html=True)
 
-    with col_actions:
-        is_selected = st.session_state.get("selected_assistant_key") == message_key
-        inspect_label = "✅" if is_selected else "🔎"
-        if st.button(inspect_label, key=f"inspect_{message_key}", help="Inspect sources for this answer", use_container_width=True):
-            st.session_state.selected_assistant_key = message_key
-            st.session_state.selected_sources = sources if isinstance(sources, list) else []
-            st.session_state.selected_source_message = (str(message)[:80] + "...") if len(str(message)) > 80 else str(message)
-            st.rerun()
+    source_list = sources if isinstance(sources, list) else []
+    feedback_key = f"feedback_submitted_{message_idx}"
 
-        with st.popover("⋮", help="Copy, Feedback"):
-            copy_key = f"copy_answer_{message_idx}"
-            escaped_message = message.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$').replace('\n', '\\n').replace('\r', '\\r')
-            copy_script = f"""
-            <script>
+    # Actions sit under the answer (before sources) so labels stay readable
+    st.markdown('<div class="msg-actions-row">', unsafe_allow_html=True)
+    act1, act2, act3, _ = st.columns([2.2, 2.6, 2.6, 8], gap="small")
+    with act1:
+        escaped_message = (
+            str(message)
+            .replace("\\", "\\\\")
+            .replace("`", "\\`")
+            .replace("$", "\\$")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        )
+        if st.button("Copy", key=f"copy_answer_{message_idx}", help="Copy answer", use_container_width=True):
+            st.markdown(
+                f"""
+                <script>
                 (function() {{
                     const text = `{escaped_message}`;
                     if (navigator.clipboard && navigator.clipboard.writeText) {{
-                        navigator.clipboard.writeText(text).then(function() {{
-                            const toast = document.createElement('div');
-                            toast.textContent = '✅ Copied to clipboard!';
-                            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#4CAF50;color:white;padding:12px 20px;border-radius:4px;z-index:9999;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
-                            document.body.appendChild(toast);
-                            setTimeout(() => toast.remove(), 2000);
-                        }}).catch(function(err) {{
-                            console.error('Copy failed:', err);
-                        }});
+                        navigator.clipboard.writeText(text);
                     }}
                 }})();
-            </script>
-            """
-            if st.button("📋 Copy", key=copy_key, use_container_width=True):
-                st.session_state[f"copy_text_{message_idx}"] = message
-                st.markdown(copy_script, unsafe_allow_html=True)
-
-        feedback_key = f"feedback_submitted_{message_idx}"
+                </script>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.toast("Copied")
+    with act2:
         if not st.session_state.get(feedback_key, False):
-            st.markdown("---")
-            col_thumbs_up, col_thumbs_down = st.columns(2)
-            with col_thumbs_up:
-                if st.button("👍", key=f"thumbs_up_{message_idx}", help="Good answer", use_container_width=True):
+            if st.button("Helpful", key=f"thumbs_up_{message_idx}", help="Good answer", use_container_width=True):
+                try:
+                    feedback_resp = requests.post(
+                        f"{API_URL}/feedback",
+                        json={
+                            "query": user_query,
+                            "response": message,
+                            "rating": 1,
+                            "feedback_type": "thumbs",
+                            "sources_count": len(source_list),
+                        },
+                        timeout=5,
+                    )
+                    if feedback_resp.status_code == 200:
+                        st.session_state[feedback_key] = True
+                        st.rerun()
+                except Exception:
+                    st.error("Feedback failed")
+        else:
+            st.caption("Thanks")
+    with act3:
+        if not st.session_state.get(feedback_key, False):
+            if st.button("Improve", key=f"thumbs_down_{message_idx}", help="Poor answer", use_container_width=True):
+                st.session_state[f"show_feedback_form_{message_idx}"] = True
+                st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if st.session_state.get(f"show_feedback_form_{message_idx}", False):
+        with st.form(f"feedback_form_{message_idx}"):
+            rating = st.slider("Rating", 1, 5, 2, key=f"rating_{message_idx}")
+            comment = st.text_area("What should improve?", key=f"comment_{message_idx}")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.form_submit_button("Submit"):
                     try:
                         feedback_resp = requests.post(
                             f"{API_URL}/feedback",
                             json={
                                 "query": user_query,
                                 "response": message,
-                                "rating": 1,
-                                "feedback_type": "thumbs",
-                                "sources_count": len(sources)
+                                "rating": rating,
+                                "feedback_type": "detailed",
+                                "comment": comment,
+                                "sources_count": len(source_list),
                             },
-                            timeout=5
+                            timeout=5,
                         )
                         if feedback_resp.status_code == 200:
                             st.session_state[feedback_key] = True
-                            st.success("👍 Thanks!")
-                            time.sleep(1)
-                            st.rerun()
-                    except Exception:
-                        st.error("Failed to submit feedback")
-
-            with col_thumbs_down:
-                if st.button("👎", key=f"thumbs_down_{message_idx}", help="Poor answer", use_container_width=True):
-                    st.session_state[f"show_feedback_form_{message_idx}"] = True
-                    st.rerun()
-
-            if st.session_state.get(f"show_feedback_form_{message_idx}", False):
-                with st.form(f"feedback_form_{message_idx}"):
-                    st.write("**Help us improve:**")
-                    rating = st.slider("Rating (1-5)", 1, 5, 2, key=f"rating_{message_idx}")
-                    comment = st.text_area("Comments (optional)", key=f"comment_{message_idx}")
-                    col_submit, col_cancel = st.columns(2)
-                    with col_submit:
-                        if st.form_submit_button("Submit"):
-                            try:
-                                feedback_resp = requests.post(
-                                    f"{API_URL}/feedback",
-                                    json={
-                                        "query": user_query,
-                                        "response": message,
-                                        "rating": rating,
-                                        "feedback_type": "detailed",
-                                        "comment": comment,
-                                        "sources_count": len(sources)
-                                    },
-                                    timeout=5
-                                )
-                                if feedback_resp.status_code == 200:
-                                    st.session_state[feedback_key] = True
-                                    st.session_state[f"show_feedback_form_{message_idx}"] = False
-                                    st.success("✅ Feedback submitted!")
-                                    time.sleep(1)
-                                    st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
-                    with col_cancel:
-                        if st.form_submit_button("Cancel"):
                             st.session_state[f"show_feedback_form_{message_idx}"] = False
                             st.rerun()
-        else:
-            st.caption("✅ Feedback submitted")
+                    except Exception as e:
+                        st.error(str(e))
+            with c2:
+                if st.form_submit_button("Cancel"):
+                    st.session_state[f"show_feedback_form_{message_idx}"] = False
+                    st.rerun()
+
+    if source_list:
+        label = f"{len(source_list)} source{'s' if len(source_list) != 1 else ''}"
+        with st.expander(label, expanded=False):
+            chips = []
+            for source in source_list:
+                name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
+                rel = source.get("relevance", 0) if isinstance(source, dict) else 0
+                rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
+                chips.append(
+                    f'<span class="source-chip">{html.escape(str(name))} <em>{rel_label}</em></span>'
+                )
+            st.markdown(
+                '<div class="sources-block"><p class="sources-summary">Cited from</p>'
+                + "".join(chips)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
 
 # Message loop and chat input - in center zone when using zone layout
 with col_chat:
@@ -5723,7 +5579,13 @@ with col_chat:
                 time_greeting = "Good evening"
             user_name = "there"
             if st.session_state.get("current_user"):
-                user_name = st.session_state.current_user.get("username", "there").split("@")[0]
+                user_name = (
+                    st.session_state.current_user.get("display_name")
+                    or st.session_state.current_user.get("first_name")
+                    or st.session_state.current_user.get("username", "there")
+                )
+                if "@" in str(user_name):
+                    user_name = str(user_name).split("@")[0]
                 if user_name:
                     user_name = user_name.title()
             st.markdown(
@@ -5737,7 +5599,9 @@ with col_chat:
             )
     else:
         hist = st.session_state.chat_history[-MAX_HISTORY:]
-        items_to_show = list(reversed(hist)) if st.session_state.conversation_order == "newest_first" else hist
+        # Chronological thread only — keep the conversation readable
+        items_to_show = hist
+        st.markdown('<div class="thread">', unsafe_allow_html=True)
         for idx, item in enumerate(items_to_show):
             # Handle both old format (3 items) and new format (4 items with sources)
             if len(item) == 3:
@@ -5746,7 +5610,6 @@ with col_chat:
             else:
                 role, message, msg_time, sources = item
 
-            # Phase 2 routing: delegate rendering to focused helper functions.
             prev_user_query = ""
             if idx > 0 and len(items_to_show[idx - 1]) >= 2 and items_to_show[idx - 1][0] == "user":
                 prev_user_query = items_to_show[idx - 1][1]
@@ -5755,16 +5618,16 @@ with col_chat:
                 continue
             msg_key = build_assistant_message_key(str(msg_time), str(message))
             render_assistant_message_block(idx, message, msg_time, sources, prev_user_query, msg_key)
-            continue
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # Chat input - inside col_chat so it appears right below messages (responses above input)
     if not show_copilot_empty and query is None:
-        chat_val = st.chat_input("Ask anything", key="chat_input")
+        chat_val = st.chat_input("Ask your documents…", key="chat_input")
         if chat_val:
             st.session_state._pending_chat_query = chat_val
         query = chat_val if chat_val else query
         st.markdown(
-            '<div class="composer-hint">Press Enter to send. Use the source panel to inspect evidence for the selected answer.</div>',
+            '<div class="composer-hint">Enter to send · Sources stay under each answer</div>',
             unsafe_allow_html=True
         )
 
@@ -5844,12 +5707,12 @@ if query:
                     received_done = False
                     # Show typing indicator (animated dots) while waiting for first token
                     answer_placeholder.markdown(
-                        '**📚 Assistant**\n\n'
-                        '<div class="typing-dots" style="display:inline-flex;gap:4px;margin-top:0.5rem;">'
-                        '<span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;"></span>'
-                        '<span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;"></span>'
-                        '<span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;"></span>'
-                        '</div>',
+                        '<div class="msg msg-assistant streaming"><div class="msg-body">'
+                        '<div class="typing-dots" style="display:inline-flex;gap:4px;">'
+                        '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
+                        '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
+                        '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
+                        '</div></div></div>',
                         unsafe_allow_html=True
                     )
                     # Stream the response (use appropriate endpoint)
@@ -5879,7 +5742,11 @@ if query:
                                                         status_text = f"_{stage.replace('_', ' ').title()}... ({elapsed:.1f}s)_"
                                                     else:
                                                         status_text = f"_{stage.replace('_', ' ').title()}..._"
-                                                    answer_placeholder.markdown(f"**📚 Assistant**\n\n{status_text}")
+                                                    answer_placeholder.markdown(
+                                                        f'<div class="msg msg-assistant streaming"><div class="msg-body">'
+                                                        f'{status_text}</div></div>',
+                                                        unsafe_allow_html=True,
+                                                    )
                                                 elif event_type == "sources":
                                                     sources = data.get("sources", [])
                                                 elif event_type == "chunk":
@@ -5887,24 +5754,22 @@ if query:
                                                     if chunk:
                                                         received_any_chunk = True
                                                     answer_text += chunk
-                                                    # Update placeholder - use message-bot.streaming for subtle pulse
                                                     safe_text = html.escape(answer_text).replace("\n", "<br/>")
                                                     answer_placeholder.markdown(
-                                                        f'<div class="message-bot streaming"><strong>📚 Assistant</strong>'
-                                                        f'<div style="margin-top:0.5rem;">{safe_text}</div></div>',
-                                                        unsafe_allow_html=True
+                                                        f'<div class="msg msg-assistant streaming"><div class="msg-body">'
+                                                        f'{safe_text}</div></div>',
+                                                        unsafe_allow_html=True,
                                                     )
                                                 elif event_type == "done":
                                                     received_done = True
                                                     full_response = data.get("full_response", answer_text)
                                                     if full_response and str(full_response).strip():
                                                         answer_text = str(full_response)
-                                                    # Re-render final answer in placeholder (avoid flash of empty)
                                                     _safe_final = html.escape(answer_text).replace("\n", "<br/>")
                                                     answer_placeholder.markdown(
-                                                        f'<div class="message-bot"><strong>📚 Assistant</strong>'
-                                                        f'<div style="margin-top:0.5rem;">{_safe_final}</div></div>',
-                                                        unsafe_allow_html=True
+                                                        f'<div class="msg msg-assistant"><div class="msg-body">'
+                                                        f'{_safe_final}</div></div>',
+                                                        unsafe_allow_html=True,
                                                     )
                                                 elif event_type == "error":
                                                     error_msg = data.get("content", "Unknown error")
@@ -5970,9 +5835,8 @@ if query:
                     try:
                         _safe_final = html.escape(answer_text).replace("\n", "<br/>")
                         answer_placeholder.markdown(
-                            f'<div class="message-bot"><strong>📚 Assistant</strong>'
-                            f'<div style="margin-top:0.5rem;">{_safe_final}</div></div>',
-                            unsafe_allow_html=True
+                            f'<div class="msg msg-assistant"><div class="msg-body">{_safe_final}</div></div>',
+                            unsafe_allow_html=True,
                         )
                     except Exception:
                         pass

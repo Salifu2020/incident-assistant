@@ -310,12 +310,30 @@ class KnowledgeAssistant:
         
         self.reset_history()
 
+    def _should_fallback_to_ollama(self, error: Exception) -> bool:
+        """Only fall back to Ollama for transient failures, not auth/config errors."""
+        provider_pref = (os.environ.get("LLM_PROVIDER") or "auto").strip().lower()
+        if provider_pref in {"groq", "openai"}:
+            return False
+        err = str(error).lower()
+        auth_markers = (
+            "invalid api key",
+            "expired_api_key",
+            "incorrect api key",
+            "unauthorized",
+            "authentication",
+            "401",
+            "403",
+        )
+        return not any(marker in err for marker in auth_markers)
+
     def _llm_chat(self, messages: list, stream: bool = False, 
                   temperature: float = 0.3, max_tokens: int = 500) -> str:
         """
         Unified LLM chat method that uses the configured provider.
-        Falls back to direct Ollama if provider is not available.
+        Falls back to direct Ollama only when that is a sensible recovery path.
         """
+        provider_error = None
         # Try the configured LLM provider first
         if self._llm_provider is not None:
             try:
@@ -326,23 +344,29 @@ class KnowledgeAssistant:
                     max_tokens=max_tokens
                 )
             except Exception as e:
+                provider_error = e
+                if not self._should_fallback_to_ollama(e):
+                    raise RuntimeError(
+                        f"LLM provider failed: {e}. "
+                        "Check GROQ_API_KEY / OPENAI_API_KEY in .env.local and restart the API."
+                    ) from e
                 print(f"⚠️ LLM provider error: {e}, falling back to Ollama")
         
         # Fallback to direct Ollama
         if _ollama_available:
-            if stream:
-                response_text = ""
-                stream_resp = ollama.chat(
-                    model=self.llm_model,
-                    messages=messages,
-                    stream=True,
-                    options={"temperature": temperature, "num_predict": max_tokens}
-                )
-                for chunk in stream_resp:
-                    if 'message' in chunk and 'content' in chunk['message']:
-                        response_text += chunk['message']['content']
-                return response_text.strip()
-            else:
+            try:
+                if stream:
+                    response_text = ""
+                    stream_resp = ollama.chat(
+                        model=self.llm_model,
+                        messages=messages,
+                        stream=True,
+                        options={"temperature": temperature, "num_predict": max_tokens}
+                    )
+                    for chunk in stream_resp:
+                        if 'message' in chunk and 'content' in chunk['message']:
+                            response_text += chunk['message']['content']
+                    return response_text.strip()
                 response = ollama.chat(
                     model=self.llm_model,
                     messages=messages,
@@ -350,7 +374,18 @@ class KnowledgeAssistant:
                     options={"temperature": temperature, "num_predict": max_tokens}
                 )
                 return response["message"]["content"].strip()
+            except Exception as ollama_error:
+                if provider_error is not None:
+                    raise RuntimeError(
+                        f"LLM provider failed ({provider_error}); Ollama fallback also failed ({ollama_error})."
+                    ) from ollama_error
+                raise
         
+        if provider_error is not None:
+            raise RuntimeError(
+                f"LLM provider failed: {provider_error}. "
+                "No Ollama fallback available. Set a valid GROQ_API_KEY or start Ollama."
+            ) from provider_error
         raise RuntimeError("No LLM provider available. Set GROQ_API_KEY, OPENAI_API_KEY, or ensure Ollama is running.")
 
     def _llm_chat_stream(self, messages: list, 
@@ -358,6 +393,7 @@ class KnowledgeAssistant:
         """
         Stream LLM response. Yields chunks of text.
         """
+        provider_error = None
         # Try the configured LLM provider first
         if self._llm_provider is not None:
             try:
@@ -369,21 +405,39 @@ class KnowledgeAssistant:
                     yield chunk
                 return
             except Exception as e:
+                provider_error = e
+                if not self._should_fallback_to_ollama(e):
+                    raise RuntimeError(
+                        f"LLM provider failed: {e}. "
+                        "Check GROQ_API_KEY / OPENAI_API_KEY in .env.local and restart the API."
+                    ) from e
                 print(f"⚠️ LLM provider stream error: {e}, falling back to Ollama")
         
         # Fallback to direct Ollama
         if _ollama_available:
-            stream = ollama.chat(
-                model=self.llm_model,
-                messages=messages,
-                stream=True,
-                options={"temperature": temperature, "num_predict": max_tokens}
-            )
-            for chunk in stream:
-                if 'message' in chunk and 'content' in chunk['message']:
-                    yield chunk['message']['content']
-            return
+            try:
+                stream = ollama.chat(
+                    model=self.llm_model,
+                    messages=messages,
+                    stream=True,
+                    options={"temperature": temperature, "num_predict": max_tokens}
+                )
+                for chunk in stream:
+                    if 'message' in chunk and 'content' in chunk['message']:
+                        yield chunk['message']['content']
+                return
+            except Exception as ollama_error:
+                if provider_error is not None:
+                    raise RuntimeError(
+                        f"LLM provider failed ({provider_error}); Ollama fallback also failed ({ollama_error})."
+                    ) from ollama_error
+                raise
         
+        if provider_error is not None:
+            raise RuntimeError(
+                f"LLM provider failed: {provider_error}. "
+                "No Ollama fallback available. Set a valid GROQ_API_KEY or start Ollama."
+            ) from provider_error
         raise RuntimeError("No LLM provider available for streaming.")
 
     def _clean_answer_style(self, answer: str) -> str:
@@ -2548,8 +2602,16 @@ class KnowledgeAssistant:
                 final_response = self.translate_text(response, detected_language, self.default_language)
                 print(f"🌐 Translated answer to {detected_language}")
             
-            # Store in cache if enabled and not a follow-up question
-            if self.enable_query_caching and self.query_cache and cache_key and not conversation_context:
+            # Store in cache if enabled and not a follow-up question.
+            # Never cache transport/LLM failure strings.
+            if (
+                self.enable_query_caching
+                and self.query_cache
+                and cache_key
+                and not conversation_context
+                and final_response
+                and not str(final_response).lstrip().startswith("❌ Error")
+            ):
                 self.query_cache.set(
                     cache_key,
                     final_response,

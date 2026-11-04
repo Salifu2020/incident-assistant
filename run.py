@@ -5,11 +5,14 @@ import sys
 import subprocess
 
 def _load_dotenv():
+    """Load .env then .env.local (local overrides)."""
     try:
         from dotenv import load_dotenv
-        load_dotenv()
     except ImportError:
-        pass
+        return
+    root = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(root, ".env"))
+    load_dotenv(os.path.join(root, ".env.local"), override=True)
 
 def run_api():
     """Start the FastAPI server."""
@@ -17,6 +20,8 @@ def run_api():
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
+    api_url = os.environ.get("API_URL", f"http://127.0.0.1:{port}")
+    print(f"Starting API on {host}:{port} (clients should use {api_url})")
     uvicorn.run(
         "src.api:app",
         host=host,
@@ -28,14 +33,19 @@ def run_api():
 
 def run_app():
     """Start the Streamlit frontend."""
+    _load_dotenv()
     app_path = os.path.join(os.path.dirname(__file__), "src", "app.py")
-    subprocess.run([
-        sys.executable, "-m", "streamlit", "run",
-        os.path.abspath(app_path),
-    ])
+    subprocess.run(
+        [
+            sys.executable, "-m", "streamlit", "run",
+            os.path.abspath(app_path),
+        ],
+        env=os.environ.copy(),
+    )
 
 def run_cli():
     """Start the CLI interface."""
+    _load_dotenv()
     from src.cli import main
     main()
 

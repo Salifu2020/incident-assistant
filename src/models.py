@@ -364,13 +364,13 @@ class PerformanceStatsResponse(BaseModel):
 
 # Authentication Models
 class UserRegister(BaseModel):
-    username: str
+    first_name: str
     email: str
     password: str
     role: Optional[str] = "user"
 
 class UserLogin(BaseModel):
-    username: str
+    email: str
     password: str
 
 class UserInfo(BaseModel):
@@ -388,6 +388,7 @@ class UserInfo(BaseModel):
     password_expired: Optional[bool] = False
     twofa_enabled: Optional[bool] = False
     display_name: Optional[str] = None
+    first_name: Optional[str] = None
     bio: Optional[str] = None
     avatar: Optional[str] = None
 
