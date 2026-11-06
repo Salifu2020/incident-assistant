@@ -8,11 +8,13 @@ History, Saved questions, and Users (frontend 6) are done. They use the same cen
 
 Saved threads (backend 1) are done. Every streamed question sends the conversation id. The question and the answer are stored with sources and the confidence line, and the first question becomes the title in Recent. A follow-up is answered from the previous turns. New chat starts blank, and the row is created with the first question.
 
-Each item is one change. Render the answer is the one to do before anything else.
+Answer formatting (frontend 1) is done. The finished card renders paragraphs, bold, and lists. The confidence line stays under the divider, and sources stay collapsed.
+
+Each item is one change. Stream the live answer into that same card before anything else.
 
 ## Do these first
 
-1. **Render the answer as writing, not raw markdown** (frontend). Lists and bold currently show up as `*` and `**` inside the card.
+1. **Let the live answer use the same card** (frontend). While tokens are streaming, the reply is a plain bubble. When the stream ends it jumps into the answer card.
 
 ## Backend
 
@@ -58,13 +60,9 @@ Six wrong passwords set `failed_attempts` and `locked_until` on the JSON user. T
 
 ## Frontend
 
-### 1. Format the answer inside the card
+### 1. Format the answer inside the card — done
 
-The card escapes the whole reply, so a model list becomes one paragraph with asterisks. The confidence line and sources should stay as they are.
-
-Render a small, safe subset inside the answer body: paragraphs, bold, and lists. Leave the footer (confidence, collapsed sources) untouched.
-
-Done when a resume summary shows job titles as a list, and the confidence line still sits under the divider.
+The finished card renders paragraphs, bold, and lists. A resume summary shows job titles as list items, with the role names in bold. The confidence line stays under the divider, and the source list stays collapsed.
 
 ### 2. Let the live answer use the same card
 

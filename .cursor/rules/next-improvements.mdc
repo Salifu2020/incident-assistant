@@ -1,0 +1,13 @@
+---
+description: Update the improvements doc whenever an item from it ships
+alwaysApply: true
+---
+
+# Keep the improvements list current
+
+When you finish an item from `docs/NEXT_IMPROVEMENTS.md`, update that file in the same change. Do this without waiting to be asked.
+
+- Add a short done note near the top.
+- Change the item heading to end with `— done`, and replace the spec with what shipped.
+- Remove that item from **Do these first**. If the list is empty, point it at the next open item.
+- Leave unrelated open items as they are.

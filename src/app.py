@@ -1342,6 +1342,29 @@ st.markdown(
         color: #e2e8f0;
     }
 
+    .answer-card .msg-body p {
+        margin: 0 0 0.75rem;
+    }
+    .answer-card .msg-body p:last-child {
+        margin-bottom: 0;
+    }
+    .answer-card .msg-body ul,
+    .answer-card .msg-body ol {
+        margin: 0.15rem 0 0.85rem;
+        padding-left: 1.2rem;
+    }
+    .answer-card .msg-body li {
+        margin: 0.28rem 0;
+        padding-left: 0.15rem;
+    }
+    .answer-card .msg-body li::marker {
+        color: #94a3b8;
+    }
+    .answer-card .msg-body strong {
+        font-weight: 650;
+        color: #f8fafc;
+    }
+
     .answer-meta {
         margin-top: 0.9rem;
         padding-top: 0.65rem;
@@ -5603,6 +5626,70 @@ def _answer_meta_flags(meta: dict, sources: list, message: str = "") -> dict:
     }
 
 
+_ANSWER_BULLET_RE = re.compile(r"^\s*[-*•]\s+(.+)$")
+_ANSWER_NUMBER_RE = re.compile(r"^\s*\d+[.)]\s+(.+)$")
+_ANSWER_BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
+
+
+def _answer_inline(text: str) -> str:
+    """Bold only. The text is already escaped, so tags cannot come from the model."""
+    def _strong(match: re.Match) -> str:
+        inner = match.group(1) if match.group(1) is not None else match.group(2)
+        return f"<strong>{inner}</strong>"
+
+    return _ANSWER_BOLD_RE.sub(_strong, text)
+
+
+def format_answer_html(message: str) -> str:
+    """Turn a model reply into paragraphs, bold, and lists. Everything else stays text."""
+    raw = str(message or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("<"):
+        return "An error occurred while displaying the response. Please try again."
+
+    lines = html.escape(raw).splitlines()
+    parts = []
+    index = 0
+    total = len(lines)
+    while index < total:
+        if not lines[index].strip():
+            index += 1
+            continue
+
+        bullet = _ANSWER_BULLET_RE.match(lines[index])
+        number = _ANSWER_NUMBER_RE.match(lines[index])
+        if bullet or number:
+            pattern = _ANSWER_BULLET_RE if bullet else _ANSWER_NUMBER_RE
+            tag = "ul" if bullet else "ol"
+            items = []
+            while index < total:
+                if not lines[index].strip():
+                    look = index + 1
+                    while look < total and not lines[look].strip():
+                        look += 1
+                    if look < total and pattern.match(lines[look]):
+                        index = look
+                        continue
+                    break
+                matched = pattern.match(lines[index])
+                if not matched:
+                    break
+                items.append(f"<li>{_answer_inline(matched.group(1).strip())}</li>")
+                index += 1
+            parts.append(f"<{tag}>{''.join(items)}</{tag}>")
+            continue
+
+        paragraph = []
+        while index < total and lines[index].strip():
+            if _ANSWER_BULLET_RE.match(lines[index]) or _ANSWER_NUMBER_RE.match(lines[index]):
+                break
+            paragraph.append(_answer_inline(lines[index].strip()))
+            index += 1
+        parts.append("<p>" + "<br/>".join(paragraph) + "</p>")
+    return "".join(parts)
+
+
 def render_assistant_message_block(
     message_idx: int,
     message: str,
@@ -5614,9 +5701,7 @@ def render_assistant_message_block(
 ):
     """Render one answer card: the answer, one confidence line, and collapsed sources."""
     _display_msg = str(message).strip()
-    safe_message = html.escape(_display_msg).replace("\n", "<br/>")
-    if _display_msg.strip().startswith("<"):
-        safe_message = "An error occurred while displaying the response. Please try again."
+    safe_message = format_answer_html(_display_msg)
 
     source_list = sources if isinstance(sources, list) else []
     flags = _answer_meta_flags(meta or {}, source_list, _display_msg)
