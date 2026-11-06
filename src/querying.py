@@ -29,6 +29,68 @@ def _safe_print(*args, **kwargs):
 
 print = _safe_print
 
+# Chroma relevance is cosine similarity (1 - distance). Below this, the hit is not an answer.
+MIN_USEFUL_RELEVANCE = 0.40
+NOT_IN_DOCS_REPLY = (
+    "I couldn't find that in your documents. "
+    "Try rephrasing the question, or upload a file that covers this topic."
+)
+
+
+def best_source_relevance(sources) -> float:
+    if not sources:
+        return 0.0
+    try:
+        return max(float(s.get("relevance") or 0) for s in sources if isinstance(s, dict))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def retrieval_is_useful(context, sources, minimum: float = MIN_USEFUL_RELEVANCE) -> bool:
+    """True when the retrieved passages are close enough to answer from."""
+    if not (context or "").strip() or not sources:
+        return False
+    return best_source_relevance(sources) >= minimum
+
+
+def not_in_documents_payload(best_relevance: float = 0.0):
+    """Short refusal plus the confidence badge that belongs with it."""
+    confidence = {
+        "confidence": 0.05,
+        "level": "very_low",
+        "factors": {
+            "retrieval": round(float(best_relevance or 0), 3),
+            "not_in_documents": True,
+        },
+    }
+    verification = {
+        "status": "unsupported",
+        "supported": False,
+        "details": "No relevant passages in the knowledge base.",
+        "has_hallucinations": False,
+    }
+    return NOT_IN_DOCS_REPLY, confidence, verification
+
+
+def answer_is_refusal(text: str) -> bool:
+    """True when the model itself says the documents do not contain the answer."""
+    lead = (text or "").strip().lower()[:280]
+    if not lead:
+        return False
+    phrases = (
+        "couldn't find that in your documents",
+        "could not find that in your documents",
+        "not in your documents",
+        "not in the documents",
+        "not found in your documents",
+        "not found in the documents",
+        "do not contain the answer",
+        "does not contain the answer",
+        "don't have that information",
+        "do not have that information",
+    )
+    return any(phrase in lead for phrase in phrases)
+
 # Keep ollama import for backward compatibility (will be used if LLM provider fallback is needed)
 try:
     import ollama
@@ -492,12 +554,13 @@ class KnowledgeAssistant:
                     "You are a careful knowledge assistant for private documents. "
                     "Your job is to give useful, accurate answers grounded in the provided context.\n\n"
                     "Guidelines:\n"
-                    "- Prefer the provided context over general knowledge.\n"
+                    "- Use only facts that appear in the provided passages. Do not fill gaps with general knowledge.\n"
                     "- Be specific: include names, roles, skills, dates, tools, and numbers when present.\n"
                     "- Write in clear prose. Use short bullets only when they improve readability.\n"
-                    "- If the context partially answers the question, answer what you can and state what is missing.\n"
-                    "- If the context does not contain the answer, say that plainly. Do not invent facts.\n"
-                    "- Do not mention 'the context', 'the documents', or that you are an AI unless asked.\n"
+                    "- If the passages answer only part of the question, give that part and say what is missing. Do not guess the rest.\n"
+                    "- If the passages do not contain the answer, reply with exactly: "
+                    "I couldn't find that in your documents.\n"
+                    "- Do not mention 'the context' or that you are an AI unless asked.\n"
                     "- For follow-ups, resolve pronouns using conversation history and stay consistent."
                 )
             }
@@ -507,10 +570,10 @@ class KnowledgeAssistant:
         return (
             "\n\nAnswer rules:\n"
             "- Answer the user's question directly.\n"
-            "- Use only facts supported by the context (and conversation history for follow-ups).\n"
+            "- Use only facts supported by the passages (and conversation history for follow-ups).\n"
             "- Be concrete and useful, not vague.\n"
             "- Do not say 'as mentioned in the context', 'based on the documents', or similar.\n"
-            "- If evidence is weak or missing, say what you cannot confirm.\n"
+            "- If the passages do not answer the question, reply with exactly: I couldn't find that in your documents.\n"
         )
 
     def retrieve_context(self, query, k=8, document_filters=None, advanced_filters=None):
@@ -743,6 +806,25 @@ class KnowledgeAssistant:
             
             if not docs:
                 return "", []
+
+            # Drop weak hits before re-ranking. Re-ranking rescales scores so the
+            # top hit looks perfect even when the question is not in the documents.
+            max_distance = 1.0 - MIN_USEFUL_RELEVANCE
+            paired = []
+            for i, doc in enumerate(docs):
+                distance = distances[i] if distances and i < len(distances) else 1.0
+                meta = metadatas[i] if metadatas and i < len(metadatas) else {}
+                try:
+                    distance_f = float(distance)
+                except (TypeError, ValueError):
+                    continue
+                if distance_f <= max_distance and (doc or "").strip():
+                    paired.append((doc, distance_f, meta or {}))
+            if not paired:
+                return "", []
+            docs = [item[0] for item in paired]
+            distances = [item[1] for item in paired]
+            metadatas = [item[2] for item in paired]
             
             # Re-rank chunks if enabled (improves relevance ordering)
             if self.enable_reranking and len(docs) > 1:
@@ -752,17 +834,12 @@ class KnowledgeAssistant:
                     print(f"⚠️ Re-ranking failed: {e}, using original order")
                     # Continue with original order if re-ranking fails
             
-            # Smart filtering: use adaptive threshold - prioritize recall for weak semantic matches
-            # (e.g. "summarize the resume" may not match "experience, skills" chunks closely)
-            top_distance = distances[0] if distances else 1.0
-            threshold = 0.5 if top_distance < 0.3 else 1.0  # Include more results when top match is weak
-            
             filtered_docs = []
             filtered_sources = []  # Track sources for each chunk
             total_length = 0
             
             for i, (doc, distance) in enumerate(zip(docs, distances)):
-                if distance < threshold and total_length < self.max_context_chars:
+                if total_length < self.max_context_chars:
                     doc_text = doc.strip() if doc else ""
                     if doc_text:
                         doc_length = len(doc_text)
@@ -789,20 +866,6 @@ class KnowledgeAssistant:
                             "relevance": round(1 - distance, 3),  # Convert distance to relevance score
                             "distance": round(distance, 3)
                         })
-            
-            # If no docs passed threshold, use top result anyway (fallback)
-            if not filtered_docs and docs:
-                # Use at least the top result even if below threshold
-                top_doc = docs[0].strip() if docs[0] else ""
-                if top_doc:
-                    filtered_docs = [top_doc[:self.max_context_chars]]
-                    if metadatas and len(metadatas) > 0:
-                        source_info = metadatas[0]
-                        filtered_sources = [{
-                            "source": source_info.get("source", "Unknown"),
-                            "relevance": round(1 - distances[0], 3) if distances else 0.5,
-                            "distance": round(distances[0], 3) if distances else 0.5
-                        }]
             
             if not filtered_docs:
                 return "", []
@@ -1801,8 +1864,7 @@ class KnowledgeAssistant:
                 advanced_filters=advanced_filters
             )
             
-            if not sub_context:
-                sub_answers.append(self.generate_response(sub_q, "", is_followup=False))
+            if not retrieval_is_useful(sub_context, sub_sources):
                 continue
             
             # Generate answer for sub-question
@@ -1823,6 +1885,8 @@ class KnowledgeAssistant:
                     is_followup=False,
                     intent=sub_intent
                 )
+                if answer_is_refusal(sub_answer):
+                    continue
                 sub_answers.append(sub_answer)
                 
                 # Collect sources
@@ -1832,9 +1896,18 @@ class KnowledgeAssistant:
                 print(f"⚠️ Error answering sub-question {i}: {e}")
                 sub_answers.append(f"Error processing: {sub_q}")
         
+        if not sub_answers:
+            reply, confidence_info, verification_info = not_in_documents_payload(0.0)
+            return reply, [], {"intent": "factual", "confidence": 0.5}, confidence_info, verification_info
+
         # Step 3: Synthesize final answer
         print("🔗 Synthesizing final answer...")
         final_answer = self._synthesize_answer(query, sub_answers, sub_questions)
+        if answer_is_refusal(final_answer):
+            reply, confidence_info, verification_info = not_in_documents_payload(
+                best_source_relevance(all_sources)
+            )
+            return reply, [], {"intent": "factual", "confidence": 0.5}, confidence_info, verification_info
         
         # Deduplicate and sort sources
         unique_sources = {}
@@ -2513,8 +2586,20 @@ class KnowledgeAssistant:
         if self.enable_learning_from_feedback:
             retrieval_adjustments = self._adjust_retrieval_strategy(query)
         
-        # Check if query requires multi-step reasoning
+        # Check if query requires multi-step reasoning.
+        # A weak first retrieval is a refusal, not a chain of guesses.
         if self.enable_multi_step_reasoning and self._is_complex_query(query, intent_info):
+            probe_context, probe_sources = self.retrieve_context(
+                query,
+                k=6,
+                document_filters=document_filters,
+                advanced_filters=advanced_filters,
+            )
+            if not retrieval_is_useful(probe_context, probe_sources):
+                reply, confidence_info, verification_info = not_in_documents_payload(
+                    best_source_relevance(probe_sources)
+                )
+                return reply, [], intent_info, confidence_info, verification_info
             try:
                 return self.multi_step_reasoning(
                     query,
@@ -2576,13 +2661,18 @@ class KnowledgeAssistant:
             advanced_filters=advanced_filters
         )
 
-        if not context:
-            context = ""
+        best_relevance = best_source_relevance(sources)
+        if not retrieval_is_useful(context, sources):
+            reply, confidence_info, verification_info = not_in_documents_payload(best_relevance)
+            return reply, [], intent_info, confidence_info, verification_info
         
         # Generate response with follow-up awareness and intent guidance
         # Use original query for response generation to maintain context
         try:
             response = self.generate_response(query_for_processing, context, is_followup=is_followup, intent=intent_info)
+            if answer_is_refusal(response):
+                reply, confidence_info, verification_info = not_in_documents_payload(best_relevance)
+                return reply, [], intent_info, confidence_info, verification_info
             
             # Calculate confidence score
             confidence_info = None

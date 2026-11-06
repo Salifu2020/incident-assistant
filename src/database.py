@@ -50,10 +50,22 @@ def get_database_url() -> str:
     
     return database_url
 
+def _use_local_storage() -> bool:
+    """Local JSON auth + on-disk Chroma. Skips a remote Postgres that may be down."""
+    flag = os.environ.get("USE_LOCAL_STORAGE", "").strip().lower()
+    return flag in ("1", "true", "yes", "on")
+
+
 def init_db():
     """Initialize database connection and create tables."""
     global _engine, _SessionLocal
-    
+
+    if _use_local_storage():
+        logger.info("Using local JSON auth store at data/ (remote database skipped)")
+        _engine = None
+        _SessionLocal = None
+        return
+
     try:
         database_url = get_database_url()
         logger.info(f"Connecting to database: {database_url.split('@')[1] if '@' in database_url else 'local'}")

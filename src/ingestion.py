@@ -949,13 +949,22 @@ class DocumentProcessor:
                 mtime = os.path.getmtime(file_path)
                 upload_date = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
             
+            if chunk_count > 0:
+                status = "ready"
+            elif file_path and os.path.exists(file_path):
+                # On disk but not indexed yet — treat as indexing
+                status = "indexing"
+            else:
+                status = "failed"
+
             return {
                 "filename": filename,
                 "file_type": file_type,
                 "chunk_count": chunk_count,
                 "upload_date": upload_date,
                 "file_size": file_size,
-                "file_path": file_path
+                "file_path": file_path,
+                "status": status,
             }
         except Exception as e:
             print(f"❌ Error getting document info for {filename}: {e}")
@@ -1028,13 +1037,15 @@ class DocumentProcessor:
                         # Even if get_document_info returns None, create a basic entry
                         print(f"⚠️ Could not get full info for {filename}, creating basic entry")
                         file_type = os.path.splitext(filename)[1].lower().lstrip('.')
+                        chunk_n = doc_chunks.get(filename, 0)
                         documents.append({
                             "filename": filename,
                             "file_type": file_type,
-                            "chunk_count": doc_chunks.get(filename, 0),
+                            "chunk_count": chunk_n,
                             "upload_date": None,
                             "file_size": None,
-                            "file_path": None
+                            "file_path": None,
+                            "status": "ready" if chunk_n > 0 else "indexing",
                         })
                 except Exception as e:
                     print(f"⚠️ Error processing document info for {filename}: {e}")
@@ -1042,13 +1053,15 @@ class DocumentProcessor:
                     traceback.print_exc()
                     # Create a basic entry anyway
                     file_type = os.path.splitext(filename)[1].lower().lstrip('.')
+                    chunk_n = doc_chunks.get(filename, 0)
                     documents.append({
                         "filename": filename,
                         "file_type": file_type,
-                        "chunk_count": doc_chunks.get(filename, 0),
+                        "chunk_count": chunk_n,
                         "upload_date": None,
                         "file_size": None,
-                        "file_path": None
+                        "file_path": None,
+                        "status": "ready" if chunk_n > 0 else "failed",
                     })
             
             # Sort by filename

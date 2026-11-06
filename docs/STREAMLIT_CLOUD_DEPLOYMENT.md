@@ -58,6 +58,8 @@ API_URL = "https://YOUR-API-HOST"
 # The Streamlit process itself only needs API_URL.
 ```
 
+On the **API** host, set `ENABLE_DEMO_LOGIN=1` (default) so the login screen shows **Continue as demo reviewer** (no email verification). Set `ENABLE_DEMO_LOGIN=0` in production if you want that off.
+
 After saving secrets, **reboot** the app.
 
 Without `API_URL`, the UI defaults to `http://127.0.0.1:8000`, which does not exist on Cloud. You should see a clear warning on the login screen after this fix ships.

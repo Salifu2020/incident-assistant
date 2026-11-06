@@ -277,63 +277,27 @@ async def login(credentials: UserLogin, request: FastAPIRequest = None):
     user_manager = get_user_manager()
     result = user_manager.authenticate_user(credentials.email, credentials.password)
     
-    if not result:
+    if not result or (isinstance(result, dict) and result.get("error")):
+        # Wrong password, unknown email, and a lock all look the same.
+        ip_address = None
+        if request:
+            ip_address = (
+                request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
+                request.headers.get("X-Real-IP", "") or
+                (request.client.host if request.client else None)
+            )
+        log_audit_event(
+            event_type="login_failed",
+            username=credentials.email,
+            ip_address=ip_address,
+            status="failed",
+            error_message="Invalid email or password",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Check for errors (account locked, invalid credentials)
-    if isinstance(result, dict) and "error" in result:
-        error_type = result.get("error")
-        if error_type == "account_locked":
-            unlock_time = result.get("unlock_time")
-            # Log audit event
-            ip_address = None
-            if request:
-                ip_address = (
-                    request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
-                    request.headers.get("X-Real-IP", "") or
-                    (request.client.host if request.client else None)
-                )
-            log_audit_event(
-                event_type="login_locked",
-                username=credentials.email,
-                ip_address=ip_address,
-                status="failed",
-                error_message="Account locked"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_423_LOCKED,
-                detail=f"Account is locked due to too many failed login attempts. Please try again after {unlock_time} or contact an administrator.",
-            )
-        elif error_type == "invalid_credentials":
-            attempts_remaining = result.get("attempts_remaining", 0)
-            # Log audit event
-            ip_address = None
-            if request:
-                ip_address = (
-                    request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or
-                    request.headers.get("X-Real-IP", "") or
-                    (request.client.host if request.client else None)
-                )
-            log_audit_event(
-                event_type="login_failed",
-                username=credentials.email,
-                ip_address=ip_address,
-                status="failed",
-                error_message="Invalid credentials",
-                details={"attempts_remaining": attempts_remaining}
-            )
-            detail_msg = "Incorrect email or password"
-            if attempts_remaining > 0:
-                detail_msg += f". {attempts_remaining} attempt(s) remaining before account lockout."
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=detail_msg,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
     
     # Successful authentication
     user = result
@@ -405,6 +369,125 @@ async def login(credentials: UserLogin, request: FastAPIRequest = None):
 async def get_current_user_info(current_user: UserInfo = Depends(get_current_user)):
     """Get current user information."""
     return current_user
+
+
+def _demo_login_enabled() -> bool:
+    """One-click reviewer login. Disable with ENABLE_DEMO_LOGIN=0."""
+    return os.environ.get("ENABLE_DEMO_LOGIN", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+DEMO_EMAIL = os.environ.get("DEMO_EMAIL", "demo@incident-assistant.local").strip().lower()
+DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "DemoReviewer!2024")
+DEMO_FIRST_NAME = os.environ.get("DEMO_FIRST_NAME", "Demo")
+
+
+@app.get("/auth/demo-status")
+async def demo_status():
+    """Whether the Streamlit UI should show one-click demo access."""
+    return {
+        "enabled": _demo_login_enabled(),
+        "email": DEMO_EMAIL if _demo_login_enabled() else None,
+        "note": "No email verification required for demo access.",
+    }
+
+
+@app.post("/auth/demo", response_model=Token)
+async def demo_login(request: FastAPIRequest = None):
+    """
+    One-click reviewer login. Creates the demo user if missing, then returns tokens.
+    No email verification step — intended for demos and reviews.
+    """
+    if not _demo_login_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo login is disabled. Set ENABLE_DEMO_LOGIN=1 to enable.",
+        )
+
+    user_manager = get_user_manager()
+    user = user_manager.get_user_by_email(DEMO_EMAIL)
+    if not user:
+        try:
+            user = user_manager.create_user(
+                email=DEMO_EMAIL,
+                password=DEMO_PASSWORD,
+                role="user",
+                first_name=DEMO_FIRST_NAME,
+            )
+            logger.info(f"Demo reviewer account created: {DEMO_EMAIL}")
+        except ValueError as e:
+            # Race: another request created it
+            user = user_manager.get_user_by_email(DEMO_EMAIL)
+            if not user:
+                raise HTTPException(status_code=500, detail=f"Could not create demo user: {e}")
+
+    # Authenticate to update last_login / clear lockouts when possible
+    auth_result = user_manager.authenticate_user(DEMO_EMAIL, DEMO_PASSWORD)
+    if isinstance(auth_result, dict) and "error" not in auth_result:
+        user = auth_result
+    elif not user:
+        raise HTTPException(status_code=500, detail="Demo user unavailable")
+
+    # If password was rotated externally, still allow token issuance for existing demo user
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["id"], "username": user["username"], "role": user["role"]},
+        expires_delta=access_token_expires,
+    )
+    refresh_token = create_refresh_token(user["id"])
+
+    ip_address = None
+    user_agent = None
+    if request:
+        ip_address = (
+            request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.headers.get("X-Real-IP", "")
+            or (request.client.host if request.client else None)
+        )
+        user_agent = request.headers.get("User-Agent", "")
+
+    session_id = create_session(
+        user_id=user["id"],
+        access_token=access_token,
+        refresh_token=refresh_token,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        device_info=None,
+    )
+
+    log_audit_event(
+        event_type="demo_login",
+        user_id=user["id"],
+        username=user.get("username"),
+        ip_address=ip_address,
+        status="success",
+        details={"email": DEMO_EMAIL},
+    )
+
+    user_info = UserInfo(
+        id=user["id"],
+        username=user.get("username") or "demo",
+        email=user.get("email") or DEMO_EMAIL,
+        role=user.get("role") or "user",
+        created_at=user.get("created_at"),
+        last_login=user.get("last_login"),
+        active=user.get("active", True),
+        display_name=user.get("display_name") or DEMO_FIRST_NAME,
+        first_name=user.get("first_name") or DEMO_FIRST_NAME,
+        twofa_enabled=False,
+    )
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": user_info,
+        "requires_2fa": False,
+        "session_id": session_id,
+    }
 
 @app.post("/auth/change-password")
 async def change_password(
@@ -1290,18 +1373,64 @@ def get_status(current_user: UserInfo = Depends(get_current_user)):
             "error": str(e)
         }
 
+@app.get("/index-status")
+def index_status(filenames: Optional[str] = None, current_user: UserInfo = Depends(get_current_user)):
+    """Indexer state for one or more filenames (comma-separated)."""
+    wanted = [name.strip() for name in (filenames or "").split(",") if name.strip()]
+    state = get_index_status_map()
+    if wanted:
+        items = {name: state.get(name, {"status": "indexing", "detail": "Waiting"}) for name in wanted}
+    else:
+        items = state
+    return {"documents": items}
+
+
 @app.get("/documents", response_model=DocumentListResponse)
 def list_documents(current_user: UserInfo = Depends(get_current_user)):
     """List all documents in the knowledge base with details."""
     try:
         proc = get_processor()
-        documents = proc.list_documents()
+        documents = proc.list_documents() or []
         total_chunks = proc.collection.count()
-        
+        indexed = {d.get("filename") for d in documents if d.get("filename")}
+
+        # Include uploaded-but-not-indexed files from source_files/
+        source_root = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "source_files",
+        )
+        if os.path.isdir(source_root):
+            for name in os.listdir(source_root):
+                path = os.path.join(source_root, name)
+                if not os.path.isfile(path) or name in indexed:
+                    continue
+                try:
+                    size = os.path.getsize(path)
+                    mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                except Exception:
+                    size, mtime = None, None
+                ext = os.path.splitext(name)[1].lower().lstrip(".") or "file"
+                documents.append(
+                    {
+                        "filename": name,
+                        "file_type": ext,
+                        "chunk_count": 0,
+                        "upload_date": mtime,
+                        "file_size": size,
+                        "file_path": path,
+                        "status": "indexing",
+                    }
+                )
+
+        apply_recorded_index_status(documents)
+
+        documents.sort(key=lambda d: (d.get("filename") or "").lower())
         return {
             "documents": documents,
             "total_documents": len(documents),
-            "total_chunks": total_chunks
+            "total_chunks": total_chunks,
         }
     except Exception as e:
         logger.error(f"Error listing documents: {e}")
@@ -1319,6 +1448,7 @@ def get_document_info(
         doc_info = proc.get_document_info(filename)
         if not doc_info:
             raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
+        apply_recorded_index_status([doc_info])
         return doc_info
     except HTTPException:
         raise
@@ -1341,7 +1471,8 @@ def delete_document(
         
         if error:
             raise HTTPException(status_code=404, detail=error)
-        
+
+        clear_index_status(filename)
         logger.info(f"Deleted {deleted_count} chunks for document '{filename}'")
         
         # Invalidate cache entries related to this document
@@ -2065,8 +2196,23 @@ async def ask_question_stream(payload: QuestionRequest):
                 except asyncio.TimeoutError:
                     yield _sse({"type": "status", "stage": "retrieving_context", "elapsed": round(_elapsed(), 1)})
             
-            if not context:
-                context = ""
+            from .querying import best_source_relevance, retrieval_is_useful, not_in_documents_payload, answer_is_refusal
+            if not retrieval_is_useful(context, sources):
+                refusal, confidence_info, verification_info = not_in_documents_payload(
+                    best_source_relevance(sources)
+                )
+                yield _sse({"type": "sources", "sources": []})
+                yield _sse({"type": "chunk", "content": refusal})
+                yield _sse(
+                    {
+                        "type": "done",
+                        "full_response": refusal,
+                        "sources": [],
+                        "confidence": confidence_info,
+                        "verification": verification_info,
+                    }
+                )
+                return
             
             # Send sources first
             yield _sse({"type": "sources", "sources": sources})
@@ -2180,15 +2326,25 @@ async def ask_question_stream(payload: QuestionRequest):
                     except asyncio.TimeoutError:
                         yield _sse({"type": "status", "stage": "translating_answer", "elapsed": round(_elapsed(), 1)})
             
+            # The model can still admit the passages do not answer. Replace that with the refusal.
+            done_sources = None
+            if answer_is_refusal(final_response):
+                final_response, confidence_info, verification_info = not_in_documents_payload(
+                    best_source_relevance(sources)
+                )
+                sources = []
+                done_sources = []
+
             # Send completion signal with confidence and verification
-            yield _sse(
-                {
-                    "type": "done",
-                    "full_response": final_response,
-                    "confidence": confidence_info,
-                    "verification": verification_info,
-                }
-            )
+            done_payload = {
+                "type": "done",
+                "full_response": final_response,
+                "confidence": confidence_info,
+                "verification": verification_info,
+            }
+            if done_sources is not None:
+                done_payload["sources"] = done_sources
+            yield _sse(done_payload)
             
             # Record query metric
             try:
@@ -2334,6 +2490,7 @@ async def upload_file(
                 detail=f"Server error: failed to save file - {str(e)}"
             )
         
+        set_index_status(filename, "indexing", "Queued")
         # Schedule background task
         background_tasks.add_task(process_and_move_file, source_path, ext)
         
@@ -2398,12 +2555,15 @@ def process_and_move_file(source_path: str, ext: str):
     # Validate source file exists
     if not os.path.exists(source_path):
         logger.error(f"❌ Source file not found: {source_path}")
+        set_index_status(filename, "failed", "File not found")
         return
     
     if not os.path.isfile(source_path):
         logger.error(f"❌ Source path is not a file: {source_path}")
+        set_index_status(filename, "failed", "File not found")
         return
     
+    set_index_status(filename, "indexing", "Processing")
     try:
         import time
         start_time = time.time()
@@ -2439,8 +2599,19 @@ def process_and_move_file(source_path: str, ext: str):
             logger.warning(f"Failed to record document metric: {e}")
         
         if chunks_added > 0:
+            set_index_status(filename, "ready", f"{chunks_added} chunks")
             logger.info(f"✅ Successfully added {chunks_added} chunks from {filename} (total: {final_count})")
         else:
+            already = False
+            try:
+                existing = proc.collection.get(where={"source": filename})
+                already = bool(existing and existing.get("ids"))
+            except Exception:
+                already = False
+            if already:
+                set_index_status(filename, "ready", "Already indexed")
+            else:
+                set_index_status(filename, "failed", "No searchable text extracted")
             logger.warning(f"⚠️ No new chunks added from {filename} (may be duplicate or empty)")
 
         # Check if file still exists in source location (processor may have moved it)
@@ -2491,10 +2662,13 @@ def process_and_move_file(source_path: str, ext: str):
             logger.error(f"❌ Unexpected error moving {filename}: {type(move_error).__name__}: {move_error}")
 
     except FileNotFoundError:
+        set_index_status(filename, "failed", "File not found")
         logger.error(f"❌ File not found during processing: {source_path}")
     except PermissionError:
+        set_index_status(filename, "failed", "Permission denied")
         logger.error(f"❌ Permission denied accessing file: {source_path}")
     except Exception as e:
+        set_index_status(filename, "failed", str(e)[:180])
         logger.error(f"❌ Background task failed for {filename}: {type(e).__name__}: {e}")
 
 
@@ -2502,6 +2676,115 @@ def process_and_move_file(source_path: str, ext: str):
 _bulk_operations_progress = {}
 import threading
 _progress_lock = threading.Lock()
+
+_INDEX_STATUS_PATH = os.path.join(PROJECT_ROOT, "data", "index_status.json")
+_index_status_lock = threading.Lock()
+
+
+def _read_index_status() -> dict:
+    try:
+        if os.path.isfile(_INDEX_STATUS_PATH):
+            with open(_INDEX_STATUS_PATH, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+                return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _write_index_status(data: dict) -> None:
+    os.makedirs(os.path.dirname(_INDEX_STATUS_PATH), exist_ok=True)
+    tmp = _INDEX_STATUS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+    os.replace(tmp, _INDEX_STATUS_PATH)
+
+
+def set_index_status(filename: str, status: str, detail: str = "") -> None:
+    """Persist indexer state: indexing | ready | failed. Survives API restarts."""
+    if not filename:
+        return
+    with _index_status_lock:
+        data = _read_index_status()
+        data[filename] = {
+            "status": status,
+            "detail": detail,
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+        _write_index_status(data)
+
+
+def get_index_status_map() -> dict:
+    with _index_status_lock:
+        return _read_index_status()
+
+
+def clear_index_status(filename: str) -> None:
+    if not filename:
+        return
+    with _index_status_lock:
+        data = _read_index_status()
+        if filename in data:
+            data.pop(filename, None)
+            _write_index_status(data)
+
+
+_STALE_INDEXING_SECONDS = 15 * 60
+
+
+def _indexing_is_stale(record: dict) -> bool:
+    if (record.get("status") or "").lower() != "indexing":
+        return False
+    raw = (record.get("updated_at") or "").replace("Z", "")
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    return (datetime.utcnow() - stamp).total_seconds() > _STALE_INDEXING_SECONDS
+
+
+def apply_recorded_index_status(documents: list) -> None:
+    """Set each document's status from the indexer record.
+
+    Chunk count is not the badge. A missing record is written once: files that
+    already have chunks are ready, and files still waiting are indexing.
+    An indexing job that never finishes is marked failed.
+    """
+    now = datetime.utcnow().isoformat() + "Z"
+    with _index_status_lock:
+        data = _read_index_status()
+        changed = False
+        for doc in documents:
+            name = doc.get("filename") or ""
+            if not name:
+                continue
+            chunks = int(doc.get("chunk_count") or 0)
+            record = data.get(name) if isinstance(data.get(name), dict) else None
+            status = (record.get("status") if record else "") or ""
+            status = status.lower()
+            if status not in ("ready", "indexing", "failed"):
+                if chunks > 0:
+                    record = {"status": "ready", "detail": "Indexed", "updated_at": now}
+                else:
+                    record = {"status": "indexing", "detail": "Waiting", "updated_at": now}
+                data[name] = record
+                changed = True
+            elif _indexing_is_stale(record):
+                if chunks > 0:
+                    record = {"status": "ready", "detail": "Indexed", "updated_at": now}
+                else:
+                    record = {
+                        "status": "failed",
+                        "detail": "Indexing did not finish",
+                        "updated_at": now,
+                    }
+                data[name] = record
+                changed = True
+            doc["status"] = record.get("status")
+            if record.get("detail"):
+                doc["status_detail"] = record.get("detail")
+        if changed:
+            _write_index_status(data)
 
 
 @app.post("/upload/bulk", response_model=BulkUploadResponse)
@@ -2582,6 +2865,7 @@ async def bulk_upload_files(
                 failed += 1
                 continue
             
+            set_index_status(filename, "indexing", "Queued")
             # Schedule background task
             background_tasks.add_task(process_and_move_file, source_path, ext)
             
@@ -2664,6 +2948,7 @@ def batch_delete_documents(
                 result["status"] = "success"
                 result["message"] = f"Successfully deleted"
                 result["chunks_deleted"] = deleted_count
+                clear_index_status(filename)
                 results.append(result)
                 successful += 1
                 total_chunks_deleted += deleted_count
@@ -2714,6 +2999,7 @@ def batch_delete_documents(
 
 def reprocess_document_in_background(filename: str, source_path: str, ext: str):
     """Reprocess a document in the background."""
+    set_index_status(filename, "indexing", "Processing")
     try:
         import time
         start_time = time.time()
@@ -2753,11 +3039,14 @@ def reprocess_document_in_background(filename: str, source_path: str, ext: str):
             logger.warning(f"Failed to record document metric: {e}")
         
         if chunks_added > 0:
+            set_index_status(filename, "ready", f"{chunks_added} chunks")
             logger.info(f"✅ Successfully reprocessed {filename}: {chunks_added} chunks added")
         else:
+            set_index_status(filename, "failed", "No searchable text extracted")
             logger.warning(f"⚠️ No new chunks added from {filename} after reprocessing")
             
     except Exception as e:
+        set_index_status(filename, "failed", str(e)[:180])
         logger.error(f"❌ Background reprocessing failed for {filename}: {type(e).__name__}: {e}")
 
 
@@ -2821,11 +3110,13 @@ def bulk_reprocess_documents(
                     file_found = True
             
             if not file_found:
+                set_index_status(filename, "failed", "Source file not found")
                 result["message"] = f"Source file not found for {filename}"
                 results.append(result)
                 failed += 1
                 continue
             
+            set_index_status(filename, "indexing", "Queued")
             # Schedule background reprocessing
             background_tasks.add_task(reprocess_document_in_background, filename, source_path, file_ext)
             

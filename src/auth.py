@@ -49,9 +49,9 @@ AUDIT_LOG_FILE = os.path.join(PROJECT_ROOT, "data", "audit_log.json")
 PREFERENCES_FILE = os.path.join(PROJECT_ROOT, "data", "user_preferences.json")
 AVATARS_DIR = os.path.join(PROJECT_ROOT, "data", "avatars")
 
-# Lockout configuration
-MAX_FAILED_ATTEMPTS = 5  # Lock after 5 failed attempts
-LOCKOUT_DURATION_MINUTES = 30  # Auto-unlock after 30 minutes
+# Lockout configuration. Six wrong passwords lock the next try.
+MAX_FAILED_ATTEMPTS = 6
+LOCKOUT_DURATION_MINUTES = 15
 
 # Password policy configuration
 PASSWORD_MIN_LENGTH = 8
@@ -883,6 +883,8 @@ class UserManager:
             "password_changed_at": now,  # Track password change date
             "last_login": None,
             "active": True,
+            "failed_attempts": 0,
+            "locked_until": None,
             "first_name": first_name or None,
             "display_name": first_name or None,
         }
@@ -905,119 +907,94 @@ class UserManager:
         }
     
     @staticmethod
+    def _lock_view(user: Dict) -> Tuple[bool, Optional[str], int, bool]:
+        """Read lock fields on a user record. Clears an expired window. Returns changed."""
+        before_until = user.get("locked_until")
+        before_attempts = int(user.get("failed_attempts") or 0)
+        raw = before_until
+        if raw:
+            try:
+                unlock_at = datetime.fromisoformat(raw)
+            except ValueError:
+                unlock_at = None
+            if unlock_at is None or datetime.now() >= unlock_at:
+                user["locked_until"] = None
+                user["failed_attempts"] = 0
+        attempts = int(user.get("failed_attempts") or 0)
+        unlock = user.get("locked_until")
+        locked = bool(unlock)
+        changed = (user.get("locked_until"), attempts) != (before_until, before_attempts)
+        return locked, unlock if locked else None, attempts, changed
+
+    @staticmethod
     def is_account_locked(user_id: str) -> Tuple[bool, Optional[str]]:
         """Check if account is locked. Returns (is_locked, unlock_time)."""
-        lockouts_data = load_lockouts()
-        lockouts = lockouts_data.get("lockouts", [])
-        
-        for lockout in lockouts:
-            if lockout.get("user_id") == user_id and lockout.get("locked", False):
-                unlock_time = datetime.fromisoformat(lockout.get("unlock_at", ""))
-                if datetime.now() < unlock_time:
-                    # Still locked
-                    return True, unlock_time.isoformat()
-                else:
-                    # Lockout expired, remove it
-                    lockout["locked"] = False
-                    save_lockouts(lockouts_data)
-                    return False, None
-        
+        users_data = load_users()
+        for user in users_data.get("users", []):
+            if user.get("id") != user_id:
+                continue
+            locked, unlock_time, _attempts, changed = UserManager._lock_view(user)
+            if changed:
+                save_users(users_data)
+            return locked, unlock_time
         return False, None
-    
+
     @staticmethod
     def record_failed_login(email: str) -> Tuple[bool, Optional[str], int]:
-        """Record a failed login attempt. Returns (is_locked, unlock_time, attempts_remaining)."""
+        """Record a failed login on the user record. Returns (is_locked, unlock_time, attempts_remaining)."""
         users_data = load_users()
         users = users_data.get("users", [])
         email = normalize_email(email)
 
-        # Find user by email
         user = None
-        for u in users:
-            if normalize_email(u.get("email", "")) == email:
-                user = u
+        for candidate in users:
+            if normalize_email(candidate.get("email", "")) == email:
+                user = candidate
                 break
 
         if not user:
-            # User doesn't exist, don't track attempts (security best practice)
+            # Unknown email: do not create a record or reveal that the account is missing.
             return False, None, MAX_FAILED_ATTEMPTS
 
-        user_id = user["id"]
-        lockouts_data = load_lockouts()
-        lockouts = lockouts_data.get("lockouts", [])
+        _locked, _unlock, _attempts, _changed = UserManager._lock_view(user)
+        if user.get("locked_until"):
+            save_users(users_data)
+            return True, user["locked_until"], 0
 
-        # Find or create lockout record
-        lockout = None
-        for l in lockouts:
-            if l.get("user_id") == user_id:
-                lockout = l
-                break
-
-        if not lockout:
-            lockout = {
-                "user_id": user_id,
-                "username": user.get("username"),
-                "email": email,
-                "failed_attempts": 0,
-                "locked": False,
-                "locked_at": None,
-                "unlock_at": None,
-                "last_attempt": None
-            }
-            lockouts.append(lockout)
-
-        # Increment failed attempts
-        lockout["failed_attempts"] = lockout.get("failed_attempts", 0) + 1
-        lockout["last_attempt"] = datetime.now().isoformat()
-
-        attempts = lockout["failed_attempts"]
-        attempts_remaining = max(0, MAX_FAILED_ATTEMPTS - attempts)
-
-        # Lock account if threshold reached
+        attempts = int(user.get("failed_attempts") or 0) + 1
+        user["failed_attempts"] = attempts
         if attempts >= MAX_FAILED_ATTEMPTS:
-            lockout["locked"] = True
-            lockout["locked_at"] = datetime.now().isoformat()
             unlock_time = datetime.now() + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
-            lockout["unlock_at"] = unlock_time.isoformat()
-            logger.warning(f"Account locked: {email} after {attempts} failed attempts")
-            save_lockouts(lockouts_data)
-            return True, unlock_time.isoformat(), 0
+            user["locked_until"] = unlock_time.isoformat()
+            save_users(users_data)
+            logger.warning("Account locked after %s failed attempts: %s", attempts, email)
+            return True, user["locked_until"], 0
 
-        save_lockouts(lockouts_data)
-        return False, None, attempts_remaining
-    
+        save_users(users_data)
+        return False, None, max(0, MAX_FAILED_ATTEMPTS - attempts)
+
     @staticmethod
     def clear_failed_attempts(user_id: str):
         """Clear failed login attempts (on successful login)."""
-        lockouts_data = load_lockouts()
-        lockouts = lockouts_data.get("lockouts", [])
-        
-        for lockout in lockouts:
-            if lockout.get("user_id") == user_id:
-                lockout["failed_attempts"] = 0
-                lockout["locked"] = False
-                lockout["locked_at"] = None
-                lockout["unlock_at"] = None
-                break
-        
-        save_lockouts(lockouts_data)
-    
+        users_data = load_users()
+        for user in users_data.get("users", []):
+            if user.get("id") == user_id:
+                user["failed_attempts"] = 0
+                user["locked_until"] = None
+                save_users(users_data)
+                return
+
     @staticmethod
     def unlock_account(user_id: str) -> bool:
         """Manually unlock an account (admin function)."""
-        lockouts_data = load_lockouts()
-        lockouts = lockouts_data.get("lockouts", [])
-        
-        for lockout in lockouts:
-            if lockout.get("user_id") == user_id:
-                lockout["locked"] = False
-                lockout["failed_attempts"] = 0
-                lockout["locked_at"] = None
-                lockout["unlock_at"] = None
-                save_lockouts(lockouts_data)
-                logger.info(f"Account unlocked: {lockout.get('username')}")
+        users_data = load_users()
+        for user in users_data.get("users", []):
+            if user.get("id") == user_id:
+                user["failed_attempts"] = 0
+                user["locked_until"] = None
+                save_users(users_data)
+                logger.info("Account unlocked: %s", user.get("email"))
                 return True
-        
         return False
     
     @staticmethod
@@ -1031,21 +1008,21 @@ class UserManager:
             if normalize_email(user.get("email", "")) == email and user.get("active", True):
                 user_id = user["id"]
 
-                # Check if account is locked
-                is_locked, unlock_time = UserManager.is_account_locked(user_id)
+                # A lock looks like a wrong password to the caller. The window lives on the user record.
+                is_locked, _unlock_time = UserManager.is_account_locked(user_id)
                 if is_locked:
-                    logger.warning(f"Login attempt blocked: {email} (account locked)")
-                    return {
-                        "error": "account_locked",
-                        "unlock_time": unlock_time
-                    }
+                    logger.warning("Login attempt blocked for locked account: %s", email)
+                    return {"error": "invalid_credentials"}
 
                 if verify_password(password, user.get("hashed_password", "")):
-                    # Successful login - clear failed attempts
+                    # Successful login - clear failed attempts, then stamp last login on the fresh record.
                     UserManager.clear_failed_attempts(user_id)
-
-                    # Update last login
-                    user["last_login"] = datetime.now().isoformat()
+                    users_data = load_users()
+                    for fresh in users_data.get("users", []):
+                        if fresh.get("id") == user_id:
+                            fresh["last_login"] = datetime.now().isoformat()
+                            user = fresh
+                            break
                     save_users(users_data)
 
                     return {
@@ -1059,17 +1036,8 @@ class UserManager:
                         "display_name": user.get("display_name") or user.get("first_name"),
                     }
                 else:
-                    # Failed login - record attempt
-                    is_locked, unlock_time, attempts_remaining = UserManager.record_failed_login(email)
-                    if is_locked:
-                        return {
-                            "error": "account_locked",
-                            "unlock_time": unlock_time
-                        }
-                    return {
-                        "error": "invalid_credentials",
-                        "attempts_remaining": attempts_remaining
-                    }
+                    UserManager.record_failed_login(email)
+                    return {"error": "invalid_credentials"}
 
         # User doesn't exist - don't reveal this (security best practice)
         UserManager.record_failed_login(email)
@@ -1083,18 +1051,10 @@ class UserManager:
         
         for user in users:
             if user.get("id") == user_id:
-                # Get lockout status
-                is_locked, unlock_time = UserManager.is_account_locked(user_id)
-                
-                # Get failed attempts count
-                lockouts_data = load_lockouts()
-                lockouts = lockouts_data.get("lockouts", [])
-                failed_attempts = 0
-                for lockout in lockouts:
-                    if lockout.get("user_id") == user_id:
-                        failed_attempts = lockout.get("failed_attempts", 0)
-                        break
-                
+                locked, unlock_time, failed_attempts, changed = UserManager._lock_view(user)
+                if changed:
+                    save_users(users_data)
+
                 # Check password expiration
                 password_expired, password_expires_at = check_password_expiration(user_id)
                 
@@ -1106,7 +1066,7 @@ class UserManager:
                     "created_at": user.get("created_at"),
                     "last_login": user.get("last_login"),
                     "active": user.get("active", True),
-                    "locked": is_locked,
+                    "locked": locked,
                     "unlock_time": unlock_time,
                     "failed_attempts": failed_attempts,
                     "password_expires_at": password_expires_at,
@@ -1147,18 +1107,10 @@ class UserManager:
         for user in users:
             if user.get("username") == username:
                 user_id = user["id"]
-                # Get lockout status
-                is_locked, unlock_time = UserManager.is_account_locked(user_id)
-                
-                # Get failed attempts count
-                lockouts_data = load_lockouts()
-                lockouts = lockouts_data.get("lockouts", [])
-                failed_attempts = 0
-                for lockout in lockouts:
-                    if lockout.get("user_id") == user_id:
-                        failed_attempts = lockout.get("failed_attempts", 0)
-                        break
-                
+                locked, unlock_time, failed_attempts, changed = UserManager._lock_view(user)
+                if changed:
+                    save_users(users_data)
+
                 # Check password expiration
                 password_expired, password_expires_at = check_password_expiration(user_id)
                 
@@ -1170,7 +1122,7 @@ class UserManager:
                     "created_at": user.get("created_at"),
                     "last_login": user.get("last_login"),
                     "active": user.get("active", True),
-                    "locked": is_locked,
+                    "locked": locked,
                     "unlock_time": unlock_time,
                     "failed_attempts": failed_attempts,
                     "password_expires_at": password_expires_at,
@@ -1183,20 +1135,19 @@ class UserManager:
         """List all users (admin only)."""
         users_data = load_users()
         users = users_data.get("users", [])
-        lockouts_data = load_lockouts()
-        lockouts = lockouts_data.get("lockouts", [])
-        
-        # Create lookup for lockout info
+        changed_any = False
         lockout_map = {}
-        for lockout in lockouts:
-            user_id = lockout.get("user_id")
-            is_locked, unlock_time = UserManager.is_account_locked(user_id)
-            lockout_map[user_id] = {
-                "locked": is_locked,
+        for user in users:
+            locked, unlock_time, failed_attempts, changed = UserManager._lock_view(user)
+            changed_any = changed_any or changed
+            lockout_map[user["id"]] = {
+                "locked": locked,
                 "unlock_time": unlock_time,
-                "failed_attempts": lockout.get("failed_attempts", 0)
+                "failed_attempts": failed_attempts,
             }
-        
+        if changed_any:
+            save_users(users_data)
+
         result = []
         for user in users:
             user_id = user["id"]

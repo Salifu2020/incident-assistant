@@ -1,7 +1,6 @@
 import os
 import re
 import streamlit as st
-import streamlit.components.v1 as components
 import requests
 import logging
 from datetime import datetime
@@ -139,14 +138,12 @@ def log_error_to_console(error_message, error_type="Error", exception=None):
     """
     st.markdown(console_script, unsafe_allow_html=True)
 
-# Page configuration - respect ?sidebar=open for reopening when Streamlit's control is hidden
-_sidebar_open = "sidebar" in st.query_params and st.query_params.get("sidebar") == "open"
-_want_sidebar_reload = st.session_state.pop("_want_sidebar_reload", False)
+# Sidebar open/closed state is owned by the app (see nav_toggle_sidebar).
 st.set_page_config(
     page_title="Incident Assistant",
     page_icon="📚",
     layout="wide",
-    initial_sidebar_state="expanded" if _sidebar_open else "auto",
+    initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
@@ -304,17 +301,40 @@ st.markdown(
         object-fit: cover;
         border: 2px solid rgba(71, 85, 105, 0.5);
     }
-    /* Profile avatar button - normal pill shape */
-    div:has(.nav-avatar-col) .stButton > button {
+    /* Profile name sits in the nav column only.
+       div:has() would also match the app shell and center the sidebar. */
+    [data-testid="stHorizontalBlock"] > div:has(.nav-avatar-col) {
+        display: flex !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+    }
+    [data-testid="stHorizontalBlock"] > div:has(.nav-avatar-col) [data-testid="stPopover"] {
+        display: flex !important;
+        justify-content: flex-end !important;
+        width: 100% !important;
+    }
+    [data-testid="stHorizontalBlock"] > div:has(.nav-avatar-col) [data-testid="stPopover"] > button,
+    [data-testid="stHorizontalBlock"] > div:has(.nav-avatar-col) .stPopover > button {
         border-radius: 10px !important;
-        padding: 0.5rem 1rem !important;
-        background: rgba(30, 41, 59, 0.8) !important;
+        padding: 0.35rem 0.7rem 0.35rem 0.55rem !important;
+        background: rgba(30, 41, 59, 0.9) !important;
         border: 1px solid rgba(71, 85, 105, 0.5) !important;
         color: #e2e8f0 !important;
-        width: 100% !important;
-        min-width: unset !important;
-        max-width: none !important;
-        height: auto !important;
+        min-width: 5.5rem !important;
+        width: auto !important;
+        max-width: 11rem !important;
+        height: 2.5rem !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0.4rem !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+        letter-spacing: -0.01em !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
     }
     /* Nav bar - modern pill shape, full text, NOT circular */
     .zone-top-nav ~ div [data-testid="stHorizontalBlock"] > div:nth-child(2) .stButton > button {
@@ -749,17 +769,11 @@ st.markdown(
         color: #94a3b8 !important;
     }
     
-    /* Ensure sidebar expand/collapse button is always visible and clickable */
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebar"] [data-testid="collapsedControl"],
-    button[kind="header"] {
-        z-index: 9999 !important;
-        position: relative !important;
-        min-width: 44px !important;
-        min-height: 44px !important;
-        opacity: 1 !important;
-        visibility: visible !important;
-        pointer-events: auto !important;
+    /* One opener: the ☰ in the top bar. Hide Streamlit's own chevrons. */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="collapsedControl"] {
+        display: none !important;
     }
     
     /* Cards and containers */
@@ -1316,8 +1330,64 @@ st.markdown(
         word-wrap: break-word;
     }
 
+    .answer-card {
+        margin: 0 0 1.15rem;
+        padding: 0.95rem 1.05rem 0.8rem;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.62);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
     .msg-assistant .msg-body {
         color: #e2e8f0;
+    }
+
+    .answer-meta {
+        margin-top: 0.9rem;
+        padding-top: 0.65rem;
+        border-top: 1px solid rgba(148, 163, 184, 0.16);
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+    }
+
+    .answer-confidence {
+        margin: 0;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.75rem;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        line-height: 1.3;
+        color: #94a3b8;
+    }
+    .answer-confidence.high { color: #5eead4; }
+    .answer-confidence.medium { color: #fbbf24; }
+    .answer-confidence.low,
+    .answer-confidence.very_low { color: #f87171; }
+
+    .answer-sources {
+        margin: 0;
+        padding: 0;
+        border-top: none;
+    }
+    .answer-sources summary {
+        cursor: pointer;
+        list-style: none;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #94a3b8;
+    }
+    .answer-sources summary::-webkit-details-marker { display: none; }
+    .answer-sources summary::before {
+        content: "▸ ";
+        color: #64748b;
+    }
+    .answer-sources[open] summary::before { content: "▾ "; }
+    .answer-sources .sources-block {
+        margin-top: 0.55rem;
+        padding-top: 0;
+        border-top: none;
     }
 
     .msg-assistant.streaming .msg-body {
@@ -1538,6 +1608,49 @@ st.markdown(
     .kh-chip-dot.warn {
         background: #f59e0b;
     }
+    .kh-steps {
+        max-width: 520px;
+        margin: 0.85rem auto 1rem;
+        text-align: left;
+        display: grid;
+        gap: 0.55rem;
+    }
+    .kh-step {
+        display: grid;
+        grid-template-columns: 1.6rem 1fr;
+        gap: 0.65rem;
+        align-items: start;
+        padding: 0.65rem 0.75rem;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(12, 20, 32, 0.4);
+    }
+    .kh-step-num {
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(13, 148, 136, 0.2);
+        color: #5eead4;
+        font-size: 0.75rem;
+        font-weight: 700;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .kh-step strong {
+        display: block;
+        color: #f1f5f9;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-size: 0.88rem;
+        margin-bottom: 0.15rem;
+    }
+    .kh-step span {
+        color: #94a3b8;
+        font-size: 0.8rem;
+        font-family: 'DM Sans', sans-serif;
+        line-height: 1.4;
+    }
     .kh-empty {
         margin: 1.1rem auto 0.35rem;
         max-width: 520px;
@@ -1547,6 +1660,35 @@ st.markdown(
         background: rgba(12, 20, 32, 0.45);
         text-align: left;
     }
+    .msg-confidence {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0.45rem 0 0.35rem;
+        padding: 0.28rem 0.65rem;
+        border-radius: 999px;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(15, 23, 42, 0.55);
+        color: #cbd5e1;
+    }
+    .msg-confidence.high { color: #5eead4; border-color: rgba(20, 184, 166, 0.35); }
+    .msg-confidence.medium { color: #fbbf24; border-color: rgba(245, 158, 11, 0.35); }
+    .msg-confidence.low, .msg-confidence.very_low { color: #f87171; border-color: rgba(248, 113, 113, 0.35); }
+    .msg-gap {
+        margin: 0.35rem 0 0.55rem;
+        padding: 0.7rem 0.85rem;
+        border-radius: 10px;
+        border: 1px solid rgba(248, 113, 113, 0.28);
+        background: rgba(127, 29, 29, 0.18);
+        color: #fecaca;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.82rem;
+        line-height: 1.45;
+    }
+    .msg-gap strong { color: #fee2e2; }
     .kh-empty h3 {
         font-family: 'Plus Jakarta Sans', sans-serif;
         font-size: 1rem;
@@ -1560,26 +1702,6 @@ st.markdown(
         color: #94a3b8;
         margin: 0;
         line-height: 1.45;
-    }
-    .kh-actions-marker + div [data-testid="stHorizontalBlock"] {
-        max-width: 420px;
-        margin-left: auto !important;
-        margin-right: auto !important;
-        gap: 0.75rem !important;
-    }
-    .kh-actions-marker + div .stButton > button {
-        border-radius: 10px !important;
-        font-family: 'Plus Jakarta Sans', sans-serif !important;
-        font-weight: 600 !important;
-        min-height: 2.7rem;
-    }
-    .kh-actions-marker + div .stButton > button[kind="primary"] {
-        background: #0d9488 !important;
-        border: none !important;
-        color: #fff !important;
-    }
-    .kh-actions-marker + div .stButton > button[kind="primary"]:hover {
-        background: #0f766e !important;
     }
     .kh-composer-hint {
         text-align: center;
@@ -1672,8 +1794,17 @@ st.markdown(
     .lib-status-dot.warn {
         background: #f59e0b;
     }
+    .lib-status-dot.fail {
+        background: #ef4444;
+    }
     .lib-status-dot.muted {
         background: #64748b;
+    }
+    .lib-filters-marker + div {
+        max-width: 820px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        margin-bottom: 0.65rem !important;
     }
     .lib-toolbar-marker + div [data-testid="stHorizontalBlock"] {
         max-width: 820px;
@@ -1780,17 +1911,29 @@ st.markdown(
     }
     .up-result {
         max-width: 640px;
-        margin: 1rem auto 0;
-        padding: 1rem 1.1rem;
+        margin: 0.25rem auto 0.85rem;
+        padding: 1rem 1.1rem 0.85rem;
         border-radius: 14px;
-        border: 1px solid rgba(45, 212, 191, 0.22);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(15, 23, 42, 0.62);
+    }
+    .up-result.ready {
+        border-color: rgba(45, 212, 191, 0.28);
         background: rgba(13, 148, 136, 0.1);
+    }
+    .up-result.indexing {
+        border-color: rgba(251, 191, 36, 0.32);
+        background: rgba(245, 158, 11, 0.08);
+    }
+    .up-result.failed {
+        border-color: rgba(248, 113, 113, 0.32);
+        background: rgba(239, 68, 68, 0.08);
     }
     .up-result h3 {
         font-family: 'Plus Jakarta Sans', sans-serif;
-        font-size: 1.02rem;
-        color: #f1f5f9;
-        margin: 0 0 0.35rem 0;
+        font-size: 1.05rem;
+        color: #f8fafc;
+        margin: 0 0 0.3rem 0;
         letter-spacing: -0.02em;
     }
     .up-result p {
@@ -1800,6 +1943,47 @@ st.markdown(
         margin: 0;
         line-height: 1.45;
     }
+    .up-files {
+        margin-top: 0.75rem;
+        border-top: 1px solid rgba(148, 163, 184, 0.14);
+    }
+    .up-file {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.85rem;
+        padding: 0.55rem 0;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+    }
+    .up-file:last-child { border-bottom: none; padding-bottom: 0.15rem; }
+    .up-file-name {
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.9rem;
+        color: #e2e8f0;
+        word-break: break-word;
+    }
+    .up-file-detail {
+        display: block;
+        margin-top: 0.15rem;
+        font-size: 0.75rem;
+        color: #64748b;
+    }
+    .up-pill {
+        flex: none;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.72rem;
+        font-weight: 650;
+        letter-spacing: 0.02em;
+    }
+    .up-pill.ready { color: #5eead4; }
+    .up-pill.indexing { color: #fbbf24; }
+    .up-pill.failed { color: #f87171; }
+    .up-live {
+        margin: 0.7rem 0 0;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.78rem;
+        color: #94a3b8;
+    }
     .up-formats {
         max-width: 640px;
         margin: 0.75rem auto 0;
@@ -1807,6 +1991,41 @@ st.markdown(
         font-family: 'DM Sans', sans-serif;
         font-size: 0.8rem;
         color: #64748b;
+    }
+
+    .quiet-row-marker + div,
+    .quiet-form-marker + div {
+        max-width: 820px;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+    .quiet-row-marker + div .stButton > button,
+    .quiet-form-marker + div .stButton > button {
+        border-radius: 10px !important;
+        font-family: 'DM Sans', sans-serif !important;
+        font-size: 0.82rem !important;
+        font-weight: 550 !important;
+        min-height: 2.25rem;
+        background: transparent !important;
+        border: 1px solid rgba(148, 163, 184, 0.22) !important;
+        color: #cbd5e1 !important;
+        box-shadow: none !important;
+    }
+    .quiet-row-marker + div .stButton > button:hover,
+    .quiet-form-marker + div .stButton > button:hover {
+        border-color: rgba(45, 212, 191, 0.35) !important;
+        color: #f8fafc !important;
+        background: rgba(13, 148, 136, 0.1) !important;
+        transform: none !important;
+    }
+    .quiet-empty {
+        max-width: 820px;
+        margin: 0.25rem auto 1.25rem;
+        text-align: center;
+        font-family: 'DM Sans', sans-serif;
+        font-size: 0.92rem;
+        color: #94a3b8;
+        line-height: 1.45;
     }
     </style>
     """,
@@ -2092,6 +2311,34 @@ def navigate_to_page(page_key: str):
         st.session_state.show_health = True
     # chat: all show_* remain False
 
+
+def render_section_header(eyebrow: str, title: str, subtitle: str):
+    """Centered header shared with Library and Upload."""
+    st.markdown(
+        f"""
+        <div class="lib-shell">
+            <div class="lib-header">
+                <p class="lib-eyebrow">{html.escape(eyebrow)}</p>
+                <h1 class="lib-title">{html.escape(title)}</h1>
+                <p class="lib-subtitle">{html.escape(subtitle)}</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_page_links(links, key_prefix: str):
+    """Compact page links used where the sidebar no longer lists them."""
+    st.markdown('<div class="lib-toolbar-marker"></div>', unsafe_allow_html=True)
+    cols = st.columns(len(links))
+    for col, (label, page_key) in zip(cols, links):
+        with col:
+            if st.button(label, key=f"{key_prefix}_{page_key}", use_container_width=True):
+                navigate_to_page(page_key)
+                st.query_params["view"] = page_key
+                st.rerun()
+
 # Authentication check and login UI
 def get_auth_headers():
     """Get authentication headers if user is authenticated."""
@@ -2202,7 +2449,7 @@ if not st.session_state.authenticated:
         with st.form("register_form"):
             st.markdown(
                 '<div class="auth-form-title">Create account</div>'
-                '<div class="auth-form-hint">Upload documents and ask questions in plain English.</div>',
+                '<div class="auth-form-hint">No email verification — you can sign in right after creating an account.</div>',
                 unsafe_allow_html=True,
             )
             reg_first_name = st.text_input("First name", key="reg_first_name", placeholder="Your first name")
@@ -2485,29 +2732,61 @@ if not st.session_state.authenticated:
                                     else:
                                         st.query_params.clear()
                                     st.rerun()
-                            elif response.status_code == 423:
-                                try:
-                                    error_detail = response.json().get('detail', 'Account is locked')
-                                except Exception:
-                                    error_detail = "Account is locked"
-                                st.error(error_detail)
-                                st.caption("Contact an administrator, or wait for the lockout period to expire.")
+                            elif response.status_code in (400, 401, 423):
+                                st.error("Invalid email or password.")
                             else:
                                 try:
                                     error_detail = response.json().get('detail', 'Unknown error')
                                 except Exception:
                                     error_detail = response.text or "Unknown error"
-                                if response.status_code in (400, 401):
-                                    error_detail = error_detail or "Invalid email or password."
-                                st.error(error_detail)
-                                if "attempt" in error_detail.lower() and "remaining" in error_detail.lower():
-                                    st.caption("Too many failed attempts will lock your account.")
+                                st.error(error_detail or "Invalid email or password.")
                         except requests.exceptions.ConnectionError:
                             st.error(get_api_connection_error_message())
                         except Exception as e:
                             st.error(f"Error: {str(e)}")
                     else:
                         st.error("Please enter both email and password.")
+
+            # One-click demo for reviewers (no email verification)
+            _demo_enabled = False
+            try:
+                _demo_resp = requests.get(f"{API_URL}/auth/demo-status", timeout=3)
+                if _demo_resp.status_code == 200:
+                    _demo_enabled = bool(_demo_resp.json().get("enabled"))
+            except Exception:
+                _demo_enabled = False
+            if _demo_enabled:
+                st.markdown(
+                    '<div class="auth-form-hint" style="margin-top:0.85rem;text-align:center;">'
+                    "Reviewing the app? Skip signup — no email verification needed."
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                if st.button("Continue as demo reviewer", key="demo_login_btn", use_container_width=True):
+                    try:
+                        with st.spinner("Starting demo session…"):
+                            demo_resp = requests.post(f"{API_URL}/auth/demo", timeout=15)
+                        if demo_resp.status_code == 200:
+                            data = demo_resp.json()
+                            st.session_state.authenticated = True
+                            st.session_state.access_token = data.get("access_token")
+                            if data.get("refresh_token"):
+                                st.session_state.refresh_token = data["refresh_token"]
+                            if data.get("session_id"):
+                                st.session_state.session_id = data["session_id"]
+                            st.session_state.current_user = data.get("user")
+                            st.query_params.clear()
+                            st.rerun()
+                        else:
+                            try:
+                                detail = demo_resp.json().get("detail", "Demo login failed")
+                            except Exception:
+                                detail = demo_resp.text or "Demo login failed"
+                            st.error(detail)
+                    except requests.exceptions.ConnectionError:
+                        st.error(get_api_connection_error_message())
+                    except Exception as e:
+                        st.error(str(e))
 
     st.stop()
 
@@ -2538,34 +2817,8 @@ def _sidebar_load_conversation(conversation_id: str) -> bool:
         return False
 
 
-# Sidebar — slim Knowledge Home rail
+# Sidebar — chat rail only. Pages and account live in the top bar.
 with st.sidebar:
-    is_admin = st.session_state.current_user and st.session_state.current_user.get("role") == "admin"
-    current_page = get_current_nav_page()
-
-    def render_nav_button(label: str, page_key: str, btn_key: str):
-        is_active = current_page == page_key
-        btn_type = "primary" if is_active else "secondary"
-        if st.button(label, key=btn_key, use_container_width=True, type=btn_type):
-            if page_key != current_page:
-                navigate_to_page(page_key)
-                st.query_params["view"] = page_key
-                st.rerun()
-
-    if st.session_state.current_user:
-        user = st.session_state.current_user
-        _display = user.get("display_name") or user.get("first_name") or user.get("username", "User")
-        _email = user.get("email") or ""
-        st.markdown(
-            f"""
-            <div class="sb-user">
-                <p class="sb-user-name">{html.escape(str(_display))}</p>
-                <p class="sb-user-meta">{html.escape(str(_email))}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
     st.markdown('<div class="sb-cta-marker"></div>', unsafe_allow_html=True)
     if st.button("New chat", key="side_start_new_chat", use_container_width=True, type="primary"):
         st.session_state.pop("_last_processed_query", None)
@@ -2576,16 +2829,11 @@ with st.sidebar:
         except Exception:
             pass
         st.session_state.chat_history = []
+        st.session_state.side_recent_pick = ""
         navigate_to_page("chat")
         st.query_params["view"] = "chat"
         st.rerun()
 
-    st.markdown('<p class="sb-section-label">Workspace</p>', unsafe_allow_html=True)
-    render_nav_button("Home", "chat", "side_nav_chat")
-    render_nav_button("Library", "documents", "side_nav_documents")
-    render_nav_button("Upload", "upload", "side_nav_upload")
-
-    st.markdown('<p class="sb-section-label">Recent</p>', unsafe_allow_html=True)
     recent_conversations = []
     try:
         conv_resp = requests.get(f"{API_URL}/conversations", timeout=3)
@@ -2595,129 +2843,72 @@ with st.sidebar:
                 all_convs,
                 key=lambda c: c.get("updated_at") or c.get("created_at") or "",
                 reverse=True,
-            )[:6]
+            )[:8]
     except Exception:
         recent_conversations = []
 
     if recent_conversations:
-        for idx, conv in enumerate(recent_conversations):
+        titles = {}
+        option_ids = [""]
+        for conv in recent_conversations:
+            conv_id = conv.get("id")
+            if not conv_id:
+                continue
             title = (conv.get("title") or "Untitled chat").strip() or "Untitled chat"
-            if len(title) > 36:
-                title = title[:33] + "…"
-            is_current = conv.get("id") == st.session_state.current_conversation_id
-            label = f"{title} · open" if is_current else title
-            if st.button(label, key=f"side_recent_conv_{idx}", use_container_width=True, type="tertiary"):
-                if _sidebar_load_conversation(conv.get("id")):
-                    navigate_to_page("chat")
-                    st.query_params["view"] = "chat"
-                    st.rerun()
+            if len(title) > 32:
+                title = title[:29] + "…"
+            titles[conv_id] = title
+            option_ids.append(conv_id)
+        current_id = st.session_state.get("current_conversation_id")
+        if st.session_state.get("side_recent_pick") not in option_ids:
+            st.session_state.side_recent_pick = current_id if current_id in option_ids else ""
+        picked = st.selectbox(
+            "Recent",
+            options=option_ids,
+            format_func=lambda conv_id: titles.get(conv_id, "Recent"),
+            key="side_recent_pick",
+            label_visibility="collapsed",
+        )
+        if picked and picked != current_id:
+            if _sidebar_load_conversation(picked):
+                navigate_to_page("chat")
+                st.query_params["view"] = "chat"
+                st.rerun()
     else:
         st.markdown('<p class="sb-thread">No chats yet</p>', unsafe_allow_html=True)
 
-    if st.session_state.chat_history:
-        st.markdown('<p class="sb-section-label">This chat</p>', unsafe_allow_html=True)
-        if st.button("Clear chat", use_container_width=True, key="side_clear_chat"):
-            st.session_state.chat_history = []
-            st.session_state.pop("_last_processed_query", None)
-            if st.session_state.current_conversation_id:
-                try:
-                    requests.post(
-                        f"{API_URL}/conversations/{st.session_state.current_conversation_id}/clear",
-                        timeout=5,
-                    )
-                except Exception:
-                    pass
-            st.rerun()
-        export_lines = []
-        for msg in st.session_state.chat_history:
-            role = msg[0]
-            content = msg[1] if len(msg) > 1 else ""
-            timestamp = msg[2] if len(msg) > 2 else ""
-            if role == "user":
-                export_lines.append(f"**You** [{timestamp}]:\n{content}")
-            else:
-                export_lines.append(f"**Assistant** [{timestamp}]:\n{content}")
-        st.download_button(
-            "Export",
-            "\n\n---\n\n".join(export_lines),
-            file_name=f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-            mime="text/plain",
-            use_container_width=True,
-            key="sidebar_export_chat",
-        )
+def _toggle_native_sidebar():
+    """Click Streamlit's sidebar control from the page itself.
 
-    with st.expander("More", expanded=False):
-        st.checkbox(
-            "Stream answers",
-            key="enable_streaming",
-            help="Show answers as they are generated",
-        )
-        try:
-            docs_resp = requests.get(f"{API_URL}/documents", headers=get_auth_headers(), timeout=5)
-            if docs_resp.status_code == 200:
-                available_docs = docs_resp.json().get("documents", []) or []
-                if available_docs:
-                    doc_names = [doc.get("filename", "") for doc in available_docs if doc.get("filename")]
-                    selected = st.multiselect(
-                        "Search only these docs",
-                        options=doc_names,
-                        default=[d for d in st.session_state.selected_documents if d in doc_names],
-                        key="document_filter_select",
-                    )
-                    st.session_state.selected_documents = selected
-        except Exception:
-            pass
-        st.markdown('<p class="sb-section-label">Account</p>', unsafe_allow_html=True)
-        render_nav_button("Profile", "profile", "side_nav_profile")
-        render_nav_button("Password", "change_password", "side_nav_change_password")
-        render_nav_button("Two-factor auth", "2fa", "side_nav_2fa")
-        render_nav_button("Sessions", "sessions", "side_nav_more_sessions")
-        render_nav_button("History", "history", "side_nav_history")
-        render_nav_button("Saved questions", "saved_queries", "side_nav_saved_queries")
-        render_nav_button("All chats", "conversations", "side_nav_more_conversations")
-        if st.button("Log out", key="sidebar_logout", use_container_width=True):
-            st.session_state.authenticated = False
-            st.session_state.access_token = None
-            st.session_state.current_user = None
-            st.session_state.auth_view = "login"
-            st.session_state.chat_history = []
-            st.session_state.pop("_last_processed_query", None)
-            st.query_params.clear()
-            st.rerun()
-
-    if is_admin:
-        with st.expander("Admin", expanded=False):
-            render_nav_button("Users", "user_management", "side_nav_more_user_management")
-            render_nav_button("Audit", "audit_logs", "side_nav_more_audit_logs")
-            render_nav_button("Backup", "export_backup", "side_nav_more_export_backup")
-            render_nav_button("Metrics", "health", "side_nav_more_health")
-
-    st.markdown('<div class="sb-footer">Incident Assistant</div>', unsafe_allow_html=True)
-
-def toggle_streamlit_sidebar():
-    """Click Streamlit's native expand/collapse control (query-param open is first-load only)."""
-    components.html(
-        """
+    The chevron lives in the hidden header, so the top-bar button drives it.
+    A nonce stops a remount from clicking a second time and undoing the toggle.
+    """
+    nonce = st.session_state.get("_sidebar_nonce", 0)
+    st.html(
+        f"""
         <script>
-        (function () {
-          const doc = window.parent.document;
-          const expand = doc.querySelector('[data-testid="stExpandSidebarButton"]');
-          const collapse =
-            doc.querySelector('[data-testid="stBaseButton-headerNoPadding"][aria-label="Collapse sidebar"]') ||
-            doc.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
-            doc.querySelector('[data-testid="stSidebarCollapseButton"]');
-          if (expand) {
-            expand.click();
-            return;
-          }
-          if (collapse) {
-            collapse.click();
-          }
-        })();
+        (function () {{
+          const nonce = "{nonce}";
+          if (window.__iaSidebarNonce === nonce) return;
+          window.__iaSidebarNonce = nonce;
+          const clickOnce = () => {{
+            const expand = document.querySelector('[data-testid="stExpandSidebarButton"]');
+            const collapse = document.querySelector('[data-testid="stSidebarCollapseButton"] button');
+            const target = expand || collapse;
+            if (!target) return false;
+            target.click();
+            return true;
+          }};
+          if (clickOnce()) return;
+          let tries = 0;
+          const timer = setInterval(() => {{
+            tries += 1;
+            if (clickOnce() || tries > 20) clearInterval(timer);
+          }}, 50);
+        }})();
         </script>
         """,
-        height=0,
-        width=0,
+        unsafe_allow_javascript=True,
     )
 
 
@@ -2740,12 +2931,13 @@ st.markdown(
     unsafe_allow_html=True
 )
 st.markdown('<div class="nav-bar-row">', unsafe_allow_html=True)
-col_open_sidebar, col_nav, col_avatar = st.columns([1, 4, 1])
+col_open_sidebar, col_nav, col_avatar = st.columns([0.8, 4.8, 1.8], gap="small")
 with col_open_sidebar:
     if st.button("☰", key="nav_toggle_sidebar", help="Open or close sidebar"):
-        st.session_state["_do_sidebar_toggle"] = True
-    if st.session_state.pop("_do_sidebar_toggle", False):
-        toggle_streamlit_sidebar()
+        st.session_state._sidebar_nonce = st.session_state.get("_sidebar_nonce", 0) + 1
+        st.session_state._sidebar_toggle_now = True
+    if st.session_state.pop("_sidebar_toggle_now", False):
+        _toggle_native_sidebar()
 with col_nav:
     st.markdown('<div class="nav-buttons-marker"></div>', unsafe_allow_html=True)
     nav_items = [
@@ -2779,33 +2971,44 @@ with col_nav:
 with col_avatar:
     st.markdown('<div class="nav-avatar-col"></div>', unsafe_allow_html=True)
     user = st.session_state.get("current_user") or {}
-    username = user.get("display_name") or user.get("first_name") or user.get("email") or user.get("username", "User")
-    initial = (username[0] if username else "U").upper()
-    _a1, _a2, _a3 = st.columns([1, 1, 1])
-    with _a2:
-        with st.popover(initial, use_container_width=True):
-            st.caption(username)
-            if st.button("Profile", key="nav_pop_profile", use_container_width=True):
-                navigate_to_page("profile")
-                st.query_params["view"] = "profile"
-                st.rerun()
-            if st.button("Password", key="nav_pop_password", use_container_width=True):
-                navigate_to_page("change_password")
-                st.query_params["view"] = "change_password"
-                st.rerun()
-            if st.button("Two-factor auth", key="nav_pop_2fa", use_container_width=True):
-                navigate_to_page("2fa")
-                st.query_params["view"] = "2fa"
-                st.rerun()
-            if st.button("Log out", key="nav_pop_logout", use_container_width=True):
-                st.session_state.authenticated = False
-                st.session_state.access_token = None
-                st.session_state.current_user = None
-                st.session_state.auth_view = "login"
-                st.session_state.chat_history = []
-                st.session_state.pop("_last_processed_query", None)
-                st.query_params.clear()
-                st.rerun()
+    username = (
+        user.get("first_name")
+        or user.get("display_name")
+        or user.get("email")
+        or user.get("username")
+        or "User"
+    )
+    # Prefer a short first name on the button; fall back cleanly for emails
+    display_name = str(username).strip()
+    if "@" in display_name:
+        display_name = display_name.split("@", 1)[0]
+    if " " in display_name:
+        display_name = display_name.split()[0]
+    if len(display_name) > 14:
+        display_name = display_name[:13] + "…"
+    with st.popover(display_name or "Account", use_container_width=False):
+        st.caption(str(username).strip())
+        if st.button("Profile", key="nav_pop_profile", use_container_width=True):
+            navigate_to_page("profile")
+            st.query_params["view"] = "profile"
+            st.rerun()
+        if st.button("Password", key="nav_pop_password", use_container_width=True):
+            navigate_to_page("change_password")
+            st.query_params["view"] = "change_password"
+            st.rerun()
+        if st.button("Two-factor auth", key="nav_pop_2fa", use_container_width=True):
+            navigate_to_page("2fa")
+            st.query_params["view"] = "2fa"
+            st.rerun()
+        if st.button("Log out", key="nav_pop_logout", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.access_token = None
+            st.session_state.current_user = None
+            st.session_state.auth_view = "login"
+            st.session_state.chat_history = []
+            st.session_state.pop("_last_processed_query", None)
+            st.query_params.clear()
+            st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Library — clean document list (matches Knowledge Home)
@@ -2907,18 +3110,102 @@ if st.session_state.get("show_documents", False):
                     unsafe_allow_html=True,
                 )
             else:
+                def _lib_status(doc):
+                    raw = (doc.get("status") or "").lower().strip()
+                    if raw in ("ready", "indexing", "failed"):
+                        return raw
+                    return "failed"
+
+                st.markdown('<div class="lib-filters-marker"></div>', unsafe_allow_html=True)
+                f1, f2, f3 = st.columns([2.4, 1.2, 1.4])
+                with f1:
+                    lib_search = st.text_input(
+                        "Search documents",
+                        key="lib_search_q",
+                        placeholder="Filter by filename…",
+                        label_visibility="collapsed",
+                    )
+                with f2:
+                    type_options = sorted(
+                        {
+                            (d.get("file_type") or "file").lower()
+                            for d in documents
+                            if d.get("file_type")
+                        }
+                    )
+                    lib_type = st.selectbox(
+                        "Type",
+                        options=["All types"] + [t.upper() for t in type_options],
+                        key="lib_type_filter",
+                        label_visibility="collapsed",
+                    )
+                with f3:
+                    lib_status_filter = st.selectbox(
+                        "Status",
+                        options=["All statuses", "Ready", "Indexing", "Failed"],
+                        key="lib_status_filter",
+                        label_visibility="collapsed",
+                    )
+
+                filtered_docs = []
+                for doc in documents:
+                    name = (doc.get("filename") or "").lower()
+                    if lib_search and lib_search.strip().lower() not in name:
+                        continue
+                    doc_type = (doc.get("file_type") or "file").upper()
+                    if lib_type != "All types" and doc_type != lib_type:
+                        continue
+                    st_label = _lib_status(doc)
+                    if lib_status_filter == "Ready" and st_label != "ready":
+                        continue
+                    if lib_status_filter == "Indexing" and st_label != "indexing":
+                        continue
+                    if lib_status_filter == "Failed" and st_label != "failed":
+                        continue
+                    filtered_docs.append(doc)
+
+                ready_n = sum(1 for d in documents if _lib_status(d) == "ready")
+                indexing_n = sum(1 for d in documents if _lib_status(d) == "indexing")
+                failed_n = sum(1 for d in documents if _lib_status(d) == "failed")
+                st.caption(
+                    f"Showing {len(filtered_docs)} of {total_docs} · "
+                    f"{ready_n} ready · {indexing_n} indexing"
+                    + (f" · {failed_n} failed" if failed_n else "")
+                )
+
+                sel_all_c, clear_c, _ = st.columns([1.4, 1.4, 3])
+                with sel_all_c:
+                    if st.button("Select all shown", key="lib_select_all", use_container_width=True):
+                        for doc in filtered_docs:
+                            fn = doc.get("filename")
+                            if fn:
+                                st.session_state[f"select_{fn}"] = True
+                        st.session_state["confirm_batch_delete"] = False
+                        st.rerun()
+                with clear_c:
+                    if st.button("Clear selection", key="lib_clear_sel", use_container_width=True):
+                        for doc in documents:
+                            fn = doc.get("filename")
+                            if fn:
+                                st.session_state[f"select_{fn}"] = False
+                        st.session_state["confirm_batch_delete"] = False
+                        st.rerun()
+
                 selected_names = [
                     doc.get("filename")
-                    for doc in documents
+                    for doc in filtered_docs
                     if doc.get("filename") and st.session_state.get(f"select_{doc.get('filename')}", False)
                 ]
 
                 if selected_names:
                     st.markdown('<div class="lib-bulk-marker"></div>', unsafe_allow_html=True)
-                    b1, b2, b3 = st.columns([1.6, 1.6, 2])
-                    with b1:
-                        if st.button(f"Delete {len(selected_names)}", key="lib_batch_delete", use_container_width=True):
-                            if st.session_state.get("confirm_batch_delete", False):
+                    if st.session_state.get("confirm_batch_delete", False):
+                        st.warning(
+                            f"Delete {len(selected_names)} document(s)? This removes them from the knowledge base."
+                        )
+                        bc1, bc2, bc3 = st.columns([1.5, 1.5, 2])
+                        with bc1:
+                            if st.button("Confirm delete", key="lib_batch_delete_yes", use_container_width=True, type="primary"):
                                 try:
                                     with st.spinner(f"Deleting {len(selected_names)}…"):
                                         delete_resp = requests.post(
@@ -2931,7 +3218,7 @@ if st.session_state.get("show_documents", False):
                                         for filename in selected_names:
                                             st.session_state[f"select_{filename}"] = False
                                         st.session_state["confirm_batch_delete"] = False
-                                        st.toast("Deleted")
+                                        st.toast(f"Deleted {len(selected_names)}")
                                         st.rerun()
                                     else:
                                         st.error(f"Delete failed ({delete_resp.status_code})")
@@ -2939,99 +3226,126 @@ if st.session_state.get("show_documents", False):
                                 except Exception as e:
                                     st.error(str(e))
                                     st.session_state["confirm_batch_delete"] = False
-                            else:
-                                st.session_state["confirm_batch_delete"] = True
-                                st.warning(f"Click Delete again to confirm removing {len(selected_names)} document(s).")
-                    with b2:
-                        if st.button(f"Reprocess {len(selected_names)}", key="lib_batch_reprocess", use_container_width=True):
-                            try:
-                                with st.spinner("Queuing reprocess…"):
-                                    reprocess_resp = requests.post(
-                                        f"{API_URL}/documents/bulk-reprocess",
-                                        json={"filenames": selected_names},
-                                        headers=get_auth_headers(),
-                                        timeout=60,
-                                    )
-                                if reprocess_resp.status_code == 200:
-                                    st.toast("Reprocess queued")
-                                    time.sleep(0.4)
-                                    st.rerun()
-                                else:
-                                    st.error(f"Reprocess failed ({reprocess_resp.status_code})")
-                            except Exception as e:
-                                st.error(str(e))
-                    with b3:
-                        st.caption(f"{len(selected_names)} selected")
-
-                st.markdown('<div class="lib-list-marker"></div>', unsafe_allow_html=True)
-                for idx, doc in enumerate(documents):
-                    filename = doc.get("filename") or "Unknown"
-                    checkbox_key = f"select_{filename}"
-                    chunks = int(doc.get("chunk_count") or 0)
-                    file_type = (doc.get("file_type") or "file").upper()
-                    size_label = _lib_format_size(doc.get("file_size"))
-                    date_label = _lib_format_date(doc.get("upload_date"))
-                    status_ready = chunks > 0
-                    status_label = "Ready" if status_ready else "Indexing"
-                    status_dot = "" if status_ready else "warn"
-                    meta_bits = [file_type, f"{chunks} chunk{'s' if chunks != 1 else ''}", size_label]
-                    if date_label:
-                        meta_bits.append(date_label)
-                    if doc.get("version_count") and int(doc.get("version_count") or 0) > 1:
-                        meta_bits.append(f"v{doc.get('version', '?')}/{doc.get('version_count')}")
-
-                    col_check, col_body, col_actions = st.columns([0.45, 4.2, 1.6], gap="small")
-                    with col_check:
-                        st.checkbox(
-                            f"Select {filename}",
-                            value=st.session_state.get(checkbox_key, False),
-                            key=checkbox_key,
-                            label_visibility="collapsed",
-                        )
-                    with col_body:
-                        st.markdown(
-                            f"""
-                            <div class="lib-row" style="border-bottom:none;padding:0.35rem 0;">
-                                <div class="lib-row-main">
-                                    <p class="lib-name">{html.escape(filename)}</p>
-                                    <p class="lib-meta">{html.escape(" · ".join(meta_bits))}</p>
-                                    <div class="lib-status"><span class="lib-status-dot {status_dot}"></span>{status_label}</div>
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    with col_actions:
-                        delete_key = f"delete_{idx}_{filename}"
-                        confirm_key = f"confirm_{delete_key}"
-                        if st.session_state.get(confirm_key, False):
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                if st.button("Confirm", key=f"yes_{delete_key}", use_container_width=True):
-                                    try:
-                                        delete_resp = requests.delete(
-                                            f"{API_URL}/documents/{filename}",
-                                            headers=get_auth_headers(),
-                                            timeout=10,
-                                        )
-                                        if delete_resp.status_code == 200:
-                                            st.session_state[confirm_key] = False
-                                            st.toast(f"Deleted {filename}")
-                                            st.rerun()
-                                        else:
-                                            st.error("Delete failed")
-                                            st.session_state[confirm_key] = False
-                                    except Exception as e:
-                                        st.error(str(e))
-                                        st.session_state[confirm_key] = False
-                            with c2:
-                                if st.button("Cancel", key=f"no_{delete_key}", use_container_width=True):
-                                    st.session_state[confirm_key] = False
-                                    st.rerun()
-                        else:
-                            if st.button("Delete", key=delete_key, use_container_width=True):
-                                st.session_state[confirm_key] = True
+                        with bc2:
+                            if st.button("Cancel", key="lib_batch_delete_no", use_container_width=True):
+                                st.session_state["confirm_batch_delete"] = False
                                 st.rerun()
+                        with bc3:
+                            st.caption(f"{len(selected_names)} selected")
+                    else:
+                        b1, b2, b3 = st.columns([1.6, 1.6, 2])
+                        with b1:
+                            if st.button(
+                                f"Delete {len(selected_names)}",
+                                key="lib_batch_delete",
+                                use_container_width=True,
+                            ):
+                                st.session_state["confirm_batch_delete"] = True
+                                st.rerun()
+                        with b2:
+                            if st.button(
+                                f"Reprocess {len(selected_names)}",
+                                key="lib_batch_reprocess",
+                                use_container_width=True,
+                            ):
+                                try:
+                                    with st.spinner("Queuing reprocess…"):
+                                        reprocess_resp = requests.post(
+                                            f"{API_URL}/documents/bulk-reprocess",
+                                            json={"filenames": selected_names},
+                                            headers=get_auth_headers(),
+                                            timeout=60,
+                                        )
+                                    if reprocess_resp.status_code == 200:
+                                        st.toast("Reprocess queued")
+                                        time.sleep(0.4)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Reprocess failed ({reprocess_resp.status_code})")
+                                except Exception as e:
+                                    st.error(str(e))
+                        with b3:
+                            st.caption(f"{len(selected_names)} selected")
+
+                if not filtered_docs:
+                    st.info("No documents match these filters.")
+                else:
+                    st.markdown('<div class="lib-list-marker"></div>', unsafe_allow_html=True)
+                    for idx, doc in enumerate(filtered_docs):
+                        filename = doc.get("filename") or "Unknown"
+                        checkbox_key = f"select_{filename}"
+                        chunks = int(doc.get("chunk_count") or 0)
+                        file_type = (doc.get("file_type") or "file").upper()
+                        size_label = _lib_format_size(doc.get("file_size"))
+                        date_label = _lib_format_date(doc.get("upload_date"))
+                        st_key = _lib_status(doc)
+                        status_map = {
+                            "ready": ("Ready", ""),
+                            "indexing": ("Indexing", "warn"),
+                            "failed": ("Failed", "fail"),
+                        }
+                        status_label, status_dot = status_map.get(st_key, ("Indexing", "warn"))
+                        status_detail = (doc.get("status_detail") or "").strip()
+                        if st_key == "ready":
+                            status_detail = ""
+                        meta_bits = [file_type, f"{chunks} chunk{'s' if chunks != 1 else ''}", size_label]
+                        if date_label:
+                            meta_bits.append(date_label)
+                        if doc.get("version_count") and int(doc.get("version_count") or 0) > 1:
+                            meta_bits.append(f"v{doc.get('version', '?')}/{doc.get('version_count')}")
+
+                        col_check, col_body, col_actions = st.columns([0.45, 4.2, 1.6], gap="small")
+                        with col_check:
+                            st.checkbox(
+                                f"Select {filename}",
+                                value=st.session_state.get(checkbox_key, False),
+                                key=checkbox_key,
+                                label_visibility="collapsed",
+                            )
+                        with col_body:
+                            st.markdown(
+                                f"""
+                                <div class="lib-row" style="border-bottom:none;padding:0.35rem 0;">
+                                    <div class="lib-row-main">
+                                        <p class="lib-name">{html.escape(filename)}</p>
+                                        <p class="lib-meta">{html.escape(" · ".join(meta_bits))}</p>
+                                        <div class="lib-status"><span class="lib-status-dot {status_dot}"></span>{status_label}{(" · " + html.escape(status_detail)) if status_detail else ""}</div>
+                                    </div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                        with col_actions:
+                            delete_key = f"delete_{idx}_{filename}"
+                            confirm_key = f"confirm_{delete_key}"
+                            if st.session_state.get(confirm_key, False):
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    if st.button("Confirm", key=f"yes_{delete_key}", use_container_width=True):
+                                        try:
+                                            delete_resp = requests.delete(
+                                                f"{API_URL}/documents/{filename}",
+                                                headers=get_auth_headers(),
+                                                timeout=10,
+                                            )
+                                            if delete_resp.status_code == 200:
+                                                st.session_state[confirm_key] = False
+                                                st.toast(f"Deleted {filename}")
+                                                st.rerun()
+                                            else:
+                                                st.error("Delete failed")
+                                                st.session_state[confirm_key] = False
+                                        except Exception as e:
+                                            st.error(str(e))
+                                            st.session_state[confirm_key] = False
+                                with c2:
+                                    if st.button("Cancel", key=f"no_{delete_key}", use_container_width=True):
+                                        st.session_state[confirm_key] = False
+                                        st.rerun()
+                            else:
+                                if st.button("Delete", key=delete_key, use_container_width=True):
+                                    st.session_state[confirm_key] = True
+                                    st.rerun()
 
                 with st.expander("Advanced", expanded=False):
                     if st.button("Reprocess all documents", key="lib_reprocess_all", use_container_width=True):
@@ -3099,53 +3413,160 @@ if st.session_state.get("show_upload", False):
     with u3:
         pass
 
-    last_result = st.session_state.get("upload_last_result")
-    if last_result:
-        ok = int(last_result.get("successful", 0) or 0)
-        fail = int(last_result.get("failed", 0) or 0)
-        names = last_result.get("names") or []
-        name_bit = ", ".join(names[:3])
-        if len(names) > 3:
-            name_bit += f" +{len(names) - 3} more"
+    def _draw_upload_feedback() -> bool:
+        """Show Ready / Still indexing / Failed for the last upload. Returns True while any file is still indexing."""
+        last_result = st.session_state.get("upload_last_result") or {}
+        names = list(last_result.get("names") or [])
+        index_items = {}
+        if names:
+            try:
+                status_resp = requests.get(
+                    f"{API_URL}/index-status",
+                    params={"filenames": ",".join(names)},
+                    headers=get_auth_headers(),
+                    timeout=8,
+                )
+                if status_resp.status_code == 200:
+                    index_items = (status_resp.json() or {}).get("documents") or {}
+            except Exception:
+                index_items = {}
+
+        ready_names = [
+            name for name in names
+            if (index_items.get(name) or {}).get("status") == "ready"
+        ]
+        failed_names = [
+            name for name in names
+            if (index_items.get(name) or {}).get("status") == "failed"
+        ]
+        pending_names = [name for name in names if name not in ready_names and name not in failed_names]
+
+        if names and not pending_names and not failed_names:
+            tone = "ready"
+            headline = "Ready"
+            body = "These files are searchable. You can ask about them now."
+        elif pending_names:
+            tone = "indexing"
+            headline = "Still indexing"
+            body = "Ask a question once every file says Ready."
+        elif failed_names and not ready_names:
+            tone = "failed"
+            headline = "Indexing failed"
+            body = "Nothing new was added. Check the file, then upload it again."
+        elif ready_names and failed_names:
+            tone = "mixed"
+            headline = "Partly ready"
+            body = "The ready files are searchable. The others did not index."
+        else:
+            tone = "mixed"
+            headline = "Uploaded"
+            body = "Check the library if a file does not appear below."
+
+        rows = []
+        for name in names:
+            record = index_items.get(name) or {}
+            state = record.get("status") or "indexing"
+            if state not in ("ready", "failed", "indexing"):
+                state = "indexing"
+            label = {"ready": "Ready", "failed": "Failed", "indexing": "Indexing"}[state]
+            detail = (record.get("detail") or "").strip()
+            if state == "ready" and detail.lower() == "indexed":
+                detail = ""
+            if detail.endswith(" chunks"):
+                count_text, _, _ = detail.partition(" ")
+                if count_text.isdigit():
+                    count = int(count_text)
+                    detail = f"{count} chunk" if count == 1 else f"{count} chunks"
+            detail_html = f'<span class="up-file-detail">{html.escape(detail)}</span>' if detail else ""
+            rows.append(
+                f'<div class="up-file"><div><span class="up-file-name">{html.escape(name)}</span>'
+                f'{detail_html}</div><span class="up-pill {state}">{label}</span></div>'
+            )
+        live_html = '<p class="up-live">Updating on its own.</p>' if pending_names else ""
         st.markdown(
             f"""
-            <div class="up-result">
-                <h3>{"Uploaded" if ok else "Upload finished"}</h3>
-                <p>{ok} ready to index{f", {fail} failed" if fail else ""}.{" Processing usually takes a few seconds." if ok else ""}{" · " + html.escape(name_bit) if name_bit else ""}</p>
+            <div class="up-result {tone}">
+                <h3>{html.escape(headline)}</h3>
+                <p>{html.escape(body)}</p>
+                <div class="up-files">{''.join(rows)}</div>
+                {live_html}
             </div>
             """,
             unsafe_allow_html=True,
         )
+
         st.markdown('<div class="up-actions-marker"></div>', unsafe_allow_html=True)
-        r1, r2 = st.columns(2)
-        with r1:
-            if st.button("View in library", key="upload_goto_library", use_container_width=True, type="primary"):
-                st.session_state.pop("upload_last_result", None)
-                navigate_to_page("documents")
-                st.query_params["view"] = "documents"
+        if not pending_names and ready_names:
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                if st.button("Ask a question", key="upload_goto_ask", use_container_width=True, type="primary"):
+                    st.session_state.pop("upload_last_result", None)
+                    st.session_state["upload_polling"] = False
+                    st.session_state["onboarding_after_upload"] = True
+                    navigate_to_page("chat")
+                    st.query_params["view"] = "chat"
+                    st.rerun()
+            with r2:
+                if st.button("View in library", key="upload_goto_library", use_container_width=True):
+                    st.session_state.pop("upload_last_result", None)
+                    st.session_state["upload_polling"] = False
+                    navigate_to_page("documents")
+                    st.query_params["view"] = "documents"
+                    st.rerun()
+            with r3:
+                if st.button("Upload more", key="upload_clear_result", use_container_width=True):
+                    st.session_state.pop("upload_last_result", None)
+                    st.session_state["upload_polling"] = False
+                    st.session_state["upload_widget_nonce"] = int(st.session_state.get("upload_widget_nonce", 0)) + 1
+                    st.rerun()
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("View in library", key="upload_goto_library", use_container_width=True):
+                    st.session_state.pop("upload_last_result", None)
+                    st.session_state["upload_polling"] = False
+                    navigate_to_page("documents")
+                    st.query_params["view"] = "documents"
+                    st.rerun()
+            with c2:
+                if st.button("Upload more", key="upload_clear_result", use_container_width=True):
+                    st.session_state.pop("upload_last_result", None)
+                    st.session_state["upload_polling"] = False
+                    st.session_state["upload_widget_nonce"] = int(st.session_state.get("upload_widget_nonce", 0)) + 1
+                    st.rerun()
+        return bool(pending_names)
+
+    if st.session_state.get("upload_last_result"):
+        poll_every = 2 if st.session_state.get("upload_polling", True) else None
+
+        @st.fragment(run_every=poll_every)
+        def _upload_feedback():
+            still_indexing = _draw_upload_feedback()
+            if st.session_state.get("upload_polling", True) != still_indexing:
+                st.session_state["upload_polling"] = still_indexing
                 st.rerun()
-        with r2:
-            if st.button("Upload more", key="upload_clear_result", use_container_width=True):
-                st.session_state.pop("upload_last_result", None)
-                st.session_state["upload_widget_nonce"] = int(st.session_state.get("upload_widget_nonce", 0)) + 1
-                st.rerun()
+
+        _upload_feedback()
 
     if "upload_widget_nonce" not in st.session_state:
         st.session_state.upload_widget_nonce = 0
 
-    st.markdown('<div class="up-panel-marker"></div>', unsafe_allow_html=True)
-    picked_files = st.file_uploader(
-        "Choose files",
-        type=["pdf", "docx", "txt", "csv", "html"],
-        accept_multiple_files=True,
-        key=f"upload_view_files_{st.session_state.upload_widget_nonce}",
-        label_visibility="collapsed",
-        help="PDF, Word, TXT, CSV, or HTML",
-    )
-    st.markdown(
-        '<p class="up-formats">PDF · Word · TXT · CSV · HTML</p>',
-        unsafe_allow_html=True,
-    )
+    if st.session_state.get("upload_last_result"):
+        picked_files = []
+    else:
+        st.markdown('<div class="up-panel-marker"></div>', unsafe_allow_html=True)
+        picked_files = st.file_uploader(
+            "Choose files",
+            type=["pdf", "docx", "txt", "csv", "html"],
+            accept_multiple_files=True,
+            key=f"upload_view_files_{st.session_state.upload_widget_nonce}",
+            label_visibility="collapsed",
+            help="PDF, Word, TXT, CSV, or HTML",
+        )
+        st.markdown(
+            '<p class="up-formats">PDF · Word · TXT · CSV · HTML</p>',
+            unsafe_allow_html=True,
+        )
 
     file_list = list(picked_files or [])
     if file_list:
@@ -3215,6 +3636,7 @@ if st.session_state.get("show_upload", False):
                         "failed": failed,
                         "names": uploaded_names,
                     }
+                    st.session_state["upload_polling"] = True
                     # Reset file uploader widget so files don't linger in the box
                     st.session_state["upload_widget_nonce"] = int(st.session_state.get("upload_widget_nonce", 0)) + 1
                     try:
@@ -3234,218 +3656,226 @@ if st.session_state.get("show_upload", False):
                 except Exception:
                     pass
 
-# Search History Dashboard
+# History
 if st.session_state.get("show_history", False):
-    st.markdown("---")
-    st.markdown("### 📜 Search History")
-    
+    render_section_header(
+        "History",
+        "Questions you asked",
+        "Ask one again, or remove it from this list.",
+    )
+    render_page_links(
+        [("History", "history"), ("Saved questions", "saved_queries"), ("All chats", "conversations")],
+        "from_history",
+    )
+
     try:
         with st.spinner("Loading history..."):
             try:
                 history_resp = requests.get(f"{API_URL}/history?limit=100", timeout=10)
             except requests.exceptions.ConnectionError:
-                st.error("❌ Cannot connect to API. Make sure the API server is running.")
+                st.error("Cannot reach the API.")
                 history_resp = None
-        
+
         if history_resp and history_resp.status_code == 200:
             data = history_resp.json()
             history = data.get("history", [])
-            total = data.get("total", 0)
-            
-            if total == 0:
-                st.info("📭 No search history yet. Start asking questions to build your history!")
-            else:
-                st.metric("Total Queries", total)
-                st.markdown("---")
-                
-                # Display history items
-                for idx, entry in enumerate(history):
-                    with st.container():
-                        col1, col2, col3 = st.columns([4, 1, 1])
-                        
-                        with col1:
-                            st.markdown(f"**{entry.get('query', 'Unknown query')}**")
-                            timestamp = entry.get('timestamp', '')
-                            if timestamp:
-                                try:
-                                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                                    st.caption(f"📅 {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                                except:
-                                    st.caption(f"📅 {timestamp}")
-                        
-                        with col2:
-                            if st.button("🔍 Use", key=f"use_history_{idx}", use_container_width=True):
-                                st.session_state.example_query = entry.get('query', '')
-                                st.session_state.show_history = False
-                                st.rerun()
-                        
-                        with col3:
-                            if st.button("🗑️", key=f"delete_history_{idx}", use_container_width=True):
-                                try:
-                                    delete_resp = requests.delete(
-                                        f"{API_URL}/history/{entry.get('timestamp', '')}",
-                                        timeout=5
-                                    )
-                                    if delete_resp.status_code == 200:
-                                        st.success("✅ Deleted")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Error: {str(e)}")
-                        
-                        st.markdown("---")
-                
-                # Clear all button
-                if st.button("🗑️ Clear All History", use_container_width=True, type="secondary"):
-                    try:
-                        clear_resp = requests.delete(f"{API_URL}/history", timeout=5)
-                        if clear_resp.status_code == 200:
-                            st.success("✅ History cleared")
-                            time.sleep(0.5)
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error: {str(e)}")
-        else:
-            st.error(f"❌ Failed to load history: {history_resp.status_code}")
-    except requests.exceptions.ConnectionError:
-        st.error("❌ Cannot connect to API. Make sure the API server is running.")
-    except Exception as e:
-        st.error(f"❌ Error loading history: {str(e)}")
-    
-    # Close button
-    if st.button("❌ Close History", use_container_width=True):
-        st.session_state.show_history = False
-        st.rerun()
-    
-    st.markdown("---")
+            total = int(data.get("total", 0) or 0)
 
-# Saved Queries Dashboard
+            if total == 0:
+                st.markdown(
+                    '<p class="quiet-empty">No questions yet. Ask from Home and they will show up here.</p>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                for idx, entry in enumerate(history):
+                    query_text = entry.get("query") or "Unknown question"
+                    timestamp = entry.get("timestamp") or ""
+                    when = timestamp
+                    if timestamp:
+                        try:
+                            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                            when = dt.strftime("%b %d, %Y · %H:%M")
+                        except Exception:
+                            when = timestamp
+                    st.markdown('<div class="quiet-row-marker"></div>', unsafe_allow_html=True)
+                    col_body, col_ask, col_delete = st.columns([4.2, 1.05, 1.15], gap="small")
+                    with col_body:
+                        st.markdown(
+                            f'<p class="lib-name">{html.escape(query_text)}</p>'
+                            f'<p class="lib-meta">{html.escape(when)}</p>',
+                            unsafe_allow_html=True,
+                        )
+                    with col_ask:
+                        if st.button("Ask", key=f"use_history_{idx}", use_container_width=True):
+                            st.session_state.example_query = entry.get("query", "")
+                            st.session_state.show_history = False
+                            st.rerun()
+                    with col_delete:
+                        if st.button("Delete", key=f"delete_history_{idx}", use_container_width=True):
+                            try:
+                                delete_resp = requests.delete(
+                                    f"{API_URL}/history/{entry.get('timestamp', '')}",
+                                    timeout=5,
+                                )
+                                if delete_resp.status_code == 200:
+                                    st.toast("Removed from history")
+                                    st.rerun()
+                                else:
+                                    st.error("Could not delete that question.")
+                            except Exception as e:
+                                st.error(str(e))
+                st.markdown('<div class="quiet-row-marker"></div>', unsafe_allow_html=True)
+                clear_col, _, _ = st.columns(3)
+                with clear_col:
+                    if st.button("Clear history", key="clear_all_history", use_container_width=True):
+                        try:
+                            clear_resp = requests.delete(f"{API_URL}/history", timeout=5)
+                            if clear_resp.status_code == 200:
+                                st.toast("History cleared")
+                                st.rerun()
+                            else:
+                                st.error("Could not clear history.")
+                        except Exception as e:
+                            st.error(str(e))
+        elif history_resp is not None:
+            st.error("Could not load history.")
+    except requests.exceptions.ConnectionError:
+        st.error("Cannot reach the API.")
+    except Exception as e:
+        st.error(f"Could not load history: {e}")
+
+# Saved questions
 if st.session_state.get("show_saved_queries", False):
-    st.markdown("---")
-    st.markdown("### ⭐ Saved Queries")
-    
+    render_section_header(
+        "Saved questions",
+        "Questions you kept",
+        "Ask one again, or change its name.",
+    )
+    render_page_links(
+        [("History", "history"), ("Saved questions", "saved_queries"), ("All chats", "conversations")],
+        "from_saved",
+    )
+
     try:
-        with st.spinner("Loading saved queries..."):
+        with st.spinner("Loading saved questions..."):
             try:
                 saved_resp = requests.get(f"{API_URL}/saved-queries", timeout=10)
             except requests.exceptions.ConnectionError:
-                st.error("❌ Cannot connect to API. Make sure the API server is running.")
-                st.info("💡 **Tip:** Start the API server with: `python run.py api`")
+                st.error("Cannot reach the API.")
                 saved_resp = None
             except requests.exceptions.Timeout:
-                st.error("⏱️ Request timed out. Please try again.")
+                st.error("The request timed out.")
                 saved_resp = None
-        
+
         if saved_resp and saved_resp.status_code == 200:
             data = saved_resp.json()
             saved_queries = data.get("saved_queries", [])
-            total = data.get("total", 0)
-            
+            total = int(data.get("total", 0) or 0)
+
             if total == 0:
-                st.info("📭 No saved queries yet. Save frequently used queries for quick access!")
+                st.markdown(
+                    '<p class="quiet-empty">No saved questions yet.</p>',
+                    unsafe_allow_html=True,
+                )
             else:
-                st.metric("Saved Queries", total)
-                st.markdown("---")
-                
-                # Display saved queries
+                import urllib.parse
                 for idx, query in enumerate(saved_queries):
-                    with st.container():
-                        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-                        
-                        with col1:
-                            name = query.get('name', query.get('query', 'Unknown'))
-                            st.markdown(f"**{name}**")
-                            desc = query.get('description', '')
-                            if desc:
-                                st.caption(desc)
-                            st.caption(f"💬 {query.get('query', '')[:60]}...")
-                            usage = query.get('usage_count', 0)
-                            if usage > 0:
-                                st.caption(f"📊 Used {usage} time(s)")
-                        
-                        with col2:
-                            if st.button("🔍 Use", key=f"use_saved_{idx}", use_container_width=True):
-                                # Increment usage
+                    name = query.get("name") or query.get("query") or "Untitled"
+                    desc = (query.get("description") or "").strip()
+                    asked = query.get("query") or ""
+                    usage = int(query.get("usage_count") or 0)
+                    meta_bits = []
+                    if asked and asked != name:
+                        meta_bits.append(asked if len(asked) <= 80 else asked[:77] + "…")
+                    if desc:
+                        meta_bits.append(desc)
+                    if usage > 0:
+                        meta_bits.append(f"Asked {usage} time" + ("s" if usage != 1 else ""))
+                    st.markdown('<div class="quiet-row-marker"></div>', unsafe_allow_html=True)
+                    col_body, col_ask, col_edit, col_delete = st.columns([3.4, 0.9, 0.9, 1.05], gap="small")
+                    with col_body:
+                        st.markdown(
+                            f'<p class="lib-name">{html.escape(str(name))}</p>'
+                            f'<p class="lib-meta">{html.escape(" · ".join(meta_bits))}</p>',
+                            unsafe_allow_html=True,
+                        )
+                    with col_ask:
+                        if st.button("Ask", key=f"use_saved_{idx}", use_container_width=True):
+                            try:
+                                requests.post(
+                                    f"{API_URL}/saved-queries/{urllib.parse.quote(query.get('query', ''))}/use",
+                                    timeout=5,
+                                )
+                            except Exception:
+                                pass
+                            st.session_state.example_query = query.get("query", "")
+                            st.session_state.show_saved_queries = False
+                            st.rerun()
+                    with col_edit:
+                        if st.button("Edit", key=f"edit_saved_{idx}", use_container_width=True):
+                            st.session_state[f"editing_query_{idx}"] = True
+                            st.rerun()
+                    with col_delete:
+                        if st.button("Delete", key=f"delete_saved_{idx}", use_container_width=True):
+                            try:
+                                delete_resp = requests.delete(
+                                    f"{API_URL}/saved-queries/{urllib.parse.quote(query.get('query', ''))}",
+                                    timeout=5,
+                                )
+                                if delete_resp.status_code == 200:
+                                    st.toast("Saved question removed")
+                                    st.rerun()
+                                else:
+                                    st.error("Could not delete that question.")
+                            except Exception as e:
+                                st.error(str(e))
+
+                    if st.session_state.get(f"editing_query_{idx}", False):
+                        st.markdown('<div class="quiet-form-marker"></div>', unsafe_allow_html=True)
+                        with st.form(f"edit_form_{idx}"):
+                            new_name = st.text_input("Name", value=query.get("name", ""), key=f"name_{idx}")
+                            new_desc = st.text_area("Description", value=query.get("description", ""), key=f"desc_{idx}")
+                            col_submit, col_cancel = st.columns(2)
+                            with col_submit:
+                                save_edit = st.form_submit_button("Save", use_container_width=True)
+                            with col_cancel:
+                                cancel_edit = st.form_submit_button("Cancel", use_container_width=True)
+                            if save_edit:
                                 try:
-                                    import urllib.parse
-                                    requests.post(
-                                        f"{API_URL}/saved-queries/{urllib.parse.quote(query.get('query', ''))}/use",
-                                        timeout=5
+                                    update_resp = requests.put(
+                                        f"{API_URL}/saved-queries",
+                                        json={
+                                            "query": query.get("query", ""),
+                                            "name": new_name,
+                                            "description": new_desc,
+                                        },
+                                        timeout=5,
                                     )
-                                except:
-                                    pass
-                                st.session_state.example_query = query.get('query', '')
-                                st.session_state.show_saved_queries = False
-                                st.rerun()
-                        
-                        with col3:
-                            if st.button("✏️ Edit", key=f"edit_saved_{idx}", use_container_width=True):
-                                st.session_state[f"editing_query_{idx}"] = True
-                                st.rerun()
-                        
-                        with col4:
-                            if st.button("🗑️", key=f"delete_saved_{idx}", use_container_width=True):
-                                try:
-                                    import urllib.parse
-                                    delete_resp = requests.delete(
-                                        f"{API_URL}/saved-queries/{urllib.parse.quote(query.get('query', ''))}",
-                                        timeout=5
-                                    )
-                                    if delete_resp.status_code == 200:
-                                        st.success("✅ Deleted")
-                                        time.sleep(0.5)
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Error: {str(e)}")
-                        
-                        # Edit form
-                        if st.session_state.get(f"editing_query_{idx}", False):
-                            with st.form(f"edit_form_{idx}"):
-                                new_name = st.text_input("Name", value=query.get('name', ''), key=f"name_{idx}")
-                                new_desc = st.text_area("Description", value=query.get('description', ''), key=f"desc_{idx}")
-                                col_submit, col_cancel = st.columns(2)
-                                with col_submit:
-                                    if st.form_submit_button("💾 Save"):
-                                        try:
-                                            update_resp = requests.put(
-                                                f"{API_URL}/saved-queries",
-                                                json={
-                                                    "query": query.get('query', ''),
-                                                    "name": new_name,
-                                                    "description": new_desc
-                                                },
-                                                timeout=5
-                                            )
-                                            if update_resp.status_code == 200:
-                                                st.success("✅ Updated")
-                                                st.session_state[f"editing_query_{idx}"] = False
-                                                time.sleep(0.5)
-                                                st.rerun()
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
-                                with col_cancel:
-                                    if st.form_submit_button("❌ Cancel"):
+                                    if update_resp.status_code == 200:
                                         st.session_state[f"editing_query_{idx}"] = False
+                                        st.toast("Saved question updated")
                                         st.rerun()
-                        
-                        st.markdown("---")
-        else:
-            st.error(f"❌ Failed to load saved queries: {saved_resp.status_code}")
+                                    else:
+                                        st.error("Could not update that question.")
+                                except Exception as e:
+                                    st.error(str(e))
+                            if cancel_edit:
+                                st.session_state[f"editing_query_{idx}"] = False
+                                st.rerun()
+        elif saved_resp is not None:
+            st.error("Could not load saved questions.")
     except requests.exceptions.ConnectionError:
-        st.error("❌ Cannot connect to API. Make sure the API server is running.")
+        st.error("Cannot reach the API.")
     except Exception as e:
-        st.error(f"❌ Error loading saved queries: {str(e)}")
-    
-    # Close button
-    if st.button("❌ Close Saved Queries", use_container_width=True):
-        st.session_state.show_saved_queries = False
-        st.rerun()
-    
-    st.markdown("---")
+        st.error(f"Could not load saved questions: {e}")
 
 # Conversations Dashboard
 if st.session_state.get("show_conversations", False):
     st.markdown("---")
+    render_page_links(
+        [("History", "history"), ("Saved questions", "saved_queries"), ("All chats", "conversations")],
+        "from_chats",
+    )
     st.markdown("### 💬 Conversation Management")
     
     try:
@@ -3563,6 +3993,10 @@ if st.session_state.get("show_conversations", False):
 # Performance Metrics Dashboard
 if st.session_state.get("show_health", False):
     st.markdown("---")
+    render_page_links(
+        [("Users", "user_management"), ("Backup", "export_backup"), ("Metrics", "health")],
+        "from_health",
+    )
     st.markdown("### 📊 Performance Metrics Dashboard")
     
     # Time period selector
@@ -3984,162 +4418,145 @@ if st.session_state.get("show_health", False):
     
     st.markdown("---")
 
-# User Management Dashboard (Admin only)
+# Users (admin)
 if st.session_state.get("show_user_management", False):
     if st.session_state.current_user and st.session_state.current_user.get("role") == "admin":
-        st.markdown("---")
-        st.markdown("### 👥 User Management Dashboard")
-        
+        render_section_header(
+            "Users",
+            "Accounts",
+            "Change a role, turn an account off, or unlock a sign-in.",
+        )
+        render_page_links(
+            [("Users", "user_management"), ("Backup", "export_backup"), ("Metrics", "health")],
+            "from_users",
+        )
+
         try:
             with st.spinner("Loading users..."):
                 headers = get_auth_headers()
                 users_resp = requests.get(f"{API_URL}/auth/users", headers=headers, timeout=10)
-            
+
             if users_resp.status_code == 200:
                 data = users_resp.json()
                 users = data.get("users", [])
-                total = data.get("total", 0)
-                
-                if total == 0:
-                    st.info("📭 No users found.")
+                if not users:
+                    st.markdown(
+                        '<p class="quiet-empty">No accounts yet.</p>',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    st.metric("Total Users", total)
-                    st.markdown("---")
-                    
-                    # Display users
                     for idx, user in enumerate(users):
-                        with st.container():
-                            col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
-                            
-                            with col1:
-                                role_icon = "👑" if user.get("role") == "admin" else "👤"
-                                lock_icon = "🔒" if user.get("locked", False) else ""
-                                st.markdown(f"**{role_icon} {lock_icon} {user.get('username', 'Unknown')}**")
-                                st.caption(f"📧 {user.get('email', 'N/A')}")
-                            
-                            with col2:
-                                role_badge = "Admin" if user.get("role") == "admin" else "User"
-                                status_badge = "✅ Active" if user.get("active", True) else "❌ Inactive"
-                                lockout_badge = "🔒 Locked" if user.get("locked", False) else "🔓 Unlocked"
-                                st.markdown(f"**Role:** {role_badge}")
-                                st.caption(status_badge)
-                                if user.get("locked", False):
-                                    st.caption(f"**{lockout_badge}**")
-                                    if user.get("unlock_time"):
-                                        from datetime import datetime
-                                        try:
-                                            unlock_dt = datetime.fromisoformat(user.get("unlock_time"))
-                                            now = datetime.now()
-                                            if unlock_dt > now:
-                                                remaining = unlock_dt - now
-                                                mins = int(remaining.total_seconds() / 60)
-                                                st.caption(f"⏰ Unlocks in {mins} min")
-                                        except:
-                                            pass
-                                if user.get("failed_attempts", 0) > 0 and not user.get("locked", False):
-                                    st.caption(f"⚠️ {user.get('failed_attempts', 0)} failed attempt(s)")
-                            
-                            with col3:
-                                if user.get("role") != "admin" or user.get("id") != st.session_state.current_user.get("id"):
-                                    new_role = "admin" if user.get("role") == "user" else "user"
-                                    if st.button("🔄", key=f"role_{idx}", help=f"Change to {new_role}"):
-                                        try:
-                                            headers = get_auth_headers()
-                                            resp = requests.put(
-                                                f"{API_URL}/auth/users/{user.get('id')}/role",
-                                                json={"user_id": user.get("id"), "role": new_role},
-                                                headers=headers,
-                                                timeout=5
-                                            )
-                                            if resp.status_code == 200:
-                                                st.success("✅ Role updated")
-                                                time.sleep(0.5)
-                                                st.rerun()
-                                            else:
-                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
-                            
-                            with col4:
-                                if user.get("active", True):
-                                    if st.button("🚫", key=f"deactivate_{idx}", help="Deactivate"):
-                                        try:
-                                            headers = get_auth_headers()
-                                            resp = requests.post(
-                                                f"{API_URL}/auth/users/{user.get('id')}/deactivate",
-                                                headers=headers,
-                                                timeout=5
-                                            )
-                                            if resp.status_code == 200:
-                                                st.success("✅ User deactivated")
-                                                time.sleep(0.5)
-                                                st.rerun()
-                                            else:
-                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
-                                else:
-                                    if st.button("✅", key=f"activate_{idx}", help="Activate"):
-                                        try:
-                                            headers = get_auth_headers()
-                                            resp = requests.post(
-                                                f"{API_URL}/auth/users/{user.get('id')}/activate",
-                                                headers=headers,
-                                                timeout=5
-                                            )
-                                            if resp.status_code == 200:
-                                                st.success("✅ User activated")
-                                                time.sleep(0.5)
-                                                st.rerun()
-                                            else:
-                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
-                            
-                            with col5:
-                                if user.get("locked", False):
-                                    if st.button("🔓", key=f"unlock_{idx}", help="Unlock Account"):
-                                        try:
-                                            headers = get_auth_headers()
-                                            resp = requests.post(
-                                                f"{API_URL}/auth/users/{user.get('id')}/unlock",
-                                                headers=headers,
-                                                timeout=5
-                                            )
-                                            if resp.status_code == 200:
-                                                st.success("✅ Account unlocked")
-                                                time.sleep(0.5)
-                                                st.rerun()
-                                            else:
-                                                st.error(f"❌ Error: {resp.json().get('detail', 'Unknown error')}")
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
-                            
-                            with col6:
-                                if user.get("created_at"):
-                                    st.caption(f"Created: {user.get('created_at', '')[:10]}")
-                                if user.get("last_login"):
-                                    st.caption(f"Last login: {user.get('last_login', '')[:10]}")
-                            
-                            st.markdown("---")
+                        name = user.get("display_name") or user.get("first_name") or user.get("username") or "Unknown"
+                        email = user.get("email") or ""
+                        role_label = "Admin" if user.get("role") == "admin" else "User"
+                        status_label = "Active" if user.get("active", True) else "Inactive"
+                        meta_bits = [email, role_label, status_label]
+                        if user.get("locked"):
+                            meta_bits.append("Locked")
+                            unlock_raw = user.get("unlock_time")
+                            if unlock_raw:
+                                try:
+                                    unlock_dt = datetime.fromisoformat(unlock_raw)
+                                    if unlock_dt > datetime.now():
+                                        mins = int((unlock_dt - datetime.now()).total_seconds() / 60)
+                                        meta_bits.append(f"Unlocks in {mins} min")
+                                except Exception:
+                                    pass
+                        elif int(user.get("failed_attempts") or 0) > 0:
+                            meta_bits.append(f"{int(user.get('failed_attempts') or 0)} failed sign-ins")
+                        if user.get("last_login"):
+                            meta_bits.append(f"Last sign-in {str(user.get('last_login'))[:10]}")
+                        elif user.get("created_at"):
+                            meta_bits.append(f"Joined {str(user.get('created_at'))[:10]}")
+
+                        st.markdown('<div class="quiet-row-marker"></div>', unsafe_allow_html=True)
+                        col_body, col_role, col_active, col_unlock = st.columns([3.2, 1.35, 1.25, 1.15], gap="small")
+                        with col_body:
+                            st.markdown(
+                                f'<p class="lib-name">{html.escape(str(name))}</p>'
+                                f'<p class="lib-meta">{html.escape(" · ".join(bit for bit in meta_bits if bit))}</p>',
+                                unsafe_allow_html=True,
+                            )
+                        with col_role:
+                            can_change_role = (
+                                user.get("role") != "admin"
+                                or user.get("id") != st.session_state.current_user.get("id")
+                            )
+                            if can_change_role:
+                                new_role = "admin" if user.get("role") == "user" else "user"
+                                role_label_btn = "Make admin" if new_role == "admin" else "Make user"
+                                if st.button(role_label_btn, key=f"role_{idx}", use_container_width=True):
+                                    try:
+                                        headers = get_auth_headers()
+                                        resp = requests.put(
+                                            f"{API_URL}/auth/users/{user.get('id')}/role",
+                                            json={"user_id": user.get("id"), "role": new_role},
+                                            headers=headers,
+                                            timeout=5,
+                                        )
+                                        if resp.status_code == 200:
+                                            st.toast("Role updated")
+                                            st.rerun()
+                                        else:
+                                            st.error(resp.json().get("detail", "Could not change that role."))
+                                    except Exception as e:
+                                        st.error(str(e))
+                        with col_active:
+                            if user.get("active", True):
+                                if st.button("Deactivate", key=f"deactivate_{idx}", use_container_width=True):
+                                    try:
+                                        headers = get_auth_headers()
+                                        resp = requests.post(
+                                            f"{API_URL}/auth/users/{user.get('id')}/deactivate",
+                                            headers=headers,
+                                            timeout=5,
+                                        )
+                                        if resp.status_code == 200:
+                                            st.toast("Account deactivated")
+                                            st.rerun()
+                                        else:
+                                            st.error(resp.json().get("detail", "Could not deactivate that account."))
+                                    except Exception as e:
+                                        st.error(str(e))
+                            elif st.button("Activate", key=f"activate_{idx}", use_container_width=True):
+                                try:
+                                    headers = get_auth_headers()
+                                    resp = requests.post(
+                                        f"{API_URL}/auth/users/{user.get('id')}/activate",
+                                        headers=headers,
+                                        timeout=5,
+                                    )
+                                    if resp.status_code == 200:
+                                        st.toast("Account activated")
+                                        st.rerun()
+                                    else:
+                                        st.error(resp.json().get("detail", "Could not activate that account."))
+                                except Exception as e:
+                                    st.error(str(e))
+                        with col_unlock:
+                            if user.get("locked") and st.button("Unlock", key=f"unlock_{idx}", use_container_width=True):
+                                try:
+                                    headers = get_auth_headers()
+                                    resp = requests.post(
+                                        f"{API_URL}/auth/users/{user.get('id')}/unlock",
+                                        headers=headers,
+                                        timeout=5,
+                                    )
+                                    if resp.status_code == 200:
+                                        st.toast("Account unlocked")
+                                        st.rerun()
+                                    else:
+                                        st.error(resp.json().get("detail", "Could not unlock that account."))
+                                except Exception as e:
+                                    st.error(str(e))
             else:
-                st.error(f"❌ Failed to load users: {users_resp.status_code}")
+                st.error("Could not load accounts.")
         except requests.exceptions.ConnectionError:
-            st.error("❌ Cannot connect to API. Make sure the API server is running.")
+            st.error("Cannot reach the API.")
         except Exception as e:
-            st.error(f"❌ Error loading users: {str(e)}")
-        
-        # Close button
-        if st.button("❌ Close User Management", use_container_width=True):
-            st.session_state.show_user_management = False
-            st.rerun()
-        
-        st.markdown("---")
+            st.error(f"Could not load accounts: {e}")
     else:
-        st.error("❌ Access denied. Admin privileges required.")
-        if st.button("❌ Close", use_container_width=True):
-            st.session_state.show_user_management = False
-            st.rerun()
+        render_section_header("Users", "Accounts", "Only an admin can open this page.")
 
 # Change Password Section
 if st.session_state.get("show_change_password", False):
@@ -4490,6 +4907,10 @@ if st.session_state.get("show_sessions", False):
 if st.session_state.get("show_export_backup", False):
     if st.session_state.current_user and st.session_state.current_user.get("role") == "admin":
         st.markdown("---")
+        render_page_links(
+            [("Users", "user_management"), ("Backup", "export_backup"), ("Metrics", "health")],
+            "from_backup",
+        )
         st.markdown("### 💾 Export & Backup Dashboard")
         
         headers = get_auth_headers()
@@ -5104,36 +5525,37 @@ with col_chat:
             unsafe_allow_html=True,
         )
 
-        st.markdown('<div class="kh-actions-marker"></div>', unsafe_allow_html=True)
-        action_l, action_r = st.columns(2)
-        with action_l:
-            if st.button("Upload documents", key="kh_upload_btn", use_container_width=True, type="primary"):
-                navigate_to_page("upload")
-                st.query_params["view"] = "upload"
-                st.rerun()
-        with action_r:
-            if st.button("Browse library", key="kh_browse_btn", use_container_width=True):
-                navigate_to_page("documents")
-                st.query_params["view"] = "documents"
-                st.rerun()
-
+        pending = kb_stats.get("pending_count", 0)
         if doc_count == 0:
-            pending = kb_stats.get("pending_count", 0)
             if pending:
                 empty_title = "Documents are still processing"
                 empty_body = f"{pending} file(s) are indexing. This usually takes a few seconds — then you can ask questions."
+                st.markdown(
+                    f"""
+                    <div class="kh-empty">
+                        <h3>{html.escape(empty_title)}</h3>
+                        <p>{html.escape(empty_body)}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button("Refresh status", key="kh_refresh_pending", use_container_width=True):
+                    st.rerun()
             else:
-                empty_title = "Your knowledge base is empty"
-                empty_body = "Upload a PDF, Word doc, text file, or spreadsheet to start asking questions with sources."
-            st.markdown(
-                f"""
-                <div class="kh-empty">
-                    <h3>{html.escape(empty_title)}</h3>
-                    <p>{html.escape(empty_body)}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                st.markdown(
+                    """
+                    <div class="kh-empty">
+                        <h3>Get started in 3 steps</h3>
+                        <p>Upload → wait for Ready → ask your first question. No dead ends.</p>
+                    </div>
+                    <div class="kh-steps">
+                        <div class="kh-step"><div class="kh-step-num">1</div><div><strong>Upload a document</strong><span>PDF, Word, text, CSV, or HTML</span></div></div>
+                        <div class="kh-step"><div class="kh-step-num">2</div><div><strong>Wait for Ready</strong><span>Indexing usually finishes in a few seconds</span></div></div>
+                        <div class="kh-step"><div class="kh-step-num">3</div><div><strong>Ask a question</strong><span>Answers cite the exact section they came from</span></div></div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 # Handle example query (from history / saved queries) - only overwrite if we have one
 if "example_query" in st.session_state:
     query = st.session_state.example_query
@@ -5154,125 +5576,100 @@ def build_assistant_message_key(msg_time: str, message: str) -> str:
     return hashlib.sha1(basis.encode("utf-8", errors="ignore")).hexdigest()[:12]
 
 
-def render_assistant_message_block(message_idx: int, message: str, msg_time: str, sources: list, user_query: str, message_key: str):
-    """Render a clean assistant answer with collapsed sources."""
+def _answer_meta_flags(meta: dict, sources: list, message: str = "") -> dict:
+    """Derive confidence / not-in-docs signals for an assistant message."""
+    meta = meta if isinstance(meta, dict) else {}
+    confidence = meta.get("confidence") if isinstance(meta.get("confidence"), dict) else {}
+    verification = meta.get("verification") if isinstance(meta.get("verification"), dict) else {}
+    factors = confidence.get("factors") if isinstance(confidence.get("factors"), dict) else {}
+    level = (confidence.get("level") or "").lower()
+    score = confidence.get("confidence")
+    try:
+        score_f = float(score) if score is not None else None
+    except (TypeError, ValueError):
+        score_f = None
+    source_list = sources if isinstance(sources, list) else []
+    ver_status = (verification.get("status") or "").lower()
+    text = (message or "").lower()
+    not_in_docs = (
+        bool(factors.get("not_in_documents"))
+        or ver_status == "unsupported"
+        or "couldn't find that in your documents" in text
+        or "could not find that in your documents" in text
+    )
+    return {
+        "level": level or "unknown",
+        "score": score_f,
+        "not_in_docs": not_in_docs,
+        "verification": verification,
+        "source_names": [
+            (s.get("source") if isinstance(s, dict) else str(s))
+            for s in source_list
+            if (s.get("source") if isinstance(s, dict) else s)
+        ],
+    }
+
+
+def render_assistant_message_block(
+    message_idx: int,
+    message: str,
+    msg_time: str,
+    sources: list,
+    user_query: str,
+    message_key: str,
+    meta: dict = None,
+):
+    """Render one answer card: the answer, one confidence line, and collapsed sources."""
     _display_msg = str(message).strip()
     safe_message = html.escape(_display_msg).replace("\n", "<br/>")
     if _display_msg.strip().startswith("<"):
         safe_message = "An error occurred while displaying the response. Please try again."
 
+    source_list = sources if isinstance(sources, list) else []
+    flags = _answer_meta_flags(meta or {}, source_list, _display_msg)
+
+    if flags["not_in_docs"]:
+        confidence_html = '<div class="answer-confidence very_low">Not in your documents</div>'
+    elif flags["level"] and flags["level"] != "unknown":
+        level_label = flags["level"].replace("_", " ").title()
+        confidence_html = (
+            f'<div class="answer-confidence {html.escape(flags["level"])}">'
+            f'Confidence: {html.escape(level_label)}</div>'
+        )
+    else:
+        confidence_html = ""
+
+    sources_html = ""
+    if source_list:
+        chips = []
+        for source in source_list:
+            name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
+            rel = source.get("relevance", 0) if isinstance(source, dict) else 0
+            try:
+                rel = float(rel or 0)
+            except (TypeError, ValueError):
+                rel = 0
+            rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
+            chips.append(
+                f'<span class="source-chip">{html.escape(str(name))} <em>{rel_label}</em></span>'
+            )
+        count = len(source_list)
+        label = f"{count} source" + ("s" if count != 1 else "")
+        sources_html = (
+            f'<details class="answer-sources"><summary>{label}</summary>'
+            f'<div class="sources-block">{"".join(chips)}</div></details>'
+        )
+
+    meta_html = ""
+    if confidence_html or sources_html:
+        meta_html = f'<div class="answer-meta">{confidence_html}{sources_html}</div>'
+
     st.markdown(
-        f'<div class="msg msg-assistant" id="answer_{message_idx}"><div class="msg-body">{safe_message}</div></div>',
+        f'<article class="msg msg-assistant answer-card" id="answer_{message_idx}">'
+        f'<div class="msg-body">{safe_message}</div>'
+        f'{meta_html}</article>',
         unsafe_allow_html=True,
     )
-
-    source_list = sources if isinstance(sources, list) else []
-    feedback_key = f"feedback_submitted_{message_idx}"
-
-    # Actions sit under the answer (before sources) so labels stay readable
-    st.markdown('<div class="msg-actions-row">', unsafe_allow_html=True)
-    act1, act2, act3, _ = st.columns([2.2, 2.6, 2.6, 8], gap="small")
-    with act1:
-        escaped_message = (
-            str(message)
-            .replace("\\", "\\\\")
-            .replace("`", "\\`")
-            .replace("$", "\\$")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-        )
-        if st.button("Copy", key=f"copy_answer_{message_idx}", help="Copy answer", use_container_width=True):
-            st.markdown(
-                f"""
-                <script>
-                (function() {{
-                    const text = `{escaped_message}`;
-                    if (navigator.clipboard && navigator.clipboard.writeText) {{
-                        navigator.clipboard.writeText(text);
-                    }}
-                }})();
-                </script>
-                """,
-                unsafe_allow_html=True,
-            )
-            st.toast("Copied")
-    with act2:
-        if not st.session_state.get(feedback_key, False):
-            if st.button("Helpful", key=f"thumbs_up_{message_idx}", help="Good answer", use_container_width=True):
-                try:
-                    feedback_resp = requests.post(
-                        f"{API_URL}/feedback",
-                        json={
-                            "query": user_query,
-                            "response": message,
-                            "rating": 1,
-                            "feedback_type": "thumbs",
-                            "sources_count": len(source_list),
-                        },
-                        timeout=5,
-                    )
-                    if feedback_resp.status_code == 200:
-                        st.session_state[feedback_key] = True
-                        st.rerun()
-                except Exception:
-                    st.error("Feedback failed")
-        else:
-            st.caption("Thanks")
-    with act3:
-        if not st.session_state.get(feedback_key, False):
-            if st.button("Improve", key=f"thumbs_down_{message_idx}", help="Poor answer", use_container_width=True):
-                st.session_state[f"show_feedback_form_{message_idx}"] = True
-                st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if st.session_state.get(f"show_feedback_form_{message_idx}", False):
-        with st.form(f"feedback_form_{message_idx}"):
-            rating = st.slider("Rating", 1, 5, 2, key=f"rating_{message_idx}")
-            comment = st.text_area("What should improve?", key=f"comment_{message_idx}")
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.form_submit_button("Submit"):
-                    try:
-                        feedback_resp = requests.post(
-                            f"{API_URL}/feedback",
-                            json={
-                                "query": user_query,
-                                "response": message,
-                                "rating": rating,
-                                "feedback_type": "detailed",
-                                "comment": comment,
-                                "sources_count": len(source_list),
-                            },
-                            timeout=5,
-                        )
-                        if feedback_resp.status_code == 200:
-                            st.session_state[feedback_key] = True
-                            st.session_state[f"show_feedback_form_{message_idx}"] = False
-                            st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
-            with c2:
-                if st.form_submit_button("Cancel"):
-                    st.session_state[f"show_feedback_form_{message_idx}"] = False
-                    st.rerun()
-
-    if source_list:
-        label = f"{len(source_list)} source{'s' if len(source_list) != 1 else ''}"
-        with st.expander(label, expanded=False):
-            chips = []
-            for source in source_list:
-                name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
-                rel = source.get("relevance", 0) if isinstance(source, dict) else 0
-                rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
-                chips.append(
-                    f'<span class="source-chip">{html.escape(str(name))} <em>{rel_label}</em></span>'
-                )
-            st.markdown(
-                '<div class="sources-block"><p class="sources-summary">Cited from</p>'
-                + "".join(chips)
-                + "</div>",
-                unsafe_allow_html=True,
-            )
 
 # Message loop and chat input - in center zone when using zone layout
 with col_chat:
@@ -5312,12 +5709,15 @@ with col_chat:
         items_to_show = hist
         st.markdown('<div class="thread">', unsafe_allow_html=True)
         for idx, item in enumerate(items_to_show):
-            # Handle both old format (3 items) and new format (4 items with sources)
-            if len(item) == 3:
-                role, message, msg_time = item
-                sources = []
-            else:
+            # Formats: (role, msg, time) | (+ sources) | (+ sources, meta)
+            meta = {}
+            if len(item) >= 5:
+                role, message, msg_time, sources, meta = item[:5]
+            elif len(item) == 4:
                 role, message, msg_time, sources = item
+            else:
+                role, message, msg_time = item[:3]
+                sources = []
 
             prev_user_query = ""
             if idx > 0 and len(items_to_show[idx - 1]) >= 2 and items_to_show[idx - 1][0] == "user":
@@ -5326,7 +5726,9 @@ with col_chat:
                 render_user_message_block(idx, message, msg_time)
                 continue
             msg_key = build_assistant_message_key(str(msg_time), str(message))
-            render_assistant_message_block(idx, message, msg_time, sources, prev_user_query, msg_key)
+            render_assistant_message_block(
+                idx, message, msg_time, sources, prev_user_query, msg_key, meta=meta
+            )
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Chat input - inside col_chat so it appears right below messages (responses above input)
@@ -5411,6 +5813,7 @@ if query:
                         answer_placeholder = st.empty()
                     answer_text = ""
                     sources = []
+                    answer_meta = {}
                     status_text = ""
                     received_any_chunk = False
                     received_done = False
@@ -5474,6 +5877,12 @@ if query:
                                                     full_response = data.get("full_response", answer_text)
                                                     if full_response and str(full_response).strip():
                                                         answer_text = str(full_response)
+                                                    if data.get("confidence"):
+                                                        answer_meta["confidence"] = data.get("confidence")
+                                                    if data.get("verification"):
+                                                        answer_meta["verification"] = data.get("verification")
+                                                    if "sources" in data:
+                                                        sources = data.get("sources") or []
                                                     _safe_final = html.escape(answer_text).replace("\n", "<br/>")
                                                     answer_placeholder.markdown(
                                                         f'<div class="msg msg-assistant"><div class="msg-body">'
@@ -5498,6 +5907,10 @@ if query:
                                             rd = fallback.json()
                                             answer_text = rd.get("response", "No answer received")
                                             sources = rd.get("sources", [])
+                                            answer_meta = {
+                                                "confidence": rd.get("confidence"),
+                                                "verification": rd.get("verification"),
+                                            }
                                     except Exception:
                                         pass
                             else:
@@ -5508,6 +5921,10 @@ if query:
                                         rd = fallback.json()
                                         answer_text = rd.get("response", "No answer received")
                                         sources = rd.get("sources", [])
+                                        answer_meta = {
+                                            "confidence": rd.get("confidence"),
+                                            "verification": rd.get("verification"),
+                                        }
                                     else:
                                         answer_text = f"⚠️ Error {fallback.status_code}: {fallback.text}"
                                 except Exception:
@@ -5522,6 +5939,10 @@ if query:
                                 rd = fallback.json()
                                 answer_text = rd.get("response", "No answer received")
                                 sources = rd.get("sources", [])
+                                answer_meta = {
+                                    "confidence": rd.get("confidence"),
+                                    "verification": rd.get("verification"),
+                                }
                             else:
                                 answer_text = f"⚠️ Stream dropped, and fallback failed ({fallback.status_code}). Please retry."
                         except Exception:
@@ -5549,7 +5970,9 @@ if query:
                         )
                     except Exception:
                         pass
-                    st.session_state.chat_history.append(("assistant", answer_text, answer_timestamp, sources))
+                    st.session_state.chat_history.append(
+                        ("assistant", answer_text, answer_timestamp, sources, answer_meta)
+                    )
                     logger.info(f"Streaming response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
                     # Mark as processed only when we actually got a non-echo answer.
                     normalized_answer = _normalize_for_compare(answer_text)
@@ -5578,6 +6001,7 @@ if query:
                     log_error_to_console(error_msg, "Exception", e)
             else:
                 # Regular (non-streaming) response - runs only when streaming is disabled
+                answer = ""
                 with st.spinner("🤔 Thinking..."):
                         try:
                             start_time = time.time()
@@ -5612,6 +6036,10 @@ if query:
                                 response_data = response.json()
                                 answer = response_data.get("response", "No answer received")
                                 sources = response_data.get("sources", [])
+                                answer_meta = {
+                                    "confidence": response_data.get("confidence"),
+                                    "verification": response_data.get("verification"),
+                                }
                                 answer_timestamp = datetime.now().strftime("%H:%M")
                                 
                                 # Validate response before storing
@@ -5622,23 +6050,25 @@ if query:
                                     logger.warning(f"Detected HTML in response: {answer[:100]}")
                                     answer = "⚠️ An error occurred while processing the response. Please try again."
                                 
-                                st.session_state.chat_history.append(("assistant", answer, answer_timestamp, sources))
+                                st.session_state.chat_history.append(
+                                    ("assistant", answer, answer_timestamp, sources, answer_meta)
+                                )
                                 logger.info(f"Response time: {elapsed_time:.2f}s, Sources: {len(sources)}")
                             else:
                                 error_msg = f"⚠️ Error {response.status_code}: {response.text}"
-                                st.session_state.chat_history.append(("assistant", error_msg, timestamp, []))
+                                st.session_state.chat_history.append(("assistant", error_msg, timestamp, [], {}))
                         except requests.exceptions.ConnectionError:
                             error_msg = "Cannot connect to API. Please ensure the server is running."
-                            st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                            st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, [], {}))
                             log_error_to_console(error_msg, "ConnectionError")
                         except requests.exceptions.Timeout:
                             error_msg = "Request timed out. The query may be taking longer than expected. Please try again or simplify your query."
-                            st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, []))
+                            st.session_state.chat_history.append(("assistant", f"⏱️ {error_msg}", timestamp, [], {}))
                             log_error_to_console(error_msg, "Timeout")
                             st.info("💡 **Tip:** Complex queries or large knowledge bases may take longer. Try breaking down your question into smaller parts.")
                         except Exception as e:
                             error_msg = f"Unexpected error: {str(e)}"
-                            st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, []))
+                            st.session_state.chat_history.append(("assistant", f"❌ {error_msg}", timestamp, [], {}))
                             log_error_to_console(error_msg, "Exception", e)
 
                         # Mark as processed only when we actually got a non-echo answer.

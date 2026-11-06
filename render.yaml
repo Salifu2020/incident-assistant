@@ -13,5 +13,7 @@ services:
         value: "3.11.0"
       - key: HOST
         value: "0.0.0.0"
+      - key: ENABLE_DEMO_LOGIN
+        value: "1"
       # Set these in the Render dashboard (do not commit real values):
       # GROQ_API_KEY, JWT_SECRET_KEY, LLM_PROVIDER, LLM_MODEL
