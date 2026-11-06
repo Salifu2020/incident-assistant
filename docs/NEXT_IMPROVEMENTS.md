@@ -10,11 +10,13 @@ Saved threads (backend 1) are done. Every streamed question sends the conversati
 
 Answer formatting (frontend 1) is done. The finished card renders paragraphs, bold, and lists. The confidence line stays under the divider, and sources stay collapsed.
 
-Each item is one change. Stream the live answer into that same card before anything else.
+Live answers (frontend 2) use that same card. Tokens stream into the card body. The confidence line and the source summary appear when the stream finishes.
+
+Each item is one change. Put “search these documents” back before anything else.
 
 ## Do these first
 
-1. **Let the live answer use the same card** (frontend). While tokens are streaming, the reply is a plain bubble. When the stream ends it jumps into the answer card.
+1. **Put “search these documents” back, quietly** (frontend). The ask payload still sends `selected_documents` if something set it, and there is no way to set it.
 
 ## Backend
 
@@ -64,13 +66,9 @@ Six wrong passwords set `failed_attempts` and `locked_until` on the JSON user. T
 
 The finished card renders paragraphs, bold, and lists. A resume summary shows job titles as list items, with the role names in bold. The confidence line stays under the divider, and the source list stays collapsed.
 
-### 2. Let the live answer use the same card
+### 2. Let the live answer use the same card — done
 
-While tokens are streaming, the reply is a plain bubble. When the stream ends it jumps into the answer card.
-
-Stream into the card body. Show the confidence line and the source summary only when the stream finishes.
-
-Done when the text never changes container at the end of an answer.
+Tokens stream into the answer card. The confidence line and the collapsed sources appear when the stream finishes. The reply stays in that card through the last token.
 
 ### 3. Put “search these documents” back, quietly
 

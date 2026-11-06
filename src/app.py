@@ -5690,6 +5690,68 @@ def format_answer_html(message: str) -> str:
     return "".join(parts)
 
 
+def build_answer_card_html(
+    message: str,
+    sources: list = None,
+    meta: dict = None,
+    *,
+    show_footer: bool = True,
+    streaming: bool = False,
+    message_idx: int = None,
+    body_html: str = None,
+) -> str:
+    """One answer card. The footer appears only after the answer is finished."""
+    body = body_html if body_html is not None else format_answer_html(message)
+    classes = "msg msg-assistant answer-card"
+    if streaming:
+        classes += " streaming"
+    id_attr = f' id="answer_{message_idx}"' if message_idx is not None else ""
+
+    meta_html = ""
+    if show_footer:
+        source_list = sources if isinstance(sources, list) else []
+        flags = _answer_meta_flags(meta or {}, source_list, message or "")
+        if flags["not_in_docs"]:
+            confidence_html = '<div class="answer-confidence very_low">Not in your documents</div>'
+        elif flags["level"] and flags["level"] != "unknown":
+            level_label = flags["level"].replace("_", " ").title()
+            confidence_html = (
+                f'<div class="answer-confidence {html.escape(flags["level"])}">'
+                f'Confidence: {html.escape(level_label)}</div>'
+            )
+        else:
+            confidence_html = ""
+
+        sources_html = ""
+        if source_list:
+            chips = []
+            for source in source_list:
+                name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
+                rel = source.get("relevance", 0) if isinstance(source, dict) else 0
+                try:
+                    rel = float(rel or 0)
+                except (TypeError, ValueError):
+                    rel = 0
+                rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
+                chips.append(
+                    f'<span class="source-chip">{html.escape(str(name))} <em>{rel_label}</em></span>'
+                )
+            count = len(source_list)
+            label = f"{count} source" + ("s" if count != 1 else "")
+            sources_html = (
+                f'<details class="answer-sources"><summary>{label}</summary>'
+                f'<div class="sources-block">{"".join(chips)}</div></details>'
+            )
+        if confidence_html or sources_html:
+            meta_html = f'<div class="answer-meta">{confidence_html}{sources_html}</div>'
+
+    return (
+        f'<article class="{classes}"{id_attr}>'
+        f'<div class="msg-body">{body}</div>'
+        f'{meta_html}</article>'
+    )
+
+
 def render_assistant_message_block(
     message_idx: int,
     message: str,
@@ -5699,53 +5761,15 @@ def render_assistant_message_block(
     message_key: str,
     meta: dict = None,
 ):
-    """Render one answer card: the answer, one confidence line, and collapsed sources."""
-    _display_msg = str(message).strip()
-    safe_message = format_answer_html(_display_msg)
-
-    source_list = sources if isinstance(sources, list) else []
-    flags = _answer_meta_flags(meta or {}, source_list, _display_msg)
-
-    if flags["not_in_docs"]:
-        confidence_html = '<div class="answer-confidence very_low">Not in your documents</div>'
-    elif flags["level"] and flags["level"] != "unknown":
-        level_label = flags["level"].replace("_", " ").title()
-        confidence_html = (
-            f'<div class="answer-confidence {html.escape(flags["level"])}">'
-            f'Confidence: {html.escape(level_label)}</div>'
-        )
-    else:
-        confidence_html = ""
-
-    sources_html = ""
-    if source_list:
-        chips = []
-        for source in source_list:
-            name = source.get("source", "Unknown") if isinstance(source, dict) else str(source)
-            rel = source.get("relevance", 0) if isinstance(source, dict) else 0
-            try:
-                rel = float(rel or 0)
-            except (TypeError, ValueError):
-                rel = 0
-            rel_label = "High" if rel >= 0.7 else ("Medium" if rel >= 0.4 else "Low")
-            chips.append(
-                f'<span class="source-chip">{html.escape(str(name))} <em>{rel_label}</em></span>'
-            )
-        count = len(source_list)
-        label = f"{count} source" + ("s" if count != 1 else "")
-        sources_html = (
-            f'<details class="answer-sources"><summary>{label}</summary>'
-            f'<div class="sources-block">{"".join(chips)}</div></details>'
-        )
-
-    meta_html = ""
-    if confidence_html or sources_html:
-        meta_html = f'<div class="answer-meta">{confidence_html}{sources_html}</div>'
-
+    """Render one finished answer card."""
     st.markdown(
-        f'<article class="msg msg-assistant answer-card" id="answer_{message_idx}">'
-        f'<div class="msg-body">{safe_message}</div>'
-        f'{meta_html}</article>',
+        build_answer_card_html(
+            str(message).strip(),
+            sources,
+            meta,
+            show_footer=True,
+            message_idx=message_idx,
+        ),
         unsafe_allow_html=True,
     )
 
@@ -5893,18 +5917,23 @@ if query:
                     answer_text = ""
                     sources = []
                     answer_meta = {}
-                    status_text = ""
                     received_any_chunk = False
                     received_done = False
-                    # Show typing indicator (animated dots) while waiting for first token
+                    # The card is the container from the first paint. Footer waits for the last token.
                     answer_placeholder.markdown(
-                        '<div class="msg msg-assistant streaming"><div class="msg-body">'
-                        '<div class="typing-dots" style="display:inline-flex;gap:4px;">'
-                        '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
-                        '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
-                        '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
-                        '</div></div></div>',
-                        unsafe_allow_html=True
+                        build_answer_card_html(
+                            "",
+                            show_footer=False,
+                            streaming=True,
+                            body_html=(
+                                '<div class="typing-dots" style="display:inline-flex;gap:4px;">'
+                                '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
+                                '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
+                                '<span style="width:6px;height:6px;border-radius:50%;background:#2dd4bf;"></span>'
+                                '</div>'
+                            ),
+                        ),
+                        unsafe_allow_html=True,
                     )
                     # Stream the response (use appropriate endpoint)
                     # Use a longer read timeout for streaming; connect timeout stays short
@@ -5926,18 +5955,24 @@ if query:
                                                 event_type = data.get("type")
                                             
                                                 if event_type == "status":
-                                                    # Render lightweight progress updates while backend is working
-                                                    stage = data.get("stage", "")
-                                                    elapsed = data.get("elapsed")
-                                                    if elapsed is not None:
-                                                        status_text = f"_{stage.replace('_', ' ').title()}... ({elapsed:.1f}s)_"
-                                                    else:
-                                                        status_text = f"_{stage.replace('_', ' ').title()}..._"
-                                                    answer_placeholder.markdown(
-                                                        f'<div class="msg msg-assistant streaming"><div class="msg-body">'
-                                                        f'{status_text}</div></div>',
-                                                        unsafe_allow_html=True,
-                                                    )
+                                                    # Keep the answer on screen once tokens have started.
+                                                    if not received_any_chunk:
+                                                        stage = (data.get("stage") or "working").replace("_", " ").strip()
+                                                        if stage:
+                                                            stage = stage[:1].upper() + stage[1:]
+                                                        elapsed = data.get("elapsed")
+                                                        status_line = html.escape(stage) + "…"
+                                                        if elapsed is not None:
+                                                            status_line += f" {float(elapsed):.0f}s"
+                                                        answer_placeholder.markdown(
+                                                            build_answer_card_html(
+                                                                "",
+                                                                show_footer=False,
+                                                                streaming=True,
+                                                                body_html=f"<p>{status_line}</p>",
+                                                            ),
+                                                            unsafe_allow_html=True,
+                                                        )
                                                 elif event_type == "sources":
                                                     sources = data.get("sources", [])
                                                 elif event_type == "chunk":
@@ -5945,10 +5980,12 @@ if query:
                                                     if chunk:
                                                         received_any_chunk = True
                                                     answer_text += chunk
-                                                    safe_text = html.escape(answer_text).replace("\n", "<br/>")
                                                     answer_placeholder.markdown(
-                                                        f'<div class="msg msg-assistant streaming"><div class="msg-body">'
-                                                        f'{safe_text}</div></div>',
+                                                        build_answer_card_html(
+                                                            answer_text,
+                                                            show_footer=False,
+                                                            streaming=True,
+                                                        ),
                                                         unsafe_allow_html=True,
                                                     )
                                                 elif event_type == "done":
@@ -5962,10 +5999,14 @@ if query:
                                                         answer_meta["verification"] = data.get("verification")
                                                     if "sources" in data:
                                                         sources = data.get("sources") or []
-                                                    _safe_final = html.escape(answer_text).replace("\n", "<br/>")
                                                     answer_placeholder.markdown(
-                                                        f'<div class="msg msg-assistant"><div class="msg-body">'
-                                                        f'{_safe_final}</div></div>',
+                                                        build_answer_card_html(
+                                                            answer_text,
+                                                            sources,
+                                                            answer_meta,
+                                                            show_footer=True,
+                                                            streaming=False,
+                                                        ),
                                                         unsafe_allow_html=True,
                                                     )
                                                 elif event_type == "error":
@@ -6042,9 +6083,14 @@ if query:
                         answer_text = "⚠️ An error occurred while processing the response. Please try again."
                 
                     try:
-                        _safe_final = html.escape(answer_text).replace("\n", "<br/>")
                         answer_placeholder.markdown(
-                            f'<div class="msg msg-assistant"><div class="msg-body">{_safe_final}</div></div>',
+                            build_answer_card_html(
+                                answer_text,
+                                sources,
+                                answer_meta,
+                                show_footer=True,
+                                streaming=False,
+                            ),
                             unsafe_allow_html=True,
                         )
                     except Exception:
