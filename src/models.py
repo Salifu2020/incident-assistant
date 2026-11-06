@@ -247,6 +247,8 @@ class ConversationMessage(BaseModel):
     content: str
     sources: List[SourceCitation] = []
     timestamp: str
+    confidence: Optional[Dict] = None
+    verification: Optional[Dict] = None
 
 class Conversation(BaseModel):
     id: str

@@ -1957,6 +1957,36 @@ def add_conversation_message(conversation_id: str, role: str, content: str, sour
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _as_json_dict(value):
+    """Turn a score object into a plain dict for the conversation file."""
+    if not value:
+        return None
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "dict"):
+        return value.dict()
+    return None
+
+
+def _save_conversation_turn(conversation_id, query, answer, sources, confidence=None, verification=None):
+    """Persist the question and answer so the next turn can see them."""
+    if not conversation_id:
+        return
+    try:
+        ConversationManager.add_exchange(
+            conversation_id,
+            query,
+            answer,
+            sources or [],
+            confidence=_as_json_dict(confidence),
+            verification=_as_json_dict(verification),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save to conversation: {e}")
+
+
 @app.post("/ask")
 async def ask_question(payload: QuestionRequest):
     """Async endpoint for faster response handling with source citations."""
@@ -2041,22 +2071,14 @@ async def ask_question(payload: QuestionRequest):
         except Exception as e:
             logger.warning(f"Failed to record analytics: {e}")
         
-        # Save to conversation if conversation_id is provided
-        if payload.conversation_id:
-            try:
-                ConversationManager.add_message(
-                    payload.conversation_id,
-                    "user",
-                    payload.query
-                )
-                ConversationManager.add_message(
-                    payload.conversation_id,
-                    "assistant",
-                    answer,
-                    sources
-                )
-            except Exception as e:
-                logger.warning(f"Failed to save to conversation: {e}")
+        _save_conversation_turn(
+            payload.conversation_id,
+            payload.query,
+            answer,
+            sources,
+            confidence_info,
+            verification_info,
+        )
         
         # Save to search history
         try:
@@ -2197,7 +2219,8 @@ async def ask_question_stream(payload: QuestionRequest):
                     yield _sse({"type": "status", "stage": "retrieving_context", "elapsed": round(_elapsed(), 1)})
             
             from .querying import best_source_relevance, retrieval_is_useful, not_in_documents_payload, answer_is_refusal
-            if not retrieval_is_useful(context, sources):
+            # A follow-up still goes to the model so it can use the previous answer.
+            if not retrieval_is_useful(context, sources) and not is_followup:
                 refusal, confidence_info, verification_info = not_in_documents_payload(
                     best_source_relevance(sources)
                 )
@@ -2212,20 +2235,28 @@ async def ask_question_stream(payload: QuestionRequest):
                         "verification": verification_info,
                     }
                 )
+                _save_conversation_turn(
+                    payload.conversation_id,
+                    payload.query,
+                    refusal,
+                    [],
+                    confidence_info,
+                    verification_info,
+                )
                 return
             
             # Send sources first
             yield _sse({"type": "sources", "sources": sources})
             
-            # Add conversation context to assistant if provided
+            # Replace the shared in-memory history with this thread only.
+            assistant.reset_history()
             if conversation_context:
-                # Limit to last 6 messages to avoid token bloat
                 recent_context = conversation_context[-6:] if len(conversation_context) > 6 else conversation_context
                 for msg in recent_context:
-                    if msg.get("role") in ["user", "assistant"]:
+                    if msg.get("role") in ("user", "assistant"):
                         assistant.chat_history.append({
                             "role": msg.get("role"),
-                            "content": msg.get("content", "")
+                            "content": msg.get("content", ""),
                         })
             
             # Stream the response with follow-up awareness.
@@ -2368,22 +2399,14 @@ async def ask_question_stream(payload: QuestionRequest):
             except Exception as e:
                 logger.warning(f"Failed to record analytics: {e}")
             
-            # Save to conversation if conversation_id is provided
-            if payload.conversation_id:
-                try:
-                    ConversationManager.add_message(
-                        payload.conversation_id,
-                        "user",
-                        payload.query
-                    )
-                    ConversationManager.add_message(
-                        payload.conversation_id,
-                        "assistant",
-                        response_text.strip(),
-                        sources
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to save to conversation: {e}")
+            _save_conversation_turn(
+                payload.conversation_id,
+                payload.query,
+                final_response,
+                sources,
+                confidence_info,
+                verification_info,
+            )
             
             # Save to search history
             try:

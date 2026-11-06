@@ -29,8 +29,22 @@ def _safe_print(*args, **kwargs):
 
 print = _safe_print
 
-# Chroma relevance is cosine similarity (1 - distance). Below this, the hit is not an answer.
+# Below this cosine similarity, the hit is not an answer.
+# This collection stores squared L2 distance. For unit vectors, cosine = 1 - distance/2.
 MIN_USEFUL_RELEVANCE = 0.40
+
+
+def distance_to_relevance(distance) -> float:
+    """Turn a Chroma squared-L2 distance into cosine similarity in [0, 1]."""
+    try:
+        relevance = 1.0 - (float(distance) / 2.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if relevance < 0.0:
+        return 0.0
+    if relevance > 1.0:
+        return 1.0
+    return relevance
 NOT_IN_DOCS_REPLY = (
     "I couldn't find that in your documents. "
     "Try rephrasing the question, or upload a file that covers this topic."
@@ -809,17 +823,13 @@ class KnowledgeAssistant:
 
             # Drop weak hits before re-ranking. Re-ranking rescales scores so the
             # top hit looks perfect even when the question is not in the documents.
-            max_distance = 1.0 - MIN_USEFUL_RELEVANCE
             paired = []
             for i, doc in enumerate(docs):
-                distance = distances[i] if distances and i < len(distances) else 1.0
+                distance = distances[i] if distances and i < len(distances) else 2.0
                 meta = metadatas[i] if metadatas and i < len(metadatas) else {}
-                try:
-                    distance_f = float(distance)
-                except (TypeError, ValueError):
-                    continue
-                if distance_f <= max_distance and (doc or "").strip():
-                    paired.append((doc, distance_f, meta or {}))
+                relevance = distance_to_relevance(distance)
+                if relevance >= MIN_USEFUL_RELEVANCE and (doc or "").strip():
+                    paired.append((doc, float(distance), meta or {}))
             if not paired:
                 return "", []
             docs = [item[0] for item in paired]
@@ -853,7 +863,7 @@ class KnowledgeAssistant:
                                 source_info = metadatas[i] if metadatas and i < len(metadatas) else {}
                                 filtered_sources.append({
                                     "source": source_info.get("source", "Unknown"),
-                                    "relevance": round(1 - distance, 3),  # Convert distance to relevance score
+                                    "relevance": round(distance_to_relevance(distance), 3),
                                     "distance": round(distance, 3)
                                 })
                             break
@@ -863,7 +873,7 @@ class KnowledgeAssistant:
                         source_info = metadatas[i] if metadatas and i < len(metadatas) else {}
                         filtered_sources.append({
                             "source": source_info.get("source", "Unknown"),
-                            "relevance": round(1 - distance, 3),  # Convert distance to relevance score
+                            "relevance": round(distance_to_relevance(distance), 3),
                             "distance": round(distance, 3)
                         })
             
@@ -1208,8 +1218,7 @@ class KnowledgeAssistant:
                 coverage = keyword_matches / max(1, len(keywords)) if keywords else 0.5
                 
                 # Heuristic 3: Original distance (from retrieval) - lower is better
-                # Convert to relevance score (1 - distance)
-                original_relevance = 1.0 - min(1.0, distance)
+                original_relevance = distance_to_relevance(distance)
                 
                 # Heuristic 4: Query-document overlap (simple word overlap)
                 query_words = set(re.findall(r'\b\w+\b', query_lower))
@@ -2641,16 +2650,15 @@ class KnowledgeAssistant:
                 # Enhance query with conversation context
                 enhanced_query = f"{query}\n\n[Previous conversation context: {previous_context_summary}]"
         
-        # Add conversation context to chat history if provided
+        # This thread only. Do not keep another chat's turns on the shared assistant.
+        self.reset_history()
         if conversation_context:
-            # Add conversation messages to history (excluding system message)
-            # Limit to last 6 messages (3 exchanges) to avoid token bloat
             recent_context = conversation_context[-6:] if len(conversation_context) > 6 else conversation_context
             for msg in recent_context:
-                if msg.get("role") in ["user", "assistant"]:
+                if msg.get("role") in ("user", "assistant"):
                     self.chat_history.append({
                         "role": msg.get("role"),
-                        "content": msg.get("content", "")
+                        "content": msg.get("content", ""),
                     })
         
         # Retrieve context with sources and filters (use enhanced query for better retrieval)
@@ -2662,7 +2670,8 @@ class KnowledgeAssistant:
         )
 
         best_relevance = best_source_relevance(sources)
-        if not retrieval_is_useful(context, sources):
+        # A follow-up still goes to the model. The prior turns are already on the prompt.
+        if not retrieval_is_useful(context, sources) and not is_followup:
             reply, confidence_info, verification_info = not_in_documents_payload(best_relevance)
             return reply, [], intent_info, confidence_info, verification_info
         

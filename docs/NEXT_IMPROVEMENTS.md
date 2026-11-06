@@ -6,22 +6,19 @@ Sign-in lockout (backend 6) is done. Six wrong passwords lock the next try for 1
 
 History, Saved questions, and Users (frontend 6) are done. They use the same centered title, type, and plain buttons as Library and Upload. The old metric tiles, emoji headings, and close buttons are gone. Users stays admin-only.
 
-Each item is one change. The first pair is the one to do before anything else.
+Saved threads (backend 1) are done. Every streamed question sends the conversation id. The question and the answer are stored with sources and the confidence line, and the first question becomes the title in Recent. A follow-up is answered from the previous turns. New chat starts blank, and the row is created with the first question.
+
+Each item is one change. Render the answer is the one to do before anything else.
 
 ## Do these first
 
-1. **Save the chat, then use it for follow-ups** (backend). Streaming creates a conversation and then never sends its id, so Recent fills with empty “Conversation 85” shells and a second question cannot see the first.
-2. **Render the answer as writing, not raw markdown** (frontend). Lists and bold currently show up as `*` and `**` inside the card.
+1. **Render the answer as writing, not raw markdown** (frontend). Lists and bold currently show up as `*` and `**` inside the card.
 
 ## Backend
 
-### 1. Save the thread and answer follow-ups
+### 1. Save the thread and answer follow-ups — done
 
-The stream path does not send `conversation_id`, and the save step only runs when that id is present. The UI also skips prior turns on purpose (“reliability mode”).
-
-Send the current conversation id with every streamed question. Save the user turn and the assistant turn, including sources and the confidence line. On the next question, pass the last few turns into retrieval and the prompt so “what about the second job?” stays on the same document.
-
-Done when a new chat shows a real title in Recent, reopening it restores the messages, and a follow-up uses the previous answer instead of starting from scratch.
+Every streamed question includes the conversation id. The user turn and the assistant turn are saved, including sources and the confidence line. The first question replaces a “Conversation N” title. The next question receives the last few turns in retrieval and in the prompt, so a follow-up such as “what about the second job?” stays on the same document. Reopening the chat restores the messages, the confidence line, and the sources.
 
 ### 2. Keep each account’s documents separate
 
@@ -95,7 +92,7 @@ Done when opening “3 sources” shows the sentence the answer used, not only t
 
 ### 5. Hide empty chats in Recent
 
-New chat creates a conversation row before any message is saved. The dropdown is a list of empty shells.
+Older empty “Conversation N” rows are still in the dropdown. New chat starts blank, and a row is saved with the first question.
 
 List only conversations that have at least one message. Keep New chat as the way to start a blank one.
 

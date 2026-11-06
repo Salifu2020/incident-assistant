@@ -224,7 +224,14 @@ class ConversationManager:
         return ConversationManager.get_all_conversations()
     
     @staticmethod
-    def add_message(conversation_id: str, role: str, content: str, sources: List[Dict] = None):
+    def add_message(
+        conversation_id: str,
+        role: str,
+        content: str,
+        sources: List[Dict] = None,
+        confidence: Optional[Dict] = None,
+        verification: Optional[Dict] = None,
+    ):
         """Add a message to a conversation."""
         conversations = load_json_file(CONVERSATIONS_FILE, [])
         
@@ -234,20 +241,49 @@ class ConversationManager:
                     "role": role,
                     "content": content,
                     "sources": sources or [],
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
                 }
+                if confidence:
+                    message["confidence"] = confidence
+                if verification:
+                    message["verification"] = verification
                 conv["messages"].append(message)
                 conv["message_count"] = len(conv["messages"])
                 conv["updated_at"] = datetime.now().isoformat()
                 
-                # Auto-generate title from first user message if not set
-                if conv["message_count"] == 1 and role == "user":
-                    conv["title"] = content[:50] + ("..." if len(content) > 50 else "")
+                # Name the thread from the first question. Default titles look like "Conversation 12".
+                title = (conv.get("title") or "").strip()
+                if role == "user" and (not title or title.startswith("Conversation ")):
+                    user_turns = [m for m in conv["messages"] if m.get("role") == "user"]
+                    if len(user_turns) == 1:
+                        conv["title"] = content[:50] + ("..." if len(content) > 50 else "")
                 
                 save_json_file(CONVERSATIONS_FILE, conversations)
                 return message
         
         return None
+
+    @staticmethod
+    def add_exchange(
+        conversation_id: str,
+        user_text: str,
+        assistant_text: str,
+        sources: List[Dict] = None,
+        confidence: Optional[Dict] = None,
+        verification: Optional[Dict] = None,
+    ):
+        """Save one question and its answer, including sources and confidence."""
+        if not conversation_id or not (user_text or "").strip():
+            return None
+        ConversationManager.add_message(conversation_id, "user", user_text.strip())
+        return ConversationManager.add_message(
+            conversation_id,
+            "assistant",
+            (assistant_text or "").strip(),
+            sources or [],
+            confidence=confidence,
+            verification=verification,
+        )
     
     @staticmethod
     def get_conversation_context(conversation_id: str, max_messages: int = 5) -> List[Dict]:

@@ -2795,21 +2795,32 @@ if not st.session_state.authenticated:
 # Auth-only styles are scoped via body:has(.auth-hero); no class toggle needed.
 apply_view_from_query_params()
 
+def _messages_to_chat_history(messages) -> list:
+    """Turn stored turns into chat tuples, keeping sources and the confidence line."""
+    loaded_history = []
+    for msg in messages or []:
+        role = msg.get("role", "assistant")
+        content = msg.get("content", "")
+        timestamp = msg.get("timestamp", "")[:5] if msg.get("timestamp") else ""
+        sources = msg.get("sources", []) or []
+        if not content or content.strip().startswith("<div") or content.strip().startswith("<span"):
+            continue
+        meta = {}
+        if role == "assistant" and (msg.get("confidence") or msg.get("verification")):
+            meta = {
+                "confidence": msg.get("confidence"),
+                "verification": msg.get("verification"),
+            }
+        loaded_history.append((role, content, timestamp, sources, meta))
+    return loaded_history
+
+
 def _sidebar_load_conversation(conversation_id: str) -> bool:
     """Load a conversation into the current chat session."""
     try:
         conv_detail = requests.get(f"{API_URL}/conversations/{conversation_id}", timeout=5).json()
-        messages = conv_detail.get("messages", [])
-        loaded_history = []
-        for msg in messages:
-            role = msg.get("role", "assistant")
-            content = msg.get("content", "")
-            timestamp = msg.get("timestamp", "")[:5] if msg.get("timestamp") else ""
-            sources = msg.get("sources", [])
-            if content and not (content.strip().startswith("<div") or content.strip().startswith("<span")):
-                loaded_history.append((role, content, timestamp, sources))
         st.session_state.current_conversation_id = conversation_id
-        st.session_state.chat_history = loaded_history
+        st.session_state.chat_history = _messages_to_chat_history(conv_detail.get("messages", []))
         st.session_state.pop("_last_processed_query", None)
         return True
     except Exception as e:
@@ -2822,12 +2833,7 @@ with st.sidebar:
     st.markdown('<div class="sb-cta-marker"></div>', unsafe_allow_html=True)
     if st.button("New chat", key="side_start_new_chat", use_container_width=True, type="primary"):
         st.session_state.pop("_last_processed_query", None)
-        try:
-            resp = requests.post(f"{API_URL}/conversations", json={}, timeout=5)
-            if resp.status_code == 200:
-                st.session_state.current_conversation_id = resp.json().get("id")
-        except Exception:
-            pass
+        st.session_state.current_conversation_id = None
         st.session_state.chat_history = []
         st.session_state.side_recent_pick = ""
         navigate_to_page("chat")
@@ -3914,27 +3920,14 @@ if st.session_state.get("show_conversations", False):
                         with col2:
                             if st.button("📂 Open", key=f"open_conv_{idx}", use_container_width=True):
                                 st.session_state.current_conversation_id = conv.get("id")
-                                # Load conversation messages
                                 try:
                                     conv_detail = requests.get(
                                         f"{API_URL}/conversations/{conv.get('id')}",
                                         timeout=5
                                     ).json()
-                                    messages = conv_detail.get("messages", [])
-                                    loaded_history = []
-                                    for msg in messages:
-                                        role = msg.get("role", "assistant")
-                                        content = msg.get("content", "")
-                                        timestamp = msg.get("timestamp", "")[:5] if msg.get("timestamp") else ""
-                                        sources = msg.get("sources", [])
-                                        
-                                        # Validate content - skip corrupted messages
-                                        if content and not (content.strip().startswith("<div") or content.strip().startswith("<span")):
-                                            loaded_history.append((role, content, timestamp, sources))
-                                        elif content:
-                                            logger.warning(f"Skipped corrupted message with HTML content: {content[:50]}")
-                                    
-                                    st.session_state.chat_history = loaded_history
+                                    st.session_state.chat_history = _messages_to_chat_history(
+                                        conv_detail.get("messages", [])
+                                    )
                                 except Exception as e:
                                     logger.error(f"Error loading conversation: {e}")
                                     st.session_state.chat_history = []
@@ -5798,7 +5791,8 @@ if query:
                     payload = {"query": query}
                     if st.session_state.selected_documents:
                         payload["document_filters"] = st.session_state.selected_documents
-                    # Intentionally do not send conversation_id in reliability mode.
+                    if st.session_state.current_conversation_id:
+                        payload["conversation_id"] = st.session_state.current_conversation_id
                     # Add language preference (default to "en" to avoid wrong auto-detection)
                     if st.session_state.get("user_language"):
                         payload["language"] = st.session_state.user_language
